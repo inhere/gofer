@@ -4223,8 +4223,28 @@ export interface PlanDriverReportRow {
   upgrade_suggested?: boolean
 }
 
+// 报告里的一条动作明细（internal/job/plandriver_iface.go 的 PlanDriverActionView）：引擎在
+// 那一刻算出「本来会做什么」。outcome 为空 = 还没观察满观察窗；would_pause 是这一次动作本会
+// 暂停 plan（record 等级下只记录）；params 是任意 JSON（各规则自带的参数，展开时才解析）。
+export interface PlanDriverAction {
+  id: number
+  todo_id?: string
+  job_id?: string
+  event_kind: string
+  action: string
+  rule: string
+  risk: string
+  would_pause?: boolean
+  outcome?: string
+  matched_at?: number
+  // Unix 秒
+  created_at: number
+  params?: unknown
+}
+
 // GET /v1/plans/{id}/driver/report（internal/job/plandriver_iface.go）：记录的动作与实际
 // 发生的处理对比。window_hours 是一个动作被观察多久（超时无变化 = no_followup）。
+// recent 是逐条明细，最新在前，最多 PlanDriverReportRecent(100) 条。
 export interface PlanDriverReport {
   plan_id: string
   enabled: boolean
@@ -4236,6 +4256,7 @@ export interface PlanDriverReport {
   window_hours: number
   by_action: PlanDriverReportRow[]
   by_rule: PlanDriverReportRow[]
+  recent: PlanDriverAction[]
 }
 
 // job 自报的终态原文（gofer_submit_result 落库的 result_report_json 解出来的形状）。

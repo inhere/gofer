@@ -668,6 +668,14 @@ const todoDrawerOpen = computed({
 function openTodo(todo: Todo): void {
   todoOpenId.value = todo.todo_id
 }
+// 推进记录页签的动作明细里只有 todo 标识：在本页这份 plan 里找得到就开同一条抽屉，
+// 找不到（条目已被删）什么都不做，不弹一个空抽屉。
+function openTodoById(todoId: string): void {
+  const todo = plan.value?.todos.find((x) => x.todo_id === todoId)
+  if (todo) {
+    openTodo(todo)
+  }
+}
 // 没人认领的条目在抽屉里先选 agent（与看板拖到 ready 同一套：agent 随 status=ready 一起发）。
 function onTodoDrawerDispatch(todo: Todo, agent: string): void {
   void dispatchTodo(todo, agent)
@@ -1496,6 +1504,7 @@ onUnmounted(() => {
           v-if="plan && active === 'driver'"
           :plan-id="plan.plan_id"
           :write-block="planWriteBlock()"
+          @open-todo="openTodoById"
         />
 
         <section v-if="plan && active === 'todos'" class="section">

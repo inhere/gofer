@@ -4,22 +4,27 @@
 //  - 开关走 PUT / DELETE /v1/plans/{id}/driver；等级固定 record（assist / auto 由服务端
 //    400 拒绝并在提示里说明「后续版本」），开时可填三项预算（0 = 不限）。
 //  - 数字来自 GET /v1/plans/{id}/driver/report：按动作 / 按规则的一致率、最近 N 次与
-//    「建议升级」标记。接口只给汇总，没有逐条动作明细，所以这里也只展示汇总。
+//    「建议升级」标记；recent 是逐条动作明细（最新在前，最多 100 条），每条可展开 params。
 //  - record 等级下引擎只算不做：这段界面不能、也不会改变 plan / todo / job 的状态。
 // 文案、预算换算、一致率与错误分类都在 utils/planDriver.ts（纯函数，有单测）。
 import { computed, onMounted, ref, watch } from 'vue'
+import { RouterLink } from 'vue-router'
 import { deletePlanDriver, getPlanDriver, getPlanDriverReport, putPlanDriver } from '../api/client'
 import { fmtDateTime } from '../api/time'
-import type { PlanDriverReport, PlanDriverStatus } from '../api/types'
+import type { PlanDriverAction, PlanDriverReport, PlanDriverStatus } from '../api/types'
 import { t } from '../i18n'
 import {
   DRIVER_LEVEL_RECORD, driverActionLabel, driverBudgetDraft, driverBudgetFromDraft, driverBudgetLine,
-  driverErrorText, driverLevelLabel, driverRateText, driverRecentText, driverRuleLabel, driverSpentLine,
-  driverState, driverUpgradeHint,
+  driverErrorText, driverLevelLabel, driverOutcomeLabel, driverParamsText, driverRateText, driverRecentText,
+  driverRiskLabel, driverRiskTone, driverRuleLabel, driverSpentLine, driverState, driverUpgradeHint,
+  driverWouldPauseText,
   type DriverBudgetDraft,
 } from '../utils/planDriver'
 
 const props = defineProps<{ planId: string; writeBlock?: string }>()
+
+// todo 标识点开后由详情页打开同一条待办抽屉（抽屉的数据是本页那一份 plan，不另取）。
+const emit = defineEmits<{ (e: 'open-todo', todoId: string): void }>()
 
 const status = ref<PlanDriverStatus | null>(null)
 const report = ref<PlanDriverReport | null>(null)
@@ -40,6 +45,25 @@ const pending = computed(() => report.value?.pending ?? 0)
 const windowHours = computed(() => report.value?.window_hours ?? 0)
 // 写按钮：没有 plan 写权限（别人的 plan 且没有 plan.manage.others）时禁用并给出原因。
 const canWrite = computed(() => !props.writeBlock)
+
+// 动作明细：recent 就是最近的记录（最新在前，服务端已截到 100 条），这里不再排序。
+const recentRows = computed<PlanDriverAction[]>(() => report.value?.recent ?? [])
+// 展开过的行（按记录 id）：默认全收起，避免一百条 params 一次铺满页面。
+const expanded = ref<Set<number>>(new Set())
+
+function toggleRow(id: number): void {
+  const next = new Set(expanded.value)
+  if (next.has(id)) {
+    next.delete(id)
+  } else {
+    next.add(id)
+  }
+  expanded.value = next
+}
+
+function openTodo(todoId: string): void {
+  emit('open-todo', todoId)
+}
 
 async function load(): Promise<void> {
   loadError.value = ''
@@ -247,6 +271,74 @@ watch(() => props.planId, load)
             </div>
           </div>
         </template>
+
+        <!-- 动作明细（计划 R12）：引擎记录的每一条「本来会做什么」，最新的在上（服务端已截到
+             100 条）。点一行展开 params；todo 点开详情页的待办抽屉，job 链到 /jobs/{id}。 -->
+        <h3 class="pd-sub mono">{{ t('plans.driver.recentTitle') }}</h3>
+        <p v-if="recentRows.length === 0" class="mono pd-note pd-note--dim" data-test="plan-driver-recent-empty">
+          {{ t('plans.driver.recentEmptyHint') }}
+        </p>
+        <template v-else>
+          <p class="mono pd-note pd-note--dim" data-test="plan-driver-recent-hint">
+            {{ t('plans.driver.recentHint', { n: recentRows.length }) }}
+          </p>
+          <div class="pd-table pd-table--recent" data-test="plan-driver-recent">
+            <div class="pd-head mono">
+              <span>{{ t('plans.driver.colTime') }}</span>
+              <span>{{ t('plans.driver.colTodo') }}</span>
+              <span>{{ t('plans.driver.colJob') }}</span>
+              <span>{{ t('plans.driver.colAction') }}</span>
+              <span>{{ t('plans.driver.colRule') }}</span>
+              <span>{{ t('plans.driver.colRisk') }}</span>
+              <span>{{ t('plans.driver.colWouldPause') }}</span>
+              <span>{{ t('plans.driver.colOutcome') }}</span>
+            </div>
+            <template v-for="row in recentRows" :key="row.id">
+              <div
+                class="pd-trow pd-trow--recent mono"
+                :class="{ 'pd-trow--open': expanded.has(row.id) }"
+                data-test="plan-driver-recent-row"
+                @click="toggleRow(row.id)"
+              >
+                <span class="pd-time">{{ fmtDateTime(row.created_at) }}</span>
+                <span>
+                  <button
+                    v-if="row.todo_id"
+                    class="pd-link mono"
+                    type="button"
+                    data-test="plan-driver-recent-todo"
+                    @click.stop="openTodo(row.todo_id)"
+                  >{{ row.todo_id }}</button>
+                  <span v-else class="pd-dim">—</span>
+                </span>
+                <span>
+                  <RouterLink
+                    v-if="row.job_id"
+                    class="pd-link mono"
+                    :to="`/jobs/${encodeURIComponent(row.job_id)}`"
+                    data-test="plan-driver-recent-job"
+                    @click.stop
+                  >{{ row.job_id }}</RouterLink>
+                  <span v-else class="pd-dim">—</span>
+                </span>
+                <span class="pd-act">{{ driverActionLabel(row.action) }}</span>
+                <span class="pd-rule" :title="row.rule">{{ driverRuleLabel(row.rule) }}</span>
+                <span>
+                  <span
+                    class="pd-risk"
+                    :class="`pd-risk--${driverRiskTone(row.risk)}`"
+                    data-test="plan-driver-recent-risk"
+                  >{{ driverRiskLabel(row.risk) }}</span>
+                </span>
+                <span class="pd-pause" :class="{ 'pd-pause--on': row.would_pause }" data-test="plan-driver-recent-pause">
+                  {{ driverWouldPauseText(row.would_pause) }}
+                </span>
+                <span class="pd-outcome" data-test="plan-driver-recent-outcome">{{ driverOutcomeLabel(row.outcome) }}</span>
+              </div>
+              <pre v-if="expanded.has(row.id)" class="pd-params mono" data-test="plan-driver-recent-params">{{ driverParamsText(row.params) || '—' }}</pre>
+            </template>
+          </div>
+        </template>
       </template>
     </template>
     <p v-else class="mono pd-note">{{ t('plans.driver.loading') }}</p>
@@ -298,9 +390,44 @@ watch(() => props.planId, load)
 .pd-recent { color: var(--ink-2); }
 .pd-upgrade { grid-column: 1 / -1; justify-self: start; font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--accent); color: var(--accent); }
 .pd-hint { grid-column: 1 / -1; font-size: 11px; color: var(--ink-3); }
+/* 动作明细：时间 / todo / job / 动作 / 规则 / 风险 / 本会暂停 / 结果，一共八列。 */
+.pd-table--recent .pd-head, .pd-table--recent .pd-trow {
+  grid-template-columns:
+    minmax(96px, 0.9fr) minmax(0, 0.8fr) minmax(0, 0.9fr) minmax(96px, 1.1fr)
+    minmax(100px, 1.2fr) minmax(52px, 0.5fr) minmax(58px, 0.55fr) minmax(64px, 0.7fr);
+}
+/* 整行可点：展开 / 收起这一条的 params。 */
+.pd-trow--recent { cursor: pointer; }
+.pd-trow--recent:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.pd-trow--open { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.pd-time { color: var(--ink-2); }
+.pd-dim { color: var(--ink-3); }
+.pd-link { background: none; border: none; padding: 0; font: inherit; text-align: left; color: var(--accent); cursor: pointer; overflow-wrap: anywhere; }
+.pd-link:hover { text-decoration: underline; }
+/* 风险徽标：低 = 正常、中 = 需要看一眼、红线 = 不做（与后端风险表同口径）。 */
+.pd-risk { font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink-2); }
+.pd-risk--low { color: var(--done); border-color: var(--done); }
+.pd-risk--medium { color: var(--need); border-color: var(--need); }
+.pd-risk--redline { color: var(--fail); border-color: var(--fail); background: var(--fail-soft); }
+.pd-pause { color: var(--ink-3); }
+.pd-pause--on { color: var(--need); }
+.pd-outcome { color: var(--ink-2); }
+/* 展开的 params：等宽体、自动换行，长 JSON 不把表格撑宽。 */
+.pd-params {
+  margin: 0;
+  padding: 8px 10px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--sunken);
+  color: var(--ink-2);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 @media (max-width: 760px) {
   .pd-head { display: none; }
   .pd-trow { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 4px; }
   .pd-table--rule .pd-trow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pd-table--recent .pd-trow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 </style>

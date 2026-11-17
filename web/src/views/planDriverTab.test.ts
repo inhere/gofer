@@ -5,7 +5,7 @@
 //  - 状态判定、预算换算、一致率与错误分类在 utils/planDriver.ts，由纯函数用例覆盖；
 //  - 组件与详情页的接线（按钮、表单、表格、两个接口）用 ?raw 读源码断言。
 import { describe, expect, it } from 'vitest'
-import type { PlanDriverReportRow, PlanDriverStatus } from '../api/types'
+import type { PlanDriverAction, PlanDriverReportRow, PlanDriverStatus } from '../api/types'
 import {
   DRIVER_LEVEL_RECORD,
   driverActionLabel,
@@ -13,12 +13,17 @@ import {
   driverBudgetFromDraft,
   driverBudgetLine,
   driverErrorText,
+  driverOutcomeLabel,
+  driverParamsText,
   driverRateText,
   driverRecentText,
+  driverRiskLabel,
+  driverRiskTone,
   driverRuleLabel,
   driverSpentLine,
   driverState,
   driverUpgradeHint,
+  driverWouldPauseText,
   parseDriverLimit,
 } from '../utils/planDriver'
 
@@ -52,6 +57,20 @@ const row = (patch: Partial<PlanDriverReportRow> = {}): PlanDriverReportRow => (
   no_followup: 1,
   pending: 0,
   rate: 4 / 6,
+  ...patch,
+})
+
+// 一条动作明细（GET .../driver/report 的 recent 元素）。最老的形态：有 todo 与 job、风险低、
+// 还没观察出结果（outcome 缺省）。
+const action = (patch: Partial<PlanDriverAction> = {}): PlanDriverAction => ({
+  id: 7,
+  todo_id: 't-2',
+  job_id: 'job-9',
+  event_kind: 'job_done',
+  action: 'complete_todo',
+  rule: 'job_done_complete',
+  risk: 'low',
+  created_at: 1_700_000_000,
   ...patch,
 })
 
@@ -206,5 +225,96 @@ describe('driver tab wiring', () => {
     expect(client).toContain('export function deletePlanDriver(')
     expect(client).toContain('export function getPlanDriverReport(')
     expect(client).toContain('/driver/report`')
+  })
+})
+
+describe('driver action log', () => {
+  it('labels the three risk levels and fails towards the red line', () => {
+    expect(driverRiskLabel('low')).toBe('低')
+    expect(driverRiskLabel('medium')).toBe('中')
+    expect(driverRiskLabel('redline')).toBe('红线')
+    // 后端风险表里没有的动作就是红线：界面不把没见过的档位说成低风险。
+    expect(driverRiskLabel('some_future_risk')).toBe('some_future_risk')
+    expect(driverRiskLabel(undefined)).toBe('—')
+    expect(driverRiskTone('low')).toBe('low')
+    expect(driverRiskTone('medium')).toBe('medium')
+    expect(driverRiskTone('redline')).toBe('redline')
+    expect(driverRiskTone('some_future_risk')).toBe('redline')
+    expect(driverRiskTone(undefined)).toBe('redline')
+  })
+
+  it('reads a missing outcome as pending, not as a difference', () => {
+    expect(driverOutcomeLabel(undefined)).toBe('待观察')
+    expect(driverOutcomeLabel('')).toBe('待观察')
+    expect(driverOutcomeLabel('match')).toBe('一致')
+    expect(driverOutcomeLabel('mismatch')).toBe('不一致')
+    expect(driverOutcomeLabel('no_followup')).toBe('无后续')
+    expect(driverOutcomeLabel('some_future_outcome')).toBe('some_future_outcome')
+  })
+
+  it('says whether the action would have paused the plan', () => {
+    expect(driverWouldPauseText(true)).toBe('是')
+    // record 等级下「不会暂停」也要明确写出来，不留一个空格。
+    expect(driverWouldPauseText(false)).toBe('否')
+    expect(driverWouldPauseText(undefined)).toBe('否')
+  })
+
+  it('formats the params as indented JSON and copes with nothing to show', () => {
+    expect(driverParamsText(undefined)).toBe('')
+    expect(driverParamsText(null)).toBe('')
+    expect(driverParamsText({ job_id: 'job-9', notes: 2 })).toBe('{\n  "job_id": "job-9",\n  "notes": 2\n}')
+    expect(driverParamsText('已派出')).toBe('已派出')
+    // stringify 不了的输入（循环引用）退回 String，不让一条明细炸掉整页。
+    const cyclic: Record<string, unknown> = {}
+    cyclic.self = cyclic
+    expect(driverParamsText(cyclic)).toBe('[object Object]')
+  })
+
+  it('reads one recorded action cell by cell', () => {
+    const a = action({ risk: 'medium', would_pause: true, outcome: 'mismatch', params: { blocked_todo: 't-3' } })
+    expect([driverRiskLabel(a.risk), driverWouldPauseText(a.would_pause), driverOutcomeLabel(a.outcome)]).toEqual(['中', '是', '不一致'])
+    expect(driverParamsText(a.params)).toBe('{\n  "blocked_todo": "t-3"\n}')
+    // 缺省的 outcome / params 是常态（刚记录下来的动作），不能显示成 error 或 undefined。
+    const fresh = action()
+    expect(driverOutcomeLabel(fresh.outcome)).toBe('待观察')
+    expect(driverParamsText(fresh.params) || '—').toBe('—')
+  })
+
+  it('draws a row per record with the risk badge and the pause / outcome cells', () => {
+    expect(tab).toContain('data-test="plan-driver-recent"')
+    expect(tab).toContain('data-test="plan-driver-recent-row"')
+    expect(tab).toContain('v-for="row in recentRows"')
+    expect(tab).toContain('data-test="plan-driver-recent-risk"')
+    expect(tab).toContain(':class="`pd-risk--${driverRiskTone(row.risk)}`"')
+    expect(tab).toContain('driverRiskLabel(row.risk)')
+    expect(tab).toContain('data-test="plan-driver-recent-pause"')
+    expect(tab).toContain('driverWouldPauseText(row.would_pause)')
+    expect(tab).toContain('data-test="plan-driver-recent-outcome"')
+    expect(tab).toContain('driverOutcomeLabel(row.outcome)')
+    expect(tab).toContain('driverActionLabel(row.action)')
+    expect(tab).toContain('driverRuleLabel(row.rule)')
+  })
+
+  it('links the row to its todo and its job', () => {
+    expect(tab).toContain('data-test="plan-driver-recent-todo"')
+    expect(tab).toContain('@click.stop="openTodo(row.todo_id)"')
+    expect(tab).toContain("emit('open-todo', todoId)")
+    expect(tab).toContain('data-test="plan-driver-recent-job"')
+    expect(tab).toContain(':to="`/jobs/${encodeURIComponent(row.job_id)}`"')
+    expect(detail).toContain('@open-todo="openTodoById"')
+    // 条目已被删时不开一个空抽屉（抽屉的数据是本页那一份 plan）。
+    expect(detail).toContain('function openTodoById(todoId: string): void')
+    expect(detail).toContain('plan.value?.todos.find((x) => x.todo_id === todoId)')
+  })
+
+  it('expands one row to its params and says so when there is nothing yet', () => {
+    expect(tab).toContain('data-test="plan-driver-recent-params"')
+    expect(tab).toContain('v-if="expanded.has(row.id)"')
+    expect(tab).toContain('driverParamsText(row.params)')
+    expect(tab).toContain('toggleRow(row.id)')
+    expect(tab).toContain('data-test="plan-driver-recent-empty"')
+    expect(tab).toContain("t('plans.driver.recentEmptyHint')")
+    expect(tab).toContain("t('plans.driver.recentHint', { n: recentRows.length })")
+    expect(tab).toContain("t('plans.driver.recentTitle')")
   })
 })

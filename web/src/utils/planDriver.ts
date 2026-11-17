@@ -43,6 +43,49 @@ export function driverRuleLabel(rule: string | undefined): string {
   return te(key) ? t(key) : rule
 }
 
+// 风险三档（与 internal/job/driver/types.go 的 RiskLow / RiskMedium / RiskRedline 一致）。
+export const DRIVER_RISK_LOW = 'low'
+export const DRIVER_RISK_MEDIUM = 'medium'
+export const DRIVER_RISK_REDLINE = 'redline'
+
+// driverRiskLabel 给风险一个界面名；未知风险原样显示（不把没见过的档位说成低风险）。
+export function driverRiskLabel(risk: string | undefined): string {
+  const key = `plans.driver.risk.${risk ?? ''}`
+  return risk && te(key) ? t(key) : (risk || '—')
+}
+
+// driverRiskTone 是徽标的配色档：只有低 / 中 / 红线三种；未知风险按红线涂（与后端
+// 「风险表里没有的动作就是红线」同一口径，失败朝安全的方向显示）。
+export function driverRiskTone(risk: string | undefined): string {
+  if (risk === DRIVER_RISK_LOW) return DRIVER_RISK_LOW
+  if (risk === DRIVER_RISK_MEDIUM) return DRIVER_RISK_MEDIUM
+  return DRIVER_RISK_REDLINE
+}
+
+// driverOutcomeLabel 读一条动作的结果：空 = 还没观察满观察窗（待观察），不是「不一致」。
+export function driverOutcomeLabel(outcome: string | undefined): string {
+  const key = `plans.driver.outcome.${outcome || 'pending'}`
+  return te(key) ? t(key) : (outcome || '—')
+}
+
+// driverWouldPauseText 是「本会暂停」一列；record 等级下只记录，false 也要明确写出来，
+// 免得一个空格被看成本会暂停。
+export function driverWouldPauseText(wouldPause: boolean | undefined): string {
+  return wouldPause ? t('plans.driver.pauseYes') : t('plans.driver.pauseNo')
+}
+
+// driverParamsText 把一条动作的 params 展开成可读 JSON（缩进两格）；没有参数返回空串，
+// 由调用方显示占位符。字符串原样给出，其余交给 JSON.stringify（失败退回 String）。
+export function driverParamsText(params: unknown): string {
+  if (params === undefined || params === null) return ''
+  if (typeof params === 'string') return params
+  try {
+    return JSON.stringify(params, null, 2)
+  } catch {
+    return String(params)
+  }
+}
+
 // driverLimit 是一个预算项的可读值：0（及负数，理论上不该有）= 不限，用 ∞ 表示。
 export function driverLimit(n: number): string {
   return n > 0 ? String(n) : '∞'
