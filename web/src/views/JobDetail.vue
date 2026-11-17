@@ -19,6 +19,7 @@ import Signal from '../components/Signal.vue'
 import UncommittedBadge from '../components/UncommittedBadge.vue'
 import LogTape from '../components/LogTape.vue'
 import Tabs from '../ui/Tabs.vue'
+import Composer from '../ui/Composer.vue'
 import BackLink from '../ui/BackLink.vue'
 import { queryWithTab, type TabItem } from '../ui/tabs'
 import { JOB_TAB, jobTabForStatus } from '../utils/jobsLayout'
@@ -81,6 +82,8 @@ import { agentBudgetExhausted, agentBudgetLine, budgetLine, shortSha, usageLine,
 import { createPoller } from '../utils/poller'
 import { attachQuery, resumeChoices, resumePromptNeed, type ResumeChoice, type ResumeMode } from '../utils/resumeChoice'
 import { fromSessionChoice, fromSessionQuery, type FromSessionSource } from '../utils/fromSession'
+import { continueThread } from '../utils/sessionContinue'
+import { acpThreadLink } from '../utils/acpThreads'
 import { sessionRunnerBlock } from '../utils/runnerChoice'
 import { isTerminalStatus, mergeAvailability } from '../utils/compare'
 import { decisionText } from '../utils/approval'
@@ -683,6 +686,29 @@ const offMetaInvalidated = onMetaInvalidated(() => {
   if (agentsMetaLoaded) loadAgentsMeta()
 })
 const resumeIsAcp = computed(() => !!job.value && agentTypes.value[job.value.agent] === 'acp-agent')
+// 「接着聊」（R14）：已结束的 ACP 会话一键续接（与工作台 / 历史页同一个 helper：新开持续
+// 会话、session/load 后停在等待输入）。
+const continuing = ref(false)
+const canContinue = computed(
+  () => !!job.value && resumeIsAcp.value && isTerminalView.value && !!job.value.session_id && canResume.value,
+)
+async function continueEndedJob(): Promise<void> {
+  if (continuing.value || !job.value) return
+  continuing.value = true
+  resumeError.value = ''
+  try {
+    const next = await continueThread({ latest_job_id: job.value.id })
+    if (next.session_id) {
+      void router.push(acpThreadLink(`s:${next.session_id}`))
+    } else {
+      void router.push(`/jobs/${encodeURIComponent(next.id)}`)
+    }
+  } catch (e) {
+    resumeError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    continuing.value = false
+  }
+}
 // 续接方式（按原样 / 持续交互 ACP / PTY 终端 / 批处理续投）：能力来自 /v1/agents，
 // 不可用的方式灰显并写原因；选中的方式决定 mode 与（同族）目标 agent。
 const resumeMode = ref<ResumeMode>('')
@@ -2198,6 +2224,15 @@ onUnmounted(() => {
           {{ showResumeForm ? t('jobs.detail.expand') : t('jobs.detail.resumeSession') }}
         </button>
         <button
+          v-if="isTerminalView && canContinue"
+          class="resume-btn mono"
+          type="button"
+          data-test="job-continue"
+          :disabled="continuing"
+          :title="t('jobs.detail.continueTitle')"
+          @click="continueEndedJob"
+        >{{ continuing ? t('jobs.detail.continuing') : t('jobs.detail.continue') }}</button>
+        <button
           v-if="isTerminalView && fromSessionPick.visible && canResume"
           class="resume-btn mono"
           type="button"
@@ -2211,10 +2246,23 @@ onUnmounted(() => {
         <span v-if="isTerminalView && fromSessionPick.visible && fromSessionPick.note" class="meta-v resume-mode-note" data-test="from-session-note">{{ fromSessionPick.note }}</span>
       </div>
       <div v-if="job.session_id && !isTerminalView && canResume" class="resume-form follow-up-form">
-        <textarea v-model="followUpPrompt" class="resume-input mono" rows="2" :placeholder="t('jobs.detail.followUpPh')"></textarea>
+        <!-- ACP 会话用与工作台一致的输入框（ui/Composer）；非 ACP 的 job 保持原表单。 -->
+        <Composer
+          v-if="resumeIsAcp"
+          v-model="followUpPrompt"
+          :placeholder="t('jobs.detail.followUpPh')"
+          :sending="followUpBusy"
+          :can-send="!!followUpPrompt.trim()"
+          :modes="['send']"
+          :send-label="followUpBusy ? t('jobs.detail.followUpSubmitting') : t('jobs.detail.followUpSubmit')"
+          submit-on-enter
+          data-test="job-followup-composer"
+          @send="submitFollowUp"
+        />
+        <textarea v-else v-model="followUpPrompt" class="resume-input mono" rows="2" :placeholder="t('jobs.detail.followUpPh')"></textarea>
         <label class="mono"><input v-model="followUpReviewEach" type="checkbox" /> {{ t('jobs.detail.followUpEach') }}</label>
         <div class="resume-actions">
-          <button class="resume-go mono" type="button" :disabled="followUpBusy || !followUpPrompt.trim()" @click="submitFollowUp">{{ followUpBusy ? t('jobs.detail.followUpSubmitting') : t('jobs.detail.followUpSubmit') }}</button>
+          <button v-if="!resumeIsAcp" class="resume-go mono" type="button" :disabled="followUpBusy || !followUpPrompt.trim()" @click="submitFollowUp">{{ followUpBusy ? t('jobs.detail.followUpSubmitting') : t('jobs.detail.followUpSubmit') }}</button>
           <span v-if="followUpError" class="resume-err mono">{{ followUpError }}</span>
         </div>
         <ul v-if="followUps.length" class="chain-list"><li v-for="item in followUps" :key="item.id" class="mono">[{{ item.status }}] {{ item.prompt }}</li></ul>

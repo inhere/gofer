@@ -10,6 +10,7 @@ import type { Interaction, Job, SSEEvent, SSEInteractionData, SSELogData, Workbe
 import { supervisionText } from '../../utils/supervision'
 import { patchWorkbenchThread, turnWorkbenchThread } from '../../api/workbench'
 import { attachmentCapability } from '../../utils/attachments'
+import { canContinueThread, continueThread } from '../../utils/sessionContinue'
 import { formatNumber, formatRelative } from '../../utils/format'
 import { t } from '../../i18n'
 import AttachTerminal from '../AttachTerminal.vue'
@@ -110,6 +111,23 @@ const finished = computed(() => ['done', 'failed', 'cancelled', 'timeout', 'reje
 const canStop = computed(() => canCancelJob(rawStatus.value))
 const canTurn = computed(() => thread.value?.kind === 'agent' && thread.value.resumable &&
   (finished.value || (!!latestJob.value?.session && rawStatus.value === 'awaiting_input')) && !sending.value)
+// 「接着聊」（R14）：已结束的 ACP 会话一键续接（新开持续会话、session/load 后停在等待输入）。
+const canContinueEnded = computed(() => !!thread.value && canContinueThread(thread.value))
+const continuing = ref(false)
+const continueError = ref('')
+async function continueEnded(): Promise<void> {
+  if (!thread.value || continuing.value) return
+  continuing.value = true
+  continueError.value = ''
+  try {
+    const job = await continueThread(thread.value)
+    context.continued(job.id)
+  } catch (e) {
+    continueError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    continuing.value = false
+  }
+}
 // 附图（gofer-ha0x）：能力位由 thread 带（inline / file 能用，none / 缺失置灰）；
 // 上传中或还有失败项时不让发送，免得发出缺图的消息。
 const attachCapability = computed(() => attachmentCapability(thread.value))
@@ -460,6 +478,15 @@ onUnmounted(() => {
       <button class="btn sm desk-only" type="button" :disabled="!latestJobID" @click="openDetails">
         {{ t('workbench.head.detail') }}
       </button>
+      <button
+        v-if="canContinueEnded"
+        class="btn sm continue-btn"
+        type="button"
+        :disabled="continuing"
+        :title="continueError || t('workbench.head.continueTitle')"
+        data-test="thread-continue"
+        @click="continueEnded"
+      >{{ continuing ? t('workbench.head.continuing') : t('workbench.head.continue') }}</button>
       <button
         class="btn sm pin-btn"
         :class="{ on: !!thread.pinned }"

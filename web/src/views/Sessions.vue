@@ -545,6 +545,7 @@ onUnmounted(() => {
       :sid="openSid"
       @close="closeDrawer"
       @changed="loadHistory()"
+      @deleted="loadHistory()"
     />
   </div>
 </template>
