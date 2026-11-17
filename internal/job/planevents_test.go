@@ -2,6 +2,7 @@ package job
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -206,3 +207,113 @@ func TestPlanSweeperStopsOnShutdown(t *testing.T) {
 		t.Fatal("StartPlanSweeper must refuse after Shutdown")
 	}
 }
+
+// TestPlanSweepDispatchesSupervisorBoundPlan: a plan bound to a supervisor session only
+// dispatches for its owner, so the scan must act with the plan's owner — without any event
+// row, the next item is still started.
+func TestPlanSweepDispatchesSupervisorBoundPlan(t *testing.T) {
+	t.Parallel()
+	s := newChainService(t, t.TempDir())
+	if err := s.Meta().InsertPlan(jobstore.Plan{
+		PlanID: "plan-ev-bound", Title: "bound", Status: jobstore.PlanOpen, ProjectKey: "self",
+		Owner: "alice", SupervisorSessionID: "sess-1", CreatedAt: 1, UpdatedAt: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for i, td := range []jobstore.PlanTodo{
+		chainTodo("todo-b1", "first", "ok"),
+		chainTodo("todo-b2", "second", "ok", "todo-b1"),
+	} {
+		td.PlanID, td.Sort = "plan-ev-bound", (i+1)*10
+		if err := s.Meta().InsertTodo(td); err != nil {
+			t.Fatal(err)
+		}
+	}
+	markTodoDone(t, s, "todo-b1")
+	if err := s.SweepPlans(); err != nil {
+		t.Fatalf("SweepPlans: %v", err)
+	}
+	waitTodoStatus(t, s, "todo-b2", jobstore.TodoDone, 30*time.Second)
+}
+
+// TestPlanSweepDispatchesStrandedReadyOnce: an item left `ready` with no job (the process
+// died between queueing and dispatching) is dispatched by a fresh Service's scan, once —
+// a second pass does not run it again.
+func TestPlanSweepDispatchesStrandedReadyOnce(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	old := newChainService(t, root)
+	seedChain(t, old, "plan-ev-ready",
+		chainTodo("todo-y1", "first", "ok"),
+		chainTodo("todo-y2", "second", "ok", "todo-y1"),
+	)
+	markTodoDone(t, old, "todo-y1")
+	if ok, err := old.Meta().SetTodoReadyIfPending("todo-y2"); err != nil || !ok {
+		t.Fatalf("queue todo-y2: ok=%v err=%v", ok, err)
+	}
+	fresh := newChainService(t, root)
+	for i := 0; i < 2; i++ {
+		if err := fresh.SweepPlans(); err != nil {
+			t.Fatalf("SweepPlans: %v", err)
+		}
+	}
+	waitTodoStatus(t, fresh, "todo-y2", jobstore.TodoDone, 30*time.Second)
+	if err := fresh.SweepPlans(); err != nil {
+		t.Fatal(err)
+	}
+	recs, err := fresh.Meta().ListJobsByTodo("todo-y2", 10)
+	if err != nil || len(recs) != 1 {
+		t.Fatalf("jobs of todo-y2 = %d (err %v), want exactly 1", len(recs), err)
+	}
+}
+
+// TestPlanSweepLeavesFailedDispatchAlone: a ready item whose last dispatch failed is a
+// human's business; the scan must not retry it.
+func TestPlanSweepLeavesFailedDispatchAlone(t *testing.T) {
+	t.Parallel()
+	s := newChainService(t, t.TempDir())
+	seedChain(t, s, "plan-ev-derr", chainTodo("todo-e1", "only", "ok"))
+	if ok, err := s.Meta().UpdateTodoStatus("todo-e1", jobstore.TodoReady, nil); err != nil || !ok {
+		t.Fatal(err)
+	}
+	if _, err := s.Meta().SetTodoDispatchError("todo-e1", "no such agent"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SweepPlans(); err != nil {
+		t.Fatal(err)
+	}
+	if got := todoStatus(t, s, "todo-e1"); got != jobstore.TodoReady {
+		t.Fatalf("todo-e1 = %q, the scan must leave a failed dispatch alone", got)
+	}
+}
+
+// TestPlanEventDroppedAfterMaxAttempts: a persisted event that keeps failing is retried
+// until the cap, then deleted with an audit row naming the plan.
+func TestPlanEventDroppedAfterMaxAttempts(t *testing.T) {
+	t.Parallel()
+	s := newChainService(t, t.TempDir())
+	id, err := s.Meta().InsertPlanEvent(jobstore.PlanEventRow{PlanID: "plan-ev-bad", Kind: PlanEventAdvance})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := queuedPlanEvent{id: id, ev: PlanEvent{PlanID: "plan-ev-bad", Kind: PlanEventAdvance}}
+	for i := 1; i < planEventMaxAttempts; i++ {
+		s.planEventFailed(q, errTestAdvance)
+		rows := pendingPlanEvents(t, s)
+		if len(rows) != 1 || rows[0].Attempts != i {
+			t.Fatalf("after failure %d rows = %+v, want one row with attempts=%d", i, rows, i)
+		}
+	}
+	if a, _ := s.Meta().ListAuditEvents(PlanEventDroppedAudit, "plan-ev-bad"); len(a) != 0 {
+		t.Fatalf("audit written before the cap: %+v", a)
+	}
+	s.planEventFailed(q, errTestAdvance)
+	if rows := pendingPlanEvents(t, s); len(rows) != 0 {
+		t.Fatalf("row survived the cap: %+v", rows)
+	}
+	if a, err := s.Meta().ListAuditEvents(PlanEventDroppedAudit, "plan-ev-bad"); err != nil || len(a) != 1 {
+		t.Fatalf("audit rows = %+v, err = %v; want 1", a, err)
+	}
+}
+
+var errTestAdvance = errors.New("store unavailable")

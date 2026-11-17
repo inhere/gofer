@@ -20,6 +20,14 @@ func TestPlanEventsRoundTrip(t *testing.T) {
 	if rows[0].By != "alice" || rows[1].JobID != "j" || rows[0].CreatedAt == 0 {
 		t.Fatalf("fields lost: %+v", rows)
 	}
+	for want := 1; want <= 2; want++ {
+		if n, err := s.BumpPlanEventAttempts(a); err != nil || n != want {
+			t.Fatalf("BumpPlanEventAttempts = %d, %v; want %d", n, err, want)
+		}
+	}
+	if n, err := s.BumpPlanEventAttempts(9999); err != nil || n != 0 {
+		t.Fatalf("bump of a missing row = %d, %v; want 0, nil", n, err)
+	}
 	if err := s.DeletePlanEvent(a); err != nil {
 		t.Fatal(err)
 	}

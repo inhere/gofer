@@ -17,6 +17,7 @@ package job
 // processed exactly once, in order, by the one handler of that plan.
 
 import (
+	"encoding/json"
 	"log/slog"
 	"sync"
 	"time"
@@ -34,11 +35,19 @@ const (
 	PlanEventSweep = "sweep"
 )
 
+// PlanEventDroppedAudit is the audit_events kind written when a persisted plan event is
+// dropped after planEventMaxAttempts failed runs (target = plan id).
+const PlanEventDroppedAudit = "plan.event_dropped"
+
 // planSweepInterval is the cadence of the plan progress scan (plan R2).
 const planSweepInterval = 60 * time.Second
 
 // planEventReplayBatch bounds one replay pass over the leftover rows.
 const planEventReplayBatch = 200
+
+// planEventMaxAttempts is how many failed runs a persisted event gets before it is
+// dropped (with an audit row): a permanently failing advance must not retry forever.
+const planEventMaxAttempts = 5
 
 // PlanEvent is one trigger of plan progression. By is the authenticated caller the
 // advance acts for (see jobstore.PlanEventRow); it is not part of the event's identity.
@@ -153,13 +162,39 @@ func (s *Service) runPlanEvent(q queuedPlanEvent) {
 	delete(h.inflight, q.id)
 	h.mu.Unlock()
 	if err != nil {
-		slog.Warn("plan event: advance failed, kept for replay", "plan_id", q.ev.PlanID, "kind", q.ev.Kind, "err", err)
+		s.planEventFailed(q, err)
 		return
 	}
 	if q.id != 0 {
 		if derr := s.meta.DeletePlanEvent(q.id); derr != nil {
 			slog.Warn("plan event: delete", "id", q.id, "err", derr)
 		}
+	}
+}
+
+// planEventFailed counts a failed run of a persisted event; the row stays for replay until
+// it has failed planEventMaxAttempts times, then it is dropped and audited.
+func (s *Service) planEventFailed(q queuedPlanEvent, cause error) {
+	if q.id == 0 {
+		slog.Warn("plan event: advance failed", "plan_id", q.ev.PlanID, "kind", q.ev.Kind, "err", cause)
+		return
+	}
+	n, err := s.meta.BumpPlanEventAttempts(q.id)
+	if err != nil {
+		slog.Warn("plan event: count attempt", "id", q.id, "err", err)
+		return
+	}
+	if n < planEventMaxAttempts {
+		slog.Warn("plan event: advance failed, kept for replay", "plan_id", q.ev.PlanID, "kind", q.ev.Kind, "attempt", n, "err", cause)
+		return
+	}
+	slog.Warn("plan event: dropped after repeated failures", "plan_id", q.ev.PlanID, "kind", q.ev.Kind, "attempts", n, "err", cause)
+	detail, _ := json.Marshal(map[string]any{"kind": q.ev.Kind, "todo_id": q.ev.TodoID, "job_id": q.ev.JobID, "attempts": n, "error": firstRunes(cause.Error(), maxTodoNoteErrorRunes)})
+	if _, aerr := s.meta.AppendAuditEvent(PlanEventDroppedAudit, q.ev.PlanID, "", string(detail)); aerr != nil {
+		slog.Warn("plan event: audit drop", "id", q.id, "err", aerr)
+	}
+	if derr := s.meta.DeletePlanEvent(q.id); derr != nil {
+		slog.Warn("plan event: delete dropped row", "id", q.id, "err", derr)
 	}
 }
 
@@ -238,12 +273,23 @@ func (s *Service) SweepPlans() error {
 			if p.Paused {
 				continue
 			}
-			s.emitPlanEvent(PlanEvent{PlanID: p.PlanID, Kind: PlanEventSweep}, nil)
+			s.emitPlanEvent(PlanEvent{PlanID: p.PlanID, Kind: PlanEventSweep, By: planSweepIdentity(p)}, nil)
 		}
 		if len(plans) < jobstore.PlanListMaxLimit {
 			return nil
 		}
 	}
+}
+
+// planSweepIdentity is the caller identity a sweep acts for: the plan's owner, which is
+// what dispatch admission compares against for a supervisor-bound plan (plan.Owner is
+// stamped from the authenticated creator). A bound plan without an owner cannot be
+// dispatched by anyone but itself, so the sweep says so instead of failing silently.
+func planSweepIdentity(p jobstore.Plan) string {
+	if p.Owner == "" && p.SupervisorSessionID != "" {
+		slog.Warn("plan sweep: supervisor-bound plan has no owner; dispatch will be refused", "plan_id", p.PlanID)
+	}
+	return p.Owner
 }
 
 // StartPlanSweeper runs SweepPlans once now and then every interval (<=0 uses the 60s
@@ -272,4 +318,25 @@ func (s *Service) StartPlanSweeper(interval time.Duration) bool {
 			}
 		}
 	})
+}
+
+// dispatchStrandedReady is the sweep's second catch-up (plan R2): an item that was queued
+// (`ready`) but never got its job — the process died between the two writes — is
+// dispatched through the ordinary entry. Only an item the chain would have started itself
+// qualifies (assignee, auto), with no live job and no recorded dispatch failure (a failed
+// attempt is a human's business, and retrying it every pass would only repeat the event).
+// A job that ran and failed leaves its item `doing`, never `ready`, so a failed item is not
+// re-run here; MaybeDispatchTodo re-checks status and live jobs itself.
+func (s *Service) dispatchStrandedReady(p jobstore.Plan, todos []jobstore.PlanTodo, by string) {
+	for _, t := range todos {
+		if t.Status != jobstore.TodoReady || t.Assignee == "" || !t.Auto || t.DispatchError != "" {
+			continue
+		}
+		if _, busy := s.todoActiveJob(t.TodoID); busy {
+			continue
+		}
+		if _, err := s.MaybeDispatchTodo(t.TodoID, by); err != nil {
+			slog.Warn("plan sweep: dispatch ready todo", "plan_id", p.PlanID, "todo_id", t.TodoID, "err", err)
+		}
+	}
 }

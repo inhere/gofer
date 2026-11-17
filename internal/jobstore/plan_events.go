@@ -1,6 +1,8 @@
 package jobstore
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -13,7 +15,7 @@ var planEventSchema = []string{
 	`CREATE TABLE IF NOT EXISTS plan_events (
  id INTEGER PRIMARY KEY AUTOINCREMENT, plan_id TEXT NOT NULL, todo_id TEXT NOT NULL DEFAULT '',
  job_id TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL, caller_id TEXT NOT NULL DEFAULT '',
- created_at INTEGER NOT NULL)`,
+ created_at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0)`,
 }
 
 func init() { schemaStmts = append(schemaStmts, planEventSchema...) }
@@ -29,6 +31,8 @@ type PlanEventRow struct {
 	Kind      string
 	By        string
 	CreatedAt int64
+	// Attempts counts the failed runs of this row; the job layer drops the row at its cap.
+	Attempts int
 }
 
 // InsertPlanEvent stores a pending event and returns its id.
@@ -54,7 +58,7 @@ func (s *Store) ListPlanEvents(limit int) ([]PlanEventRow, error) {
 	if limit <= 0 {
 		limit = 100
 	}
-	rows, err := s.db.Query(`SELECT id, plan_id, todo_id, job_id, kind, caller_id, created_at FROM plan_events ORDER BY id LIMIT ?`, limit)
+	rows, err := s.db.Query(`SELECT id, plan_id, todo_id, job_id, kind, caller_id, created_at, attempts FROM plan_events ORDER BY id LIMIT ?`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("jobstore: list plan events: %w", err)
 	}
@@ -62,10 +66,24 @@ func (s *Store) ListPlanEvents(limit int) ([]PlanEventRow, error) {
 	var out []PlanEventRow
 	for rows.Next() {
 		var e PlanEventRow
-		if err := rows.Scan(&e.ID, &e.PlanID, &e.TodoID, &e.JobID, &e.Kind, &e.By, &e.CreatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.PlanID, &e.TodoID, &e.JobID, &e.Kind, &e.By, &e.CreatedAt, &e.Attempts); err != nil {
 			return nil, fmt.Errorf("jobstore: scan plan event: %w", err)
 		}
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// BumpPlanEventAttempts records one more failed run of the row and returns the new count;
+// a row that no longer exists reads as 0.
+func (s *Store) BumpPlanEventAttempts(id int64) (int, error) {
+	var n int
+	err := s.db.QueryRow(`UPDATE plan_events SET attempts = attempts + 1 WHERE id = ? RETURNING attempts`, id).Scan(&n)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("jobstore: bump plan event attempts: %w", err)
+	}
+	return n, nil
 }

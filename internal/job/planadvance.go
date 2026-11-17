@@ -218,6 +218,9 @@ func (s *Service) doAdvancePlan(planID, by string, quiet bool) error {
 			slog.Warn("advance plan: dispatch todo", "plan_id", planID, "todo_id", t.TodoID, "err", err)
 		}
 	}
+	if quiet {
+		s.dispatchStrandedReady(p, todos, by)
+	}
 	if len(todos) == 0 || !todosFinished(todos) || p.Status == jobstore.PlanDone {
 		return nil
 	}
