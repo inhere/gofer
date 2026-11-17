@@ -71,6 +71,7 @@ func flagGlobals() map[string]any {
 		"planCommentOpts":       &planCommentOpts,
 		"planCreateOpts":        &planCreateOpts,
 		"planDecisionsOpts":     &planDecisionsOpts,
+		"planDriveOpts":         &planDriveOpts,
 		"planHandoffOpts":       &planHandoffOpts,
 		"planImportOpts":        &planImportOpts,
 		"planListOpts":          &planListOpts,

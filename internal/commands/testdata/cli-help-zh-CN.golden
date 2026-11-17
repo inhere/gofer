@@ -579,6 +579,31 @@ plan dispatch	examples
 plan dispatch	flag config	path to the gofer config file
 plan dispatch	flag server	server address (overrides config server.addr)
 plan dispatch	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+plan drive	desc	Turn a plan's driver on or off and show its state (autonomous advance; this version supports --level record only)
+plan drive	help	
+plan drive	examples	
+plan drive off	desc	Disable the plan's driver (idempotent: a plan that is already off answers the same)
+plan drive off	help	
+plan drive off	examples	
+plan drive off	flag config	path to the gofer config file
+plan drive off	flag server	server address (overrides config server.addr)
+plan drive off	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+plan drive on	desc	Enable the plan's driver: record what it would do, within an optional budget
+plan drive on	help	
+plan drive on	examples	
+plan drive on	flag config	path to the gofer config file
+plan drive on	flag level	autonomy level: record (the only level this version supports; assist / auto come later)
+plan drive on	flag max-hours	cap on wall-clock hours since the driver was enabled (0 = unlimited)
+plan drive on	flag max-jobs	cap on the jobs the plan may start, rework and retries included (0 = unlimited)
+plan drive on	flag max-rework	cap on the plan's rework rounds (0 = unlimited)
+plan drive on	flag server	server address (overrides config server.addr)
+plan drive on	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+plan drive status	desc	Show whether the plan's driver is on, at which level and with which budget
+plan drive status	help	
+plan drive status	examples	
+plan drive status	flag config	path to the gofer config file
+plan drive status	flag server	server address (overrides config server.addr)
+plan drive status	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 plan handoff	desc	Show or update a plan handoff note
 plan handoff	help	
 plan handoff	examples	

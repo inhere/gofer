@@ -590,6 +590,10 @@ func NewPlanCmd() *gcli.Command {
 				},
 				Func: runPlanResume,
 			},
+			// plan driver (design 2026-11-16 §1, R4): `plan drive on|off|status` — a plan's
+			// autonomous-advance switches. Distinct from `plan decisions` below (questions an
+			// agent asks a human).
+			newPlanDriveCmd(),
 			{
 				Name: "ask",
 				Desc: "Raise a decision question for a human (does NOT wait; blocking wait is the MCP gofer_ask_human semantics)",
