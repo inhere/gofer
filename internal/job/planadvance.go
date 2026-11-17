@@ -219,6 +219,7 @@ func (s *Service) doAdvancePlan(planID, by string, quiet bool) error {
 		}
 	}
 	if quiet {
+		s.relinkFinishedDoing(todos)
 		s.dispatchStrandedReady(p, todos, by)
 	}
 	if len(todos) == 0 || !todosFinished(todos) || p.Status == jobstore.PlanDone {

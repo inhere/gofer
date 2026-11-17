@@ -317,3 +317,80 @@ func TestPlanEventDroppedAfterMaxAttempts(t *testing.T) {
 }
 
 var errTestAdvance = errors.New("store unavailable")
+
+// seedOrphanedDoing leaves the first item of a two-item chain `doing`, bound to a job row
+// written straight in the given terminal status — what a serve restart leaves behind (the
+// store flips the row without finish() ever running).
+func seedOrphanedDoing(t *testing.T, s *Service, planID, status string) {
+	t.Helper()
+	seedChain(t, s, planID,
+		chainTodo(planID+"-1", "first", "ok"),
+		chainTodo(planID+"-2", "second", "ok", planID+"-1"),
+	)
+	jobID := planID + "-job"
+	rec := jobstore.JobRecord{ID: jobID, ProjectKey: "self", Agent: "exec", Runner: "local",
+		Status: status, TodoID: planID + "-1", PlanID: planID, StartedAt: 1, EndedAt: 2, UpdatedAt: 2}
+	if status == StatusFailed {
+		rec.Error = "orphaned: serve restarted while job was non-terminal"
+	}
+	if err := s.Meta().UpsertJob(rec); err != nil {
+		t.Fatalf("upsert job: %v", err)
+	}
+	if ok, err := s.Meta().UpdateTodoStatus(planID+"-1", jobstore.TodoDoing, nil); err != nil || !ok {
+		t.Fatalf("todo doing: ok=%v err=%v", ok, err)
+	}
+	if _, err := s.Meta().SetTodoJob(planID+"-1", jobID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestPlanSweepBlocksOnOrphanedFailedJob: a `doing` item whose job was failed by the
+// restart reconcile (no finish) parks the plan on the next scan, exactly once.
+func TestPlanSweepBlocksOnOrphanedFailedJob(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	old := newChainService(t, root)
+	seedOrphanedDoing(t, old, "plan-ev-orph", StatusFailed)
+	fresh := newChainService(t, root)
+	for i := 0; i < 3; i++ {
+		if err := fresh.SweepPlans(); err != nil {
+			t.Fatalf("SweepPlans: %v", err)
+		}
+	}
+	p := waitPlanStatus(t, fresh, "plan-ev-orph", jobstore.PlanBlocked, 10*time.Second)
+	if p.Status != jobstore.PlanBlocked || p.BlockedTodo != "plan-ev-orph-1" {
+		t.Fatalf("plan = %+v, want blocked on the orphaned item", p)
+	}
+	if n := countPlanEvent(t, fresh, "plan-ev-orph", EventPlanBlocked); n != 1 {
+		t.Fatalf("plan.blocked events = %d, want exactly 1", n)
+	}
+	if got := todoStatus(t, fresh, "plan-ev-orph-2"); got != jobstore.TodoPending {
+		t.Fatalf("second item = %q, a blocked chain must not move", got)
+	}
+}
+
+// TestPlanSweepLinksFinishedDoneJob: a `doing` item whose job row is already done gets
+// completed by the scan and the chain moves on, dispatching the next item once.
+func TestPlanSweepLinksFinishedDoneJob(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	old := newChainService(t, root)
+	seedOrphanedDoing(t, old, "plan-ev-fin", StatusDone)
+	fresh := newChainService(t, root)
+	for i := 0; i < 2; i++ {
+		if err := fresh.SweepPlans(); err != nil {
+			t.Fatalf("SweepPlans: %v", err)
+		}
+	}
+	waitTodoStatus(t, fresh, "plan-ev-fin-2", jobstore.TodoDone, 30*time.Second)
+	if got := todoStatus(t, fresh, "plan-ev-fin-1"); got != jobstore.TodoDone {
+		t.Fatalf("first item = %q, want done", got)
+	}
+	if n := countPlanEvent(t, fresh, "plan-ev-fin", EventPlanTodoAdvanced); n != 1 {
+		t.Fatalf("plan.todo_advanced events = %d, want exactly 1", n)
+	}
+	recs, err := fresh.Meta().ListJobsByTodo("plan-ev-fin-2", 10)
+	if err != nil || len(recs) != 1 {
+		t.Fatalf("jobs of the second item = %d (err %v), want exactly 1", len(recs), err)
+	}
+}

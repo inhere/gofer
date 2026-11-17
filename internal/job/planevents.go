@@ -19,6 +19,7 @@ package job
 import (
 	"encoding/json"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -346,6 +347,41 @@ func (s *Service) dispatchStrandedReady(p jobstore.Plan, todos []jobstore.PlanTo
 		}
 		if _, err := s.MaybeDispatchTodo(t.TodoID, by); err != nil {
 			slog.Warn("plan sweep: dispatch ready todo", "plan_id", p.PlanID, "todo_id", t.TodoID, "err", err)
+		}
+	}
+}
+
+// relinkFinishedDoing is the sweep's third catch-up (plan R2): an item still `doing` whose
+// job has already reached a terminal state never had its outcome linked — a serve restart
+// fails the orphaned local job in the store without running finish(), so neither
+// linkTodoOutcome nor maybeBlockPlan ran and the plan would stall silently. The outcome is
+// linked through the same path a normal ending takes, from the persisted row.
+//
+// Idempotent: an item whose note already names the job was linked (every outcome line
+// carries the job id), and a block parks the plan, which the scan no longer visits.
+// needs_review is not terminal here; a taken-over job follows maybeBlockPlan's own skip.
+func (s *Service) relinkFinishedDoing(todos []jobstore.PlanTodo) {
+	for _, t := range todos {
+		if t.Status != jobstore.TodoDoing || t.JobID == "" {
+			continue
+		}
+		rec, ok, err := s.meta.GetJob(t.JobID)
+		if err != nil || !ok {
+			continue
+		}
+		switch rec.Status {
+		case StatusDone, StatusFailed, StatusCancelled, StatusTimeout, StatusRejected:
+		default:
+			continue
+		}
+		if strings.Contains(t.Note, rec.ID) {
+			continue
+		}
+		snap := fromRecord(rec)
+		slog.Info("plan sweep: relinking the outcome of a finished job", "plan_id", t.PlanID, "todo_id", t.TodoID, "job_id", rec.ID, "status", rec.Status)
+		s.linkTodoOutcome(snap, false)
+		if rec.Status != StatusDone {
+			s.maybeBlockPlan(snap)
 		}
 	}
 }
