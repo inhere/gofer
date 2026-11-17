@@ -306,6 +306,10 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 				}
 			}
 		}
+		// permission_tier: a gate tightening, servable only by an acp-agent run on this machine.
+		if err := checkPermissionTier(cfg, req, gateAgent, ac, isWorker); err != nil {
+			return config.ProjectConfig{}, err
+		}
 		if ac.Type == agent.TypeExec && !proj.AllowExec && !systemExec {
 			return config.ProjectConfig{}, fmt.Errorf("%w: exec agent %q not allowed: project %q has allow_exec=false", ErrInvalidRequest, gateAgent, req.ProjectKey)
 		}

@@ -203,9 +203,17 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	// bd h-aii-0ql3: a read-only job switches the session's agent mode before the turn.
 	// The agent's mode list is authoritative: an id it does not offer must not be
 	// guessed past, because the alternative is running a "read-only" job writable.
-	if mode := req.ACP.ReadOnlyModeID; mode != "" {
+	mode := req.ACP.ReadOnlyModeID
+	if mode == "" {
+		mode = req.ACP.SessionModeID
+	}
+	if mode != "" {
 		if !modeOffered(sess.Modes, mode) {
-			err := fmt.Errorf("acp: read-only mode %q not offered by agent (available: %s)", mode, modeIDs(sess.Modes))
+			kind := "session"
+			if req.ACP.ReadOnlyModeID != "" {
+				kind = "read-only"
+			}
+			err := fmt.Errorf("acp: %s mode %q not offered by agent (available: %s)", kind, mode, modeIDs(sess.Modes))
 			writeStderrLine(req.Stderr, err.Error())
 			return runner.Result{ExitCode: -1, Err: err}
 		}

@@ -478,6 +478,8 @@ func (s *Service) continuationBase(src JobResult, jobID, callerID string, autoAt
 		// gofer-81b4: a resident 收件会话 keeps its own approval gate across a continuation —
 		// the resumed session is the same mailbox, so it is approved the same way.
 		SessionApproval: srcReq.SessionApproval,
+		// The permission tier is kept too: a continuation must not run looser than its source.
+		PermissionTier: srcReq.PermissionTier,
 		// JOB-11: the continuation works in the SAME directory as the run it
 		// continues, so it inherits that run's lock decision instead of re-deriving
 		// one from its own carrier shape.

@@ -94,7 +94,9 @@ var builtinTemplates = map[string]config.AgentConfig{
 		// `-32000 Authentication required`）。模板默认打开该继承，key 就只需要维护一处；
 		// 显式 `claude_settings_env: false` 可关。
 		ACP: &config.ACPConfig{
-			Modes:             map[string]string{"read_only": "plan"},
+			// ask: the permission tier 「问我」 / 「严格」 switches the session to the
+			// agent's own default mode, which asks before acting.
+			Modes:             map[string]string{"read_only": "plan", "ask": "default"},
 			ClaudeSettingsEnv: boolRef(true),
 		},
 	},

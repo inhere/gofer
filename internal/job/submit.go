@@ -1072,6 +1072,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		if len(secretEnv) > 0 {
 			runReq.Env = util.EnvWith(runReq.Env, secretEnv)
 		}
+		s.recordPermissionTier(jobID, cfg, req)
 		if len(req.MCP) > 0 {
 			s.recordEvent(jobID, EventJobMCPInjected, map[string]any{"servers": req.MCP, "notes": mcpInj.Notes})
 		}
@@ -1656,7 +1657,7 @@ func acpRequest(cfg *config.Config, ac config.AgentConfig, req JobRequest, promp
 	r := &runner.ACPRequest{
 		Prompt:        prompt,
 		ResultDir:     resultDir,
-		Approval:      cfg.EffectiveApprovalWith(req.ProjectKey, req.Agent, req.SessionApproval),
+		Approval:      effectiveApproval(cfg, req),
 		LoadSessionID: resumeLoadSessionID(req),
 		ModelID:       req.Model,
 		LogThoughts:   ac.ACP.LogsThoughts(),
@@ -1675,6 +1676,11 @@ func acpRequest(cfg *config.Config, ac config.AgentConfig, req JobRequest, promp
 		// The id is guaranteed non-empty here: admission refuses a read-only acp job
 		// whose agent maps no read-only mode.
 		r.ReadOnlyModeID = ac.ACP.Modes["read_only"]
+	}
+	// permission_tier: the agent's own "ask" mode, when it maps one (the gofer gate alone
+	// applies otherwise). A read-only job keeps its read-only mode.
+	if !req.ReadOnly {
+		r.SessionModeID = permissionTierModeID(ac, req.PermissionTier)
 	}
 	for _, s := range ac.ACP.MCPServers {
 		r.MCPServers = append(r.MCPServers, runner.ACPMCPServer{

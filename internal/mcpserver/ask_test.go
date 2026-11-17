@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net/http/httptest"
 	"sort"
 	"strings"
@@ -293,5 +294,26 @@ func TestGoferAskRejectsBadInput(t *testing.T) {
 		if !res.IsError {
 			t.Errorf("%s: want a tool error, got %+v", name, res.StructuredContent)
 		}
+	}
+}
+
+// gofer_run_job carries permission_tier through to the submitted request.
+func TestRunJobInputCarriesPermissionTier(t *testing.T) {
+	jobs, projects, agents := testCore(t)
+	session := connectTo(t, newServer(newLocalBackend(jobs, projects, agents), ""))
+	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "gofer_run_job",
+		Arguments: map[string]any{
+			"project_key": "self", "agent": "exec", "runner": "local",
+			"cmd": testcmd.Cmd(t, "sleep", "1s"), "cwd": ".", "permission_tier": "ask",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The exec agent is no acp-agent, so the server's admission names the field it refused:
+	// proof the tier reached the request.
+	if !res.IsError || !strings.Contains(fmt.Sprint(res.Content[0].(*mcp.TextContent).Text), "permission_tier") {
+		t.Fatalf("result = %+v, want an admission error naming permission_tier", res)
 	}
 }

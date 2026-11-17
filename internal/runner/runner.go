@@ -350,6 +350,11 @@ type ACPRequest struct {
 	// agent maps none. When the session reports availableModes and this id is not
 	// among them, the run fails instead of prompting in a writable mode.
 	ReadOnlyModeID string
+	// SessionModeID, when non-empty and no ReadOnlyModeID is set, switches the session into
+	// this agent mode before the prompt turn exactly like ReadOnlyModeID does (the job's
+	// permission tier maps to the agent's acp.modes.ask). The same rule applies: an id the
+	// agent does not offer fails the run instead of being guessed past.
+	SessionModeID string
 	// LogThoughts keeps the agent's thinking in the job's logs (bd h-aii-7kja ②):
 	// true (the default) writes the coalesced thought line to stderr and acp.jsonl,
 	// false keeps the run's logs free of it. config.ACPConfig.LogsThoughts is the
