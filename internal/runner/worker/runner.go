@@ -162,6 +162,11 @@ func unsupportedDispatchFields(proto int, f *runner.Forward) []string {
 	if f.PermissionTier != "" && !wsproto.SupportsPermissionTier(proto) {
 		lacks = append(lacks, "permission_tier")
 	}
+	// A hosted session an old worker would drop is given that worker's idle default and
+	// ended after 30 minutes: refuse and name the capability.
+	if f.Hosted && !wsproto.SupportsHosted(proto) {
+		lacks = append(lacks, "hosted")
+	}
 	if f.InitialInput != "" && !wsproto.SupportsInitialInput(proto) {
 		lacks = append(lacks, "initial_input")
 	}
@@ -526,6 +531,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		ReadOnly: f.ReadOnly,
 		// The tier travels so the worker's own Submit tightens its approval gate with it.
 		PermissionTier: f.PermissionTier,
+		Hosted:         f.Hosted,
 		// CFG-16: the worker renders its own tools section and skips it on --no-rules.
 		NoRules: f.NoRules,
 		// Session relay §9.1 B: the worker starts the pty, so path B's priming text
@@ -730,6 +736,7 @@ func OutcomeFrom(o *wsproto.Outcome, workerID string) *runner.Outcome {
 		Artifacts:        o.Artifacts,
 		Source:           "worker:" + workerID,
 		SessionID:        o.SessionID, // worker 本地捕获/注入的 agent 会话标识 (P3)
+		SessionEndReason: o.SessionEndReason,
 		// WT-01: the worker owns the worktree paths it reports; pass them through so the
 		// host row shows where the deliverable branch lives (empty for an old worker).
 		WorktreePath:    o.WorktreePath,

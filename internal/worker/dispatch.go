@@ -127,6 +127,9 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		ReadOnly: d.ReadOnly,
 		// The worker's own Submit applies the tier to ITS approval gate (effectiveApproval).
 		PermissionTier: d.PermissionTier,
+		// Hosted: a persistent session with no idle or max limit (protocol v32); without it
+		// this machine's Submit would add its own idle default.
+		Hosted: d.Hosted,
 		// CFG-16: the caller's --no-rules. RulesResolved below already keeps this
 		// machine from injecting rules; NoRules is what keeps it from listing its own
 		// declared tools, the one section the worker renders itself.
@@ -416,6 +419,8 @@ func outcomeFrame(remoteJobID string, final job.JobResult) (wsproto.Outcome, boo
 		// worker 侧共享 job.Service 已在终态 captureOutcomes 把 session_id 填进本地
 		// JobResult（claude 注入 / codex 捕获, P1）；随 Outcome 帧回传 host (P3)。
 		SessionID: final.SessionID,
+		// v32: why the worker's session ended (idle_timeout, ...), so the host row says so too.
+		SessionEndReason: final.SessionEndReason,
 		// WT-01：worker 侧 worktree 位置/分支/基线/终态分支状态，随产出回传 host，
 		// 让 host 行也能显示交付物分支（路径是那台 worker 机器上的）。
 		WorktreePath:    final.WorktreePath,
@@ -441,7 +446,7 @@ func outcomeFrame(remoteJobID string, final job.JobResult) (wsproto.Outcome, boo
 	}
 	send := o.RenderedCommand != "" || o.ResultJSON != "" || o.DiffSummary != "" || o.UncommittedCount > 0 || len(o.Artifacts) > 0 ||
 		o.SessionID != "" || o.WorktreePath != "" || o.BaseSHA != "" || len(o.Commits) > 0 || o.Verify != nil ||
-		o.Usage != nil || len(o.Xfer) > 0
+		o.Usage != nil || len(o.Xfer) > 0 || o.SessionEndReason != ""
 	return o, send
 }
 

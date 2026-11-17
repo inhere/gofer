@@ -48,3 +48,19 @@ func TestDispatchPermissionTierProtocolGate(t *testing.T) {
 		t.Fatalf("lacks = %v, want none without a tier", got)
 	}
 }
+
+// TestDispatchHostedProtocolGate: a worker below v32 would drop hosted and give the session its
+// own idle default, so it is REFUSED with the capability named; v32 carries it; a session that
+// is not hosted is never refused.
+func TestDispatchHostedProtocolGate(t *testing.T) {
+	f := &runner.Forward{Session: true, Hosted: true}
+	if got := unsupportedDispatchFields(wsproto.HostedMinProtocolVersion-1, f); len(got) != 1 || got[0] != "hosted" {
+		t.Fatalf("lacks = %v, want [hosted] for an older worker", got)
+	}
+	if got := unsupportedDispatchFields(wsproto.HostedMinProtocolVersion, f); len(got) != 0 {
+		t.Fatalf("lacks = %v, want none at v%d", got, wsproto.HostedMinProtocolVersion)
+	}
+	if got := unsupportedDispatchFields(wsproto.HostedMinProtocolVersion-1, &runner.Forward{Session: true}); len(got) != 0 {
+		t.Fatalf("lacks = %v, want none for a session that is not hosted", got)
+	}
+}

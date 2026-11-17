@@ -70,6 +70,8 @@ type stubJobs struct {
 	gotJobToken        string
 	// gotKeepDirLock captures the request's keep_dir_lock (R8).
 	gotKeepDirLock bool
+	// gotHosted captures the request's hosted flag (protocol v32).
+	gotHosted bool
 
 	// interactions returned by GetInteractions (drives the worker→hub open bridge).
 	interactions []job.Interaction
@@ -93,6 +95,7 @@ func (s *stubJobs) Submit(req job.JobRequest) (job.JobResult, error) {
 	s.gotPermissionTier = req.PermissionTier
 	s.gotCredentialJobID, s.gotJobToken = req.CredentialJobID, req.JobToken
 	s.gotKeepDirLock = req.KeepDirLock
+	s.gotHosted = req.Hosted
 	s.mu.Unlock()
 	if s.submitErr != nil {
 		return job.JobResult{}, s.submitErr

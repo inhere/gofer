@@ -463,6 +463,9 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	if err := s.checkPermissionTierWorker(cfg, req); err != nil {
 		return JobResult{}, err
 	}
+	if err := s.checkHostedWorker(cfg, req); err != nil {
+		return JobResult{}, err
+	}
 	if err := s.checkWorkflowStepWorker(cfg, req); err != nil {
 		return JobResult{}, err
 	}
@@ -896,6 +899,8 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			ReadOnly: req.ReadOnly,
 			// The tier rides to the executor, whose approval gate it tightens.
 			PermissionTier: req.PermissionTier,
+			// Hosted rides to the executor: its own Submit is what keeps the idle default off.
+			Hosted: req.Hosted,
 			// CFG-16: `--no-rules` also turns off the tools section the EXECUTING
 			// machine renders, so the switch travels with the job.
 			NoRules: req.NoRules,

@@ -595,6 +595,9 @@ type Forward struct {
 	// PermissionTier is the job's approval tier (auto|ask|strict), applied by the executor's
 	// own approval gate; "" = as configured.
 	PermissionTier string
+	// Hosted marks a persistent session that is never ended for being idle; the executor's own
+	// Submit applies it (protocol v32).
+	Hosted bool
 	// NoRules is the caller's `--no-rules`: the executing machine must not add the
 	// sections it renders itself (its declared tools, CFG-16). The rules were already
 	// decided — and skipped — by the submitting machine.
@@ -766,6 +769,8 @@ type Outcome struct {
 	// `job resume` / `list --session` for remotely-executed jobs. Empty = the
 	// remote produced no session id (unsupported agent / not captured).
 	SessionID string `json:"session_id,omitempty"`
+	// SessionEndReason is why the execution machine's resident session ended (v32).
+	SessionEndReason string `json:"session_end_reason,omitempty"`
 	// WT-01: the managed worktree the job ran in — recorded on the EXECUTION machine
 	// (it owns that path), so a host row for a runner=worker/peer job still shows
 	// where the deliverable branch lives. All empty/0 for a non-worktree job and for
