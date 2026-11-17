@@ -104,12 +104,12 @@ gofer job end <job-id>                   # 结束会话并释放目录锁
 - **权限档位**（`--permission-tier auto|ask|strict`，HTTP / MCP 同名字段 `permission_tier`；只对 acp-agent 生效，其它 agent 带 `ask` / `strict` 就是 400）：`ask` = 项目已自动放行的种类照旧，其余都出审批卡，并把 agent 切到它自己的「问我」模式（`acp.modes.ask`，内置 `claude-acp` 映射到 `default`）；`strict` = 每个权限请求都出卡；`auto`（默认）= 按项目策略。**只收紧不放宽**：项目已是 `strict` 时请求 `ask` 仍按 `strict`，请求方的宽松设置不会盖过项目或 agent 的审批策略。agent 没配 `acp.modes.ask` 时只收紧 gofer 这道闸门（不报错），时间线上记 `job.permission_tier` 写明生效档位与到底切没切 agent 模式。会话的审批策略仍由 server 决定，请求体直接带 `session_approval` 一律 400。跑在 worker 上需要该 worker 协议 **v31** 及以上，旧 worker 在提交时被拒并提示升级（不会静默按它自己的、可能更宽的闸门跑）。
 - **提问工具 `gofer_ask`**：只有持续会话（`--session`）的 ACP job 会拿到这个工具（单轮 / 批处理 job 不注入——没人看着的时候提问只会把它挂到超时）；管家会话与收件会话的工具面里也有它。它对自己所在的这个 job 开一个交互，问题以可点选卡片出现在工作台对话、「等我」页与手机宽度下，你点选后答案作为工具返回值交给 agent 继续：
 
-```jsonc
-// gofer_ask 的输入：不带 options 就是自由文本提问
-{"question": "用哪个方案？", "options": [{"label": "A", "description": "…"}, {"label": "B"}],
- "multi": false, "allow_other": false, "recommended": "A", "timeout_sec": 1800}
-// 返回：{state: "answered", answer: "A"}（multi 时另有 answers: ["A","B"]）/ {state: "expired", recommended} / {state: "cancelled"}
-```
+  ```jsonc
+  // gofer_ask 的输入：不带 options 就是自由文本提问
+  {"question": "用哪个方案？", "options": [{"label": "A", "description": "…"}, {"label": "B"}],
+   "multi": false, "allow_other": false, "recommended": "A", "timeout_sec": 1800}
+  // 返回：{state: "answered", answer: "A"}（multi 时另有 answers: ["A","B"]）/ {state: "expired", recommended} / {state: "cancelled"}
+  ```
 
   - `multi` 允许选多个（答案是选中 label 的 JSON 数组字符串），`allow_other` 允许在选项之外自由填写，`recommended` 标出提问方的推荐项（必须是某个选项的 label），`description` 是选项下面的一行说明。`multi` / `allow_other` / `recommended` 都必须配 `options`。
   - `timeout_sec` 默认 1800 秒、上限 86400 秒。到点没人答就返回 `expired`（附上提问方的推荐项），工具说明要求 agent 按推荐项继续，所以不会永久挂住；`cancelled` = 提问被撤回（job 已 `end` 或取消）。等作答期间 job 处于 `pending_interaction`，回合计时暂停，与工具审批同口径。
