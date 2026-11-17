@@ -48,7 +48,7 @@ func notifyTargetJobID(target string) bool { return strings.HasPrefix(target, Jo
 // notifySessionJobReason answers "may a finished job tell this session job?": "" when the
 // target is a live persistent session of this server, else the reason it is not (the
 // same wording for an unknown target whether it was meant as a job id or a session id).
-func (s *Service) notifySessionJobReason(target string) string {
+func (s *Service) notifySessionJobReason(target, callerID string) string {
 	if !notifyTargetJobID(target) {
 		return fmt.Sprintf("notify session %q is not a registered session of this server", target)
 	}
@@ -60,6 +60,10 @@ func (s *Service) notifySessionJobReason(target string) string {
 		return fmt.Sprintf("job %q is not a persistent session: pass the session id of an agent session, or the job id of a --session job", target)
 	case IsFinished(res.Status):
 		return fmt.Sprintf("session job %q has already ended (status %s)", target, res.Status)
+	case res.CallerID != "" && strings.TrimSpace(callerID) != "" && res.CallerID != strings.TrimSpace(callerID):
+		// Same rule as an agent session target: a result is spoken into the session as a
+		// turn, so only the session's own caller may aim one at it.
+		return fmt.Sprintf("session job %q belongs to another caller", target)
 	}
 	return ""
 }
@@ -112,7 +116,7 @@ func (s *Service) resolveNotifyRequest(req *JobRequest) (*droppedNotify, error) 
 			// Not a registered agent session. It may be a persistent session named by its
 			// JOB id (`--notify-session <job id>`), which is delivered as that session's
 			// next turn instead of by the messenger (see registerNotifySessionReceipt).
-			reason = s.notifySessionJobReason(target)
+			reason = s.notifySessionJobReason(target, req.CallerID)
 		case session.CallerID != "" && strings.TrimSpace(req.CallerID) != "" && session.CallerID != strings.TrimSpace(req.CallerID):
 			reason = fmt.Sprintf("notify session %q belongs to another caller", target)
 		}

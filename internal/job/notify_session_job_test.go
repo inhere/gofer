@@ -107,9 +107,11 @@ func TestNotifySessionJobRejected(t *testing.T) {
 	s, _, _ := notifySessionFixture(t)
 	plain := JobIDPrefix + "plain-job"
 	ended := JobIDPrefix + "ended-session"
+	others := JobIDPrefix + "others-session"
 	for _, r := range []JobResult{
 		{ID: plain, ProjectKey: "self", Agent: "exec", Runner: "local", Status: StatusDone},
 		{ID: ended, ProjectKey: "self", Agent: "exec", Runner: "local", Status: StatusDone, Session: true},
+		{ID: others, ProjectKey: "self", Agent: "exec", Runner: "local", Status: StatusAwaitingInput, Session: true, CallerID: "alice"},
 	} {
 		if err := s.persist(r); err != nil {
 			t.Fatalf("persist %s: %v", r.ID, err)
@@ -120,11 +122,12 @@ func TestNotifySessionJobRejected(t *testing.T) {
 		"unknown job":        JobIDPrefix + "20261117-101010-abcdef12",
 		"not a session job":  plain,
 		"a finished session": ended,
+		"another caller's":   others,
 	}
 	for name, target := range cases {
 		_, err := s.Submit(JobRequest{
 			ProjectKey: "self", Agent: "exec", Runner: "local", Cmd: []string{"go", "version"},
-			Cwd: ".", TimeoutSec: 60, Notify: true, NotifySession: target,
+			Cwd: ".", TimeoutSec: 60, Notify: true, NotifySession: target, CallerID: "bob",
 		})
 		if !errors.Is(err, ErrNotifyTargetRejected) || !errors.Is(err, ErrInvalidRequest) {
 			t.Fatalf("%s: err = %v, want ErrInvalidRequest + ErrNotifyTargetRejected", name, err)
