@@ -89,7 +89,7 @@ gofer job run -p <project> -a <agent> --session --idle-timeout 86400 \
 gofer job run -p <project> -a <agent> --worktree --prompt "做第一部分"
 ```
 
-- **父 job 一句就够**：拿到 `can_submit` 的常驻 job，prompt 末尾会自动带一段「## 派发子 job」提示——派完子 job 就结束本轮、不要轮询；`--idle-timeout` 设够长；会话用 `--shared-dir`（常驻会话默认整段生命周期独占目录，同目录的子 job 会排在它后面）；会写文件的子 job 用 `--worktree`；并发槽位留余量（槽位上限为 1 且被父 job 占着时，子 job 要等会话结束）。用空 prompt 启动的常驻 job 不注入。
+- **父 job 一句就够**：拿到 `can_submit` 的常驻 job，prompt 末尾会自动带一段「## 派发子 job」提示——派完子 job 就结束本轮、不要轮询；`--idle-timeout` 设够长；会话用 `--shared-dir`（常驻会话只在跑一轮时独占目录，等子 job 结果 / 等你输入时已自动让锁；但父 job 正在跑的时候同目录子 job 仍会排在它后面）；会写文件的子 job 用 `--worktree`；并发槽位留余量（槽位上限为 1 且被父 job 占着时，子 job 要等会话结束）。用空 prompt 启动的常驻 job 不注入。
 - **回执内容**：只含子 job id、状态、退出码和查看命令（`gofer job logs <子 job>`），不含标题和输出——父 job 自己去读日志。子 job 还没结束时只写状态（`running` / `pending_interaction`），不写退出码：运行中的 job 没有结果可读。
 - **回执哪些事件**：默认 `job.terminal` + `job.needs_review`。server 配置 `wakeup.child_events` 改全局默认，单次提交用 `job run --parent-wake-events job.terminal,interaction.created` 覆盖；`job.terminal` 始终包含（写别的会补上，未知值直接拒绝）。可选项：`job.awaiting_approval`（hold 待批准）、`interaction.created`（工具审批与提问）。父 job 没有权限代答或批准，「需要输入」类回执要转告人；同一子 job 的这类回执最多 1 分钟一条。窗口中同一条审批被人答了、子 job 又跑起来且当下不需要人时，这条待送回执直接作废（不发、不占回合），子 job 结束时照常回执。
 - **关掉回执**：`job run --no-parent-wake`（这个子 job 不登记）。
