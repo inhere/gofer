@@ -88,3 +88,18 @@ export type PermissionTier = 'auto' | 'ask' | 'strict'
 export function permissionTierValue(tier: PermissionTier): PermissionTier | undefined {
   return tier === 'auto' ? undefined : tier
 }
+
+// sessionSubmitOptions 把新建会话的两个新选项转成提交字段（R7 / R8）：只给 ACP 会话，
+// 自动档不发 permission_tier，保持目录锁默认关。
+export function sessionSubmitOptions(opts: {
+  type: 'pty' | 'acp'
+  tier: PermissionTier
+  keepDirLock: boolean
+}): { permission_tier?: PermissionTier; keep_dir_lock?: boolean } {
+  if (opts.type !== 'acp') return {}
+  const out: { permission_tier?: PermissionTier; keep_dir_lock?: boolean } = {}
+  const tier = permissionTierValue(opts.tier)
+  if (tier) out.permission_tier = tier
+  if (opts.keepDirLock) out.keep_dir_lock = true
+  return out
+}

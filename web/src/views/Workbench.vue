@@ -21,6 +21,7 @@ import { orphanWaitingCount } from '../components/workbench/threadGroups'
 import Drawer from '../ui/Drawer.vue'
 import NewSessionSheet from '../ui/NewSessionSheet.vue'
 import { useProjectFilter } from '../ui/projectFilter'
+import { useWhoami } from '../store/whoami'
 import {
   activateTab,
   activeTab,
@@ -190,13 +191,21 @@ const sidebar = ref<InstanceType<typeof WorkbenchSidebar> | null>(null)
 const composer = ref<InstanceType<typeof WorkbenchComposer> | null>(null)
 const workbenchRoot = ref<HTMLElement | null>(null)
 const paletteOpen = ref(false)
+// 新建会话是写入口：只读上限下不给（侧栏按钮与手机「＋」都不渲染）。
+const { readOnly } = useWhoami()
 // 新建会话（R13）：侧栏顶部的唯一入口，表单为 ui/NewSessionSheet（ACP 默认）。
 const newSessionOpen = ref(false)
 function openNewSession(): void {
+  if (readOnly.value) return
   newSessionOpen.value = true
 }
 function onSessionCreated(payload: { jobID: string; sessionID: string; type: 'pty' | 'acp' }): void {
-  // ACP 带上 session_id 就能直接定位到线程；还没建好时按 job 定位，等它出现在列表里再聚焦。
+  // 终端会话建好就接进去（?attach=1 自动接入）；ACP 带上 session_id 直接定位到线程，
+  // 还没建好时按 job 定位，等它出现在列表里再聚焦。
+  if (payload.type === 'pty') {
+    void router.push(`/jobs/${encodeURIComponent(payload.jobID)}?attach=1`)
+    return
+  }
   if (payload.sessionID) {
     void router.push({ path: '/workbench', query: { thread: `s:${payload.sessionID}` } })
     return
@@ -919,6 +928,7 @@ onUnmounted(() => {
         :project-options="projectOptions"
         :has-more="hasMoreThreads"
         :loading-more="loadingMore"
+        :read-only="readOnly"
         @load-more="loadMoreThreads"
         @select="selectThread"
         @update:query="query = $event; refreshFilter()"
@@ -950,6 +960,7 @@ onUnmounted(() => {
           :project-options="projectOptions"
           :has-more="hasMoreThreads"
           :loading-more="loadingMore"
+          :read-only="readOnly"
           @load-more="loadMoreThreads"
           @select="selectThread"
           @update:query="query = $event; refreshFilter()"
@@ -963,7 +974,7 @@ onUnmounted(() => {
       <main class="workbench-main">
         <div class="tabs-row">
         <button
-          v-if="mobilePane === 'main'"
+          v-if="mobilePane === 'main' && !readOnly"
           class="session-new"
           type="button"
           :aria-label="t('workbench.new.launch')"

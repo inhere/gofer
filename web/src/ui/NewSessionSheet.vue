@@ -23,11 +23,11 @@ import { computeRunnerBlocks, effectiveRunnerBlocks, pickRunner } from '../utils
 import {
   defaultSessionAgent,
   defaultSessionRunner,
-  permissionTierValue,
   readRememberedProject,
   rememberProject,
   rememberedProject,
   sessionAgents,
+  sessionSubmitOptions,
   type PermissionTier,
 } from '../utils/newSessionDefaults'
 import Sheet from './Sheet.vue'
@@ -162,9 +162,7 @@ async function create(): Promise<void> {
   const lockList = parseLockPaths(lockPaths.value)
   if (lockList.length > 0) req.lock_paths = lockList
   // 两个新选项（R7 / R8）：auto 是后端默认，不发；保持目录锁默认关。
-  const tierValue = type.value === 'acp' ? permissionTierValue(tier.value) : undefined
-  if (tierValue) req.permission_tier = tierValue
-  if (type.value === 'acp' && keepDirLock.value) req.keep_dir_lock = true
+  Object.assign(req, sessionSubmitOptions({ type: type.value, tier: tier.value, keepDirLock: keepDirLock.value }))
   try {
     const result = await submitJob(req)
     rememberProject(projectKey.value)

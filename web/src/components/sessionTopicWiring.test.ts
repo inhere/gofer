@@ -18,19 +18,15 @@ describe('session topic wiring', () => {
     expect(c).toContain('data-test="topic-why"')
     expect(c).toContain('buildTopicPatch')
   })
-  it('the drawer and the session cards embed it', () => {
+  it('the drawer embeds it (the history rows lead there)', () => {
     expect(src('SessionDrawer.vue')).toContain('<SessionTopic')
-    const v = src('Sessions.vue')
-    expect(v).toContain('<SessionTopic')
-    expect(v).toContain('data-test="card-topic"')
-    expect(v).toContain('data-test="maybe-offline"')
-    expect(v).toContain('hitReasons(s.hits)')
   })
-  it('the find box builds params and clearing returns to the list', () => {
+  it('the history page searches through the thread interface and clearing returns to the list', () => {
     const v = src('Sessions.vue')
-    expect(v).toContain('buildFindParams(findInput.value)')
-    expect(v).toContain('...(activeFind.value ?? {})')
+    // R13：搜索交给线程接口（q 覆盖标题 / 项目 / 最后一条消息），不再自己拼 find 参数。
+    expect(v).toContain('q: activeQuery.value')
     expect(v).toContain('data-test="find-clear"')
+    expect(v).toContain('activeQuery.value = searchInput.value')
   })
   it('client has PATCH and find params', () => {
     const c = src('client.ts')

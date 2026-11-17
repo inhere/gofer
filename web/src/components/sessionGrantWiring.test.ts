@@ -26,10 +26,9 @@ describe('session grant dialog wiring', () => {
     expect(dialog).toContain('@media (max-width: 760px)')
   })
   it('is offered on session rows and in the drawer, to managers only, with a granted badge and revoke', () => {
-    expect(sessions).toContain('data-test="row-grant"')
-    expect(sessions).toContain("canGrantSession(whoMode.canManage, s)")
-    expect(sessions).toContain('data-test="session-granted-badge"')
-    expect(sessions).toContain('<SessionGrantDialog')
+    // R13：会话行只留「详情」入口，授权按钮、已授权徽标与撤销都在抽屉里。
+    expect(sessions).toContain('data-test="history-detail"')
+    expect(sessions).toContain('<SessionDrawer')
     expect(drawer).toContain('data-test="drawer-grant"')
     expect(drawer).toContain('canGrantSession(whoMode.canManage, session)')
     expect(drawer).toContain('data-test="session-grant-revoke"')

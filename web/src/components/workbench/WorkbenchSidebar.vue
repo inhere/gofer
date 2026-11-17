@@ -28,6 +28,8 @@ const props = defineProps<{
   // 服务端还有更早的会话（分页模式的 has_more）；loadingMore = 正在拉下一页。
   hasMore?: boolean
   loadingMore?: boolean
+  // 只读上限：新建会话是写入口，只读时不给。
+  readOnly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -118,6 +120,7 @@ defineExpose({ focusSearch })
         @update:model-value="emit('update:projectFilter', $event)"
       />
       <button
+        v-if="!readOnly"
         class="icon-btn new-thread"
         type="button"
         :title="t('workbench.list.newTitle')"

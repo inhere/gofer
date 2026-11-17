@@ -7,52 +7,54 @@ function raw(pattern: Record<string, unknown>): string {
 }
 
 const page = raw(import.meta.glob('./Sessions.vue', { eager: true, query: '?raw', import: 'default' }))
-const acp = raw(import.meta.glob('../components/SessionsAcpTab.vue', { eager: true, query: '?raw', import: 'default' }))
+const workbenchPage = raw(import.meta.glob('./Workbench.vue', { eager: true, query: '?raw', import: 'default' }))
 const drawer = raw(import.meta.glob('../components/SessionDrawer.vue', { eager: true, query: '?raw', import: 'default' }))
 const thread = raw(import.meta.glob('../components/workbench/ThreadView.vue', { eager: true, query: '?raw', import: 'default' }))
 const dict = raw(import.meta.glob('../i18n/pages/sessions.ts', { eager: true, query: '?raw', import: 'default' }))
 
 describe('sessions page P4', () => {
-  it('turns the three groups into tabs with counts', () => {
+  it('turns the three sources into one capped tab set with server counts', () => {
     expect(page).toContain('<Tabs :tabs="tabItems"')
-    expect(page).toContain("value: 'agent'")
-    expect(page).toContain("value: 'acp'")
-    expect(page).toContain("value: 'pty'")
-    expect(page).toContain('badge: waitingCount.value > 0')
-    expect(page).toContain("v-if=\"active === 'agent'\"")
-    expect(page).toContain("v-else-if=\"active === 'acp'\"")
+    expect(page).toContain('historyTabs(counts.value')
+    expect(page).toContain("acp: t('sessions.tab.acp')")
+    expect(page).toContain("pty: t('sessions.tab.pty')")
+    expect(page).toContain("relay: t('sessions.tab.relay')")
+    // 条数来自接口 counts（与列表同一过滤、不受 source 与分页影响）。
+    expect(page).toContain("'': t('sessions.history.all')")
+    expect(page).toContain('counts: true')
   })
 
-  it('filters by project through the URL and by status chips', () => {
+  it('filters by project through the URL and by agent / runner / status', () => {
     expect(page).toContain("useProjectFilter('/sessions')")
     expect(page).toContain('<ProjectFilter')
-    expect(page).toContain('<FilterChips v-model="statusFilter" :items="statusChips"')
-    expect(page).toContain('v-for="s in filteredAgent"')
-    expect(acp).toContain('v-for="item in filteredAcp"')
-    expect(page).toContain('v-for="s in filteredPty"')
+    expect(page).toContain('v-model="agentFilter"')
+    expect(page).toContain('v-model="runnerFilter"')
+    expect(page).toContain('v-model="statusFilter"')
+    expect(page).toContain('v-model="searchInput"')
+    expect(page).toContain('v-for="thread in threads"')
   })
 
-  it('opens the new-session sheet and keeps the created-session routing', () => {
-    expect(page).toContain("import NewSessionSheet from '../ui/NewSessionSheet.vue'")
-    expect(page).toContain('<NewSessionSheet v-model="sheetOpen"')
-    expect(page).toContain('@created="onSessionCreated"')
-    expect(page).toContain('?attach=1')
+  it('leaves session creation to the workbench sidebar (no duplicate entry here)', () => {
+    expect(page).not.toContain('NewSessionSheet')
+    expect(page).not.toContain('data-test="new-session"')
+    expect(workbenchPage).toContain("import NewSessionSheet from '../ui/NewSessionSheet.vue'")
+    expect(workbenchPage).toContain('<NewSessionSheet v-model="newSessionOpen"')
+    expect(workbenchPage).toContain('@created="onSessionCreated"')
+    expect(workbenchPage).toContain('?attach=1')
   })
 
-  it('keeps every agent / ACP / terminal card field and action', () => {
+  it('keeps every history row field and action', () => {
     for (const hook of [
-      'data-test="agent-cards"',
-      'data-test="acp-cards"',
-      'data-test="pty-cards"',
+      'data-test="history-cards"',
       'data-test="find-box"',
-      'data-test="row-open"',
-      'data-test="row-wake"',
-      'data-test="row-grant"',
-      'data-test="refused-owner-transfer"',
-      'data-test="acp-link-pick"',
-      'data-test="pty-link-pick"',
+      'data-test="history-open"',
+      'data-test="history-continue"',
+      'data-test="history-detail"',
+      'data-test="history-link-pick"',
+      'data-test="history-work-link"',
+      'data-test="history-attach"',
     ]) {
-      expect(page + acp + drawer).toContain(hook)
+      expect(page + drawer).toContain(hook)
     }
     expect(drawer).toContain('data-test="drawer-send-held"')
   })
