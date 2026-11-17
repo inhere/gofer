@@ -104,7 +104,7 @@ func printJobDiagnosis(c *gcli.Command, d job.Diagnosis) {
 // times, in local time; 0 (no record) is never formatted as 1970.
 func formatDiagnoseTime(at int64) string {
 	if at <= 0 {
-		return "unknown"
+		return cliText("cli.job.diagnose.stage_unknown")
 	}
 	return time.Unix(at, 0).Format("2006-01-02 15:04:05")
 }

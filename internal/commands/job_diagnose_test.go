@@ -1,6 +1,8 @@
 package commands
 
 import (
+	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -84,5 +86,53 @@ func TestPrintJobDiagnosisIsBilingual(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("zh output missing %q:\n%s", want, out)
 		}
+	}
+}
+
+// TestJobDiagnoseCommand: `job diagnose <id>` asks the server for that job's diagnosis at
+// GET /v1/jobs/{id}/diagnosis and prints the derived reason plus the next steps; --json
+// prints the raw structure instead of the screen.
+func TestJobDiagnoseCommand(t *testing.T) {
+	t.Setenv("GOFER_LANG", string(i18n.EN))
+	var gotMethod, gotPath string
+	ts := isolateTodoCLI(t, func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath = r.Method, r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(job.Diagnosis{
+			JobID: "job-7", Status: job.StatusFailed, Finished: true,
+			Reason: job.TerminationStalled, ReasonLabel: "Stalled: no output",
+			Timeline: []job.DiagnosisStage{{Stage: job.DiagnosisStageStarted, Label: "Started", At: 1700000000, Present: true}},
+			Chain:    []job.DiagnosisLink{{JobID: "job-7", Relation: "target", Status: job.StatusFailed, Reason: job.TerminationStalled}},
+			Evidence: []string{"status=failed"},
+			NextSteps: []string{
+				"The job produced no output inside its stall window: retry it.",
+			},
+		})
+	})
+
+	var code int
+	out := captureOutput(t, func() {
+		code = NewApp("test").Run([]string{"job", "diagnose", "--server", ts.URL, "job-7"})
+	})
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	if gotMethod != http.MethodGet || gotPath != "/v1/jobs/job-7/diagnosis" {
+		t.Fatalf("request = %s %s, want GET /v1/jobs/job-7/diagnosis", gotMethod, gotPath)
+	}
+	for _, want := range []string{"reason:      stalled (Stalled: no output)", "next steps:", "- The job produced no output"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output missing %q:\n%s", want, out)
+		}
+	}
+
+	jsonOut := captureOutput(t, func() {
+		code = NewApp("test").Run([]string{"job", "diagnose", "--server", ts.URL, "job-7", "--json"})
+	})
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	if !strings.Contains(jsonOut, "\"termination_reason\": \"stalled\"") || strings.Contains(jsonOut, "next steps:") {
+		t.Fatalf("--json did not print the raw structure:\n%s", jsonOut)
 	}
 }
