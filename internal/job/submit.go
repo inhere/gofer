@@ -296,9 +296,14 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 				return JobResult{}, fmt.Errorf("%w: session requires an acp-agent", ErrInvalidRequest)
 			}
 		}
-		if req.IdleTimeoutSec == 0 {
+		if req.Hosted && (req.IdleTimeoutSec > 0 || req.MaxSessionSec > 0) {
+			return JobResult{}, fmt.Errorf("%w: a hosted session has no idle timeout or maximum length", ErrInvalidRequest)
+		}
+		if req.IdleTimeoutSec == 0 && !req.Hosted {
 			req.IdleTimeoutSec = 1800
 		}
+	} else if req.Hosted {
+		return JobResult{}, fmt.Errorf("%w: hosted requires a persistent session (session)", ErrInvalidRequest)
 	}
 	// SUP-01 C: a todo-attached submit resolves its plan from the todo (and refuses a
 	// contradiction) BEFORE anything is persisted, so a bad linkage is a rejected

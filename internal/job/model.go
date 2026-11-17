@@ -132,6 +132,10 @@ type JobRequest struct {
 	Session        bool `json:"session,omitempty" yaml:"session,omitempty"`
 	IdleTimeoutSec int  `json:"idle_timeout_sec,omitempty" yaml:"idle_timeout_sec,omitempty"`
 	MaxSessionSec  int  `json:"max_session_sec,omitempty" yaml:"max_session_sec,omitempty"`
+	// Hosted makes a persistent session (Session) one that is never ended for being idle
+	// and has no maximum length: it ends only when someone ends it, the agent exits or
+	// it fails. Submit refuses it without Session or together with an idle or max limit.
+	Hosted bool `json:"hosted,omitempty" yaml:"hosted,omitempty"`
 	// Messenger is an internal worker dispatch hint. Cmd remains populated so a
 	// v13 worker executes the marked one-shot fallback while v14 handles this
 	// payload with its resident process.
