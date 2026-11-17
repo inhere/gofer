@@ -84,3 +84,16 @@
 - 通知：另起一个 job 带 `--notify-session <会话 job id>`，结束后会话里出现结果一轮；会话正在跑时，结束后再送达。
 - 显示：worker 上等目录锁的 job 在列表显示「等目录锁」。
 - 反向验证：去掉 pending_interaction 领回、去掉排空排除、去掉重新派发，对应用例失败。
+
+## 实施记录（2026-11-18）
+
+- 已实现：§1–§5 全部。A 链（并发与协议）合入 570c6aa0，B 链（入口、通知、文档）合入 40b2f149；底座 61ffe8d5。协议升 v32（dispatch 帧 `hosted`、结果帧 `session_end_reason`），托管会话派给低于 v32 的 worker 时拒绝提交。
+- 与设计的出入：
+  - 重新派发只对「有 agent 会话 id、不带 worktree / `ref`、不是 pty / messenger」的会话做；hub 解析不到的 agent（worker 独有）视为可接回，由 worker 判定；`job_recover_window_sec: 0` 时不重派。
+  - 新进程先注册、旧连接后断时，旧连接上的 job 立即按「worker 重启」处理，不再等恢复窗口（非会话 job 立即失败，文案仍是 worker lost）。
+  - worker 排空只在对端 hub 为 v32 及以上时排除空闲可接回会话；「可接回」取 ACP initialize 声明的 `loadSession`。
+  - 时间线提示用 `acp.jsonl` 的 `session_note` 行（`session_restarted` / `turn_interrupted_worker_restart`），新增 job 事件 `session.turn_interrupted`。
+  - `--notify-session <job-id>` 只允许目标会话自己的调用方；复用子 job 回执的唤醒行，回执文案改为同时适用两种来源。
+  - 审查补修：恢复窗口不再判失败正在重派的会话（ae87f233）；会话接回后清掉 `recovering:` 说明（2f94f974）；新建会话首次打开默认在线容器 worker（1a425682）。
+- 未做（跟进 issue）：web job 详情的会话通知下拉（gofer-j2ak）、工作台线程托管标记（gofer-zc8m）、实时流显示重启提示（gofer-glqw）、等锁占用者显示 worker 本地 id（gofer-dhis）。
+- 验收：容器 worker 上 worker 进程重启与 `worker upgrade`（6.9s，不等排空）后会话同一 job id 接回并继续对话；serve 被杀后停在提问上的本机会话接回、提问显示失效；`--notify-session` 结果作为一轮送达。
