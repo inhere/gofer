@@ -87,7 +87,7 @@ var continuationFieldClasses = map[string]string{
 	"SourceSessionID": fieldTodo, "Notify": fieldTodo, "NotifySession": fieldTodo, "NotifyDegradable": fieldTodo,
 	"FallbackAgents": fieldTodo, "AgentArgs": fieldTodo, "FromSession": fieldTodo, "Skills": fieldTodo, "NoSkills": fieldTodo,
 	"NoMCP": fieldTodo, "MCPResolved": fieldTodo, "MCPSpecs": fieldTodo, "Uploads": fieldTodo, "Collect": fieldTodo,
-	"Session": fieldTodo, "IdleTimeoutSec": fieldTodo, "MaxSessionSec": fieldTodo, "Interactive": fieldTodo,
+	"Session": fieldTodo, "IdleTimeoutSec": fieldTodo, "MaxSessionSec": fieldTodo, "Hosted": fieldTodo, "Interactive": fieldTodo,
 	// the receipt switches a job credential's submit may carry ride the item's request
 	// like any other caller field.
 	"NoParentWake": fieldTodo, "ParentWakeEvents": fieldTodo,
