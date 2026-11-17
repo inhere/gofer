@@ -63,8 +63,9 @@ func TestStewardJobGetsStewardCredentialAndMCP(t *testing.T) {
 
 	plain := stewardSession(t, s, false)
 	plog := readJobLog(t, plain, store.StderrFile)
-	if !strings.Contains(plog, "mcp_servers=0") || envLine(plog, "GOFER_STEWARD") != "" {
-		t.Fatalf("an ordinary session job must get neither MCP nor the steward marker: %s", plog)
+	// An ordinary resident session gets the narrow gofer_ask MCP (R1), never the steward's.
+	if !strings.Contains(plog, "mcp_servers=1") || envLine(plog, "GOFER_STEWARD") != "" {
+		t.Fatalf("an ordinary session job must get only the gofer_ask MCP and no steward marker: %s", plog)
 	}
 	pl, ok := s.LookupJobToken(envLine(plog, EnvJobToken))
 	if !ok || pl.Kind != jobstore.JobCredentialMember {

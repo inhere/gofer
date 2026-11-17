@@ -171,3 +171,18 @@ func TestAgentBudgetOnTheWire(t *testing.T) {
 		t.Fatal("raising the protocol must not drop the budget floor")
 	}
 }
+
+func TestDispatchPermissionTierIsAdditiveAndGated(t *testing.T) {
+	b, _ := json.Marshal(Dispatch{JobID: "j1", PermissionTier: "strict"})
+	var back Dispatch
+	if err := json.Unmarshal(b, &back); err != nil || back.PermissionTier != "strict" {
+		t.Fatalf("round trip: %q %v", back.PermissionTier, err)
+	}
+	if plain, _ := json.Marshal(Dispatch{JobID: "j2"}); strings.Contains(string(plain), "permission_tier") {
+		t.Fatalf("plain dispatch grew permission_tier: %s", plain)
+	}
+	if SupportsPermissionTier(PermissionTierMinProtocolVersion-1) || !SupportsPermissionTier(PermissionTierMinProtocolVersion) ||
+		PermissionTierMinProtocolVersion != 31 || CurrentProtocolVersion < PermissionTierMinProtocolVersion {
+		t.Fatal("permission tier floor must be v31 and not above the current version")
+	}
+}

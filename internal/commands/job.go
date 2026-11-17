@@ -77,6 +77,7 @@ type jobRunFlags struct {
 	worktreeBranch  string
 	review          bool
 	readOnly        bool
+	permissionTier  string
 	model           string
 	fromSession     string
 	budget          budgetFlags
@@ -1508,6 +1509,7 @@ func bindJobRunFlags(c *gcli.Command) {
 	c.StrOpt2(&jobRunOpts.role, "role", "role preset: fills agent/system_prompt/project/tags when unset", jobRunOptCategory("Execution", ""))
 	c.StrOpt2(&jobRunOpts.systemPrompt, "system-prompt", "resident system prompt injected via the agent (advanced; overrides role's)", jobRunOptCategory("Execution", ""))
 	// N1 §B：指定模型（cli-agent 渲染 model_args，acp-agent 走协议；不给 = agent 自身默认）。
+	c.StrOpt2(&jobRunOpts.permissionTier, "permission-tier", "acp-agent approval tier: auto (as configured, default) | ask | strict; it only tightens the project's approval gate and switches the agent to its acp.modes.ask mode when it has one", jobRunOptCategory("Execution", ""))
 	c.StrOpt2(&jobRunOpts.model, "model", "model for the agent (cli-agent: its model_args, built in for claude/codex; acp-agent: picked over the protocol); default = the agent's own", jobRunOptCategory("Execution", ""))
 	// gofer-f4z8：开一个继承旧会话上下文的【新】会话（agent 需配 from_session_args；与 resume 互斥）。
 	c.StrOpt2(&jobRunOpts.fromSession, "from-session", "start a NEW agent session that inherits this earlier session's context (cli-agent with from_session_args, e.g. suag --from); unlike `job resume` the source session is not continued", jobRunOptCategory("Execution", ""))
@@ -2425,16 +2427,17 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		// gofer-3db4: who to tell when this job ends (--notify / --notify-session, the
 		// latter implying the former). Resolved above, so a --notify with nobody to tell
 		// fails before a job exists.
-		Notify:        notify,
-		NotifySession: notifySession,
-		TodoID:        jobRunOpts.todo,
-		IssueID:       jobRunOpts.issue,
-		TrackerID:     trackerID,
-		Interactive:   jobRunOpts.interactive,
-		ReadOnly:      jobRunOpts.readOnly,
-		Model:         strings.TrimSpace(jobRunOpts.model),
-		FromSession:   strings.TrimSpace(jobRunOpts.fromSession),
-		Budget:        budget,
+		Notify:         notify,
+		NotifySession:  notifySession,
+		TodoID:         jobRunOpts.todo,
+		IssueID:        jobRunOpts.issue,
+		TrackerID:      trackerID,
+		Interactive:    jobRunOpts.interactive,
+		ReadOnly:       jobRunOpts.readOnly,
+		PermissionTier: strings.TrimSpace(jobRunOpts.permissionTier),
+		Model:          strings.TrimSpace(jobRunOpts.model),
+		FromSession:    strings.TrimSpace(jobRunOpts.fromSession),
+		Budget:         budget,
 		// JOB-11：同 cwd 独占决策（nil = 交给 server 的默认规则）。
 		ExclusiveDir: exclusive,
 		// AUTO-05：停滞窗口（nil = 交给 server 按 request > agent > server 解析）。

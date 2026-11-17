@@ -63,6 +63,8 @@ type stubJobs struct {
 	// carries and the caller's --no-rules.
 	gotEnv     map[string]string
 	gotNoRules bool
+	// gotPermissionTier captures the dispatch's permission tier as the worker's local Submit saw it.
+	gotPermissionTier string
 
 	// interactions returned by GetInteractions (drives the worker→hub open bridge).
 	interactions []job.Interaction
@@ -83,6 +85,7 @@ func (s *stubJobs) Submit(req job.JobRequest) (job.JobResult, error) {
 	s.gotInteractive = req.Interactive
 	s.gotCols, s.gotRows = req.Cols, req.Rows
 	s.gotEnv, s.gotNoRules = req.Env, req.NoRules
+	s.gotPermissionTier = req.PermissionTier
 	s.mu.Unlock()
 	if s.submitErr != nil {
 		return job.JobResult{}, s.submitErr
@@ -480,6 +483,28 @@ func TestHandleDispatchInteractiveProjection(t *testing.T) {
 	jobs.mu.Unlock()
 	if !gotI || gotC != 120 || gotR != 40 {
 		t.Fatalf("Submit projection = interactive:%v cols:%d rows:%d, want true/120/40", gotI, gotC, gotR)
+	}
+}
+
+// TestHandleDispatchCarriesPermissionTier: the hub's permission tier reaches the worker's own
+// local Submit, where effectiveApproval tightens the worker's approval gate with it.
+func TestHandleDispatchCarriesPermissionTier(t *testing.T) {
+	jobs := &stubJobs{
+		submitID:   "local-1",
+		waitResult: job.JobResult{Status: job.StatusDone, ExitCode: 0},
+		waitOK:     true,
+	}
+	cl, frames, url := dialLiveClient(t, jobs)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cl.handleDispatch(ctx, url, wsproto.Dispatch{JobID: "d1", PermissionTier: "strict"})
+	waitForResult(t, frames, "d1")
+	jobs.mu.Lock()
+	got := jobs.gotPermissionTier
+	jobs.mu.Unlock()
+	if got != "strict" {
+		t.Fatalf("local Submit permission tier = %q, want strict", got)
 	}
 }
 

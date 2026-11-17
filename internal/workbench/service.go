@@ -1059,23 +1059,7 @@ func addUsage(total **Usage, usage *job.Usage) {
 }
 
 func interactionFromRecord(rec jobstore.InteractionRecord) job.Interaction {
-	var options []job.InteractionOption
-	if rec.OptionsJSON != "" {
-		_ = json.Unmarshal([]byte(rec.OptionsJSON), &options)
-	}
-	var toolCall *job.InteractionToolCall
-	if rec.ToolCallJSON != "" {
-		var value job.InteractionToolCall
-		if json.Unmarshal([]byte(rec.ToolCallJSON), &value) == nil {
-			toolCall = &value
-		}
-	}
-	return job.Interaction{
-		ID: rec.ID, JobID: rec.JobID, Type: rec.Type, Prompt: rec.Prompt, Options: options,
-		Status: rec.Status, Answer: rec.Answer, CreatedAt: rec.CreatedAt, AnsweredAt: rec.AnsweredAt,
-		ToolCall: toolCall, PolicyHint: rec.PolicyHint, ExpiresAt: rec.ExpiresAt,
-		AnsweredBy: rec.AnsweredBy, NeedsHuman: rec.NeedsHuman,
-	}
+	return job.InteractionFromRecord(rec)
 }
 
 func recordWaitAt(rec jobstore.JobRecord) int64 {

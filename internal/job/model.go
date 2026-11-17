@@ -168,6 +168,11 @@ type JobRequest struct {
 	// persisted (jobs.read_only) and inherited by a resume — a continuation cannot be
 	// upgraded to writable, only a new job can.
 	ReadOnly bool `json:"read_only,omitempty" yaml:"read_only,omitempty"`
+	// PermissionTier (auto|ask|strict; "" = auto) tightens an acp-agent job's approval gate
+	// and switches the agent to its acp.modes.ask mode when it has one. It only ever
+	// TIGHTENS what the project / agent policy already imposes (see permission_tier.go).
+	// Persisted in request_json, so a continuation keeps it.
+	PermissionTier string `json:"permission_tier,omitempty" yaml:"permission_tier,omitempty"`
 	// Review (GATE-01 S3) asks for人工验收: when the agent finishes NORMALLY (done),
 	// the job parks in `needs_review` instead of done until a HUMAN accepts (→done)
 	// or rejects (→rejected) it — an agent never signs off its own work. Set by

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"net/http"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/gookit/rux/v2"
 
@@ -17,7 +19,17 @@ type createInteractionReq struct {
 	Type    string                  `json:"type"`
 	Prompt  string                  `json:"prompt"`
 	Options []job.InteractionOption `json:"options,omitempty"`
+	// Multi / AllowOther / Recommended extend a choice interaction (see job.Interaction).
+	Multi       bool   `json:"multi,omitempty"`
+	AllowOther  bool   `json:"allow_other,omitempty"`
+	Recommended string `json:"recommended,omitempty"`
+	// TimeoutSec is how long the question may stay open (non-permission types only): the
+	// server cancels the interaction at the deadline. 0 = no deadline.
+	TimeoutSec int `json:"timeout_sec,omitempty"`
 }
+
+// maxInteractionTimeoutSec caps timeout_sec (one day).
+const maxInteractionTimeoutSec = 86400
 
 // answerInteractionReq is the POST body for answering an interaction. An empty
 // answer is allowed (e.g. an explicit empty confirmation), so this never fails
@@ -41,15 +53,35 @@ func (s *Server) handleCreateInteraction(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
 		return
 	}
-	if res, ok := s.jobForAccess(id); ok && !s.mayManageJob(c, res, false) {
+	if jc, isJob := jobCallerFromCtx(c); isJob {
+		// A job credential opens an interaction on ITSELF only (gofer_ask), and never an
+		// approval gate request: permissions are the runner's to raise, not the agent's.
+		if !s.jobMayUseInteractions(c, id) {
+			return
+		}
+		if strings.TrimSpace(req.Type) == job.InteractionTypePermission {
+			writeError(c, http.StatusForbidden, "job credential may not open a permission interaction",
+				"a "+jc.describe()+" may raise question / choice / confirmation interactions only")
+			return
+		}
+	} else if res, ok := s.jobForAccess(id); ok && !s.mayManageJob(c, res, false) {
 		s.denyJobAction(c, authz.PermJobManageOthers)
 		return
 	}
 
+	var expiresAt int64
+	if req.TimeoutSec > 0 && strings.TrimSpace(req.Type) != job.InteractionTypePermission {
+		expiresAt = time.Now().Add(time.Duration(min(req.TimeoutSec, maxInteractionTimeoutSec)) * time.Second).Unix()
+	}
+
 	it, err := s.jobs.CreateInteraction(id, job.InteractionInput{
-		Type:    req.Type,
-		Prompt:  req.Prompt,
-		Options: req.Options,
+		ExpiresAt:   expiresAt,
+		Type:        req.Type,
+		Prompt:      req.Prompt,
+		Options:     req.Options,
+		Multi:       req.Multi,
+		AllowOther:  req.AllowOther,
+		Recommended: req.Recommended,
 	})
 	if err != nil {
 		writeError(c, interactionStatus(err), "create interaction failed", err.Error())
@@ -77,7 +109,12 @@ func (s *Server) handleListInteractions(c *rux.Context) {
 		writeError(c, http.StatusNotFound, "unknown job", "no job with id "+id)
 		return
 	}
-	if !s.mayReadJob(c, res) {
+	if _, isJob := jobCallerFromCtx(c); isJob {
+		// A job credential reads its OWN job's interactions (gofer_ask polls them).
+		if !s.jobMayUseInteractions(c, id) {
+			return
+		}
+	} else if !s.mayReadJob(c, res) {
 		s.denyJobAction(c, authz.PermJobReadOthers)
 		return
 	}

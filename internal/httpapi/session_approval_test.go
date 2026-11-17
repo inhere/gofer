@@ -42,3 +42,31 @@ func TestCreateJobRefusesSessionApproval(t *testing.T) {
 		t.Fatalf("markdown status = %d, want %d", mdResp.StatusCode, http.StatusBadRequest)
 	}
 }
+
+// permission_tier is the caller's only gate knob and it only tightens: an acp-agent-only
+// value on another agent kind is refused at admission (400, naming the field), and sending
+// it next to a session_approval does not make the latter acceptable.
+func TestCreateJobPermissionTierIsValidatedAndSessionApprovalStillRefused(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, testToken, false)
+	resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, map[string]any{
+		"project_key": "self", "agent": "exec", "runner": "local",
+		"cmd": []string{"go", "version"}, "cwd": ".", "permission_tier": "ask",
+	})
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(body), "permission_tier") {
+		t.Fatalf("ask on an exec agent: status = %d body = %s, want 400 naming permission_tier", resp.StatusCode, body)
+	}
+
+	resp = do(t, s, http.MethodPost, "/v1/jobs", testToken, map[string]any{
+		"project_key": "self", "agent": "exec", "runner": "local",
+		"cmd": []string{"go", "version"}, "cwd": ".", "permission_tier": "ask",
+		"session_approval": map[string]any{"mode": "off"},
+	})
+	body, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(body), "session_approval") {
+		t.Fatalf("session_approval next to a tier: status = %d body = %s, want the session_approval refusal", resp.StatusCode, body)
+	}
+}

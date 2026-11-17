@@ -122,6 +122,9 @@ func (s *Service) resumeLocalSession(rec jobstore.JobRecord) error {
 	if request.MailResident {
 		applyMailResidentRun(&runReq)
 	}
+	if wantsGoferAsk(request) {
+		applyGoferAskRun(&runReq)
+	}
 	runReq.ACP.LoadSessionID = rec.SessionID
 	runReq.ACP.AppendEvents = true
 	s.configureResidentACP(entry, runReq.ACP, rec.TimeoutSec)

@@ -32,3 +32,19 @@ func TestDispatchEnvAndRefProtocolGate(t *testing.T) {
 		t.Fatalf("lacks = %v, want none for a plain job", got)
 	}
 }
+
+// TestDispatchPermissionTierProtocolGate: a worker below v31 would drop the tier and run the
+// job under its own, possibly looser, approval gate, so it is REFUSED with the capability
+// named; v31 carries it; a job without a tier is never refused.
+func TestDispatchPermissionTierProtocolGate(t *testing.T) {
+	f := &runner.Forward{PermissionTier: "ask"}
+	if got := unsupportedDispatchFields(wsproto.PermissionTierMinProtocolVersion-1, f); len(got) != 1 || got[0] != "permission_tier" {
+		t.Fatalf("lacks = %v, want [permission_tier] for an older worker", got)
+	}
+	if got := unsupportedDispatchFields(wsproto.PermissionTierMinProtocolVersion, f); len(got) != 0 {
+		t.Fatalf("lacks = %v, want none at v%d", got, wsproto.PermissionTierMinProtocolVersion)
+	}
+	if got := unsupportedDispatchFields(wsproto.PermissionTierMinProtocolVersion-1, &runner.Forward{}); len(got) != 0 {
+		t.Fatalf("lacks = %v, want none without a tier", got)
+	}
+}

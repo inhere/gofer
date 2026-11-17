@@ -350,6 +350,11 @@ type ACPRequest struct {
 	// agent maps none. When the session reports availableModes and this id is not
 	// among them, the run fails instead of prompting in a writable mode.
 	ReadOnlyModeID string
+	// SessionModeID, when non-empty and no ReadOnlyModeID is set, switches the session into
+	// this agent mode before the prompt turn exactly like ReadOnlyModeID does (the job's
+	// permission tier maps to the agent's acp.modes.ask). The same rule applies: an id the
+	// agent does not offer fails the run instead of being guessed past.
+	SessionModeID string
 	// LogThoughts keeps the agent's thinking in the job's logs (bd h-aii-7kja ②):
 	// true (the default) writes the coalesced thought line to stderr and acp.jsonl,
 	// false keeps the run's logs free of it. config.ACPConfig.LogsThoughts is the
@@ -571,6 +576,9 @@ type Forward struct {
 	// executor validates it against ITS agent config, so an agent without a read-only
 	// mode fails there with the explanation the host could not have produced.
 	ReadOnly bool
+	// PermissionTier is the job's approval tier (auto|ask|strict), applied by the executor's
+	// own approval gate; "" = as configured.
+	PermissionTier string
 	// NoRules is the caller's `--no-rules`: the executing machine must not add the
 	// sections it renders itself (its declared tools, CFG-16). The rules were already
 	// decided — and skipped — by the submitting machine.

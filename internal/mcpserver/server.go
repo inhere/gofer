@@ -75,6 +75,14 @@ func newServer(b Backend, scoped string) *mcp.Server {
 		registerStewardTools(s, b)
 		return s
 	}
+	// gofer_ask: a resident session's own gofer MCP carries only the question tool; the
+	// resident mailbox session keeps its full surface and gains it.
+	if mailResidentMode() {
+		registerGoferAsk(s, b)
+	} else if goferAskMode() {
+		registerGoferAsk(s, b)
+		return s
+	}
 
 	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_list_projects",
@@ -813,6 +821,9 @@ type runJobInput struct {
 	// (cli-agent read_only_args / acp-agent acp.modes.read_only); otherwise the submit
 	// is refused.
 	ReadOnly bool `json:"read_only,omitempty"`
+	// PermissionTier (auto|ask|strict) tightens an acp-agent job's approval gate; it only
+	// ever tightens what the project policy already imposes.
+	PermissionTier string `json:"permission_tier,omitempty"`
 	// Verify is the job's verification step (SUP-01 B): an argv run AFTER the agent
 	// finishes normally, on the executing machine and in the job's cwd/env. A
 	// non-zero exit fails the job — it is the acceptance an agent's own report cannot
@@ -932,9 +943,10 @@ func runJobHandler(b Backend, scoped string) mcp.ToolHandlerFor[runJobInput, job
 			Role:         in.Role,
 			SystemPrompt: in.SystemPrompt,
 			// 提交来源（provenance）：MCP 渠道 + MCP server 所在主机名。
-			Channel:  "mcp",
-			Client:   mcpHostname(),
-			ReadOnly: in.ReadOnly,
+			Channel:        "mcp",
+			Client:         mcpHostname(),
+			ReadOnly:       in.ReadOnly,
+			PermissionTier: in.PermissionTier,
 			// SUP-01 P2：验证步骤（argv + 独立超时）+ 关闭项目默认的开关。
 			Verify:           in.Verify,
 			VerifyTimeoutSec: in.VerifyTimeoutSec,

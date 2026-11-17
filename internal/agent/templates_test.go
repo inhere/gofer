@@ -65,7 +65,7 @@ func TestBuiltinTemplatesTable(t *testing.T) {
 			// settings file, not from gofer's environment, so the template opts into
 			// inheriting that file's env block.
 			ACP: &config.ACPConfig{
-				Modes:             map[string]string{"read_only": "plan"},
+				Modes:             map[string]string{"read_only": "plan", "ask": "default"},
 				ClaudeSettingsEnv: boolRef(true),
 			},
 		},

@@ -68,7 +68,8 @@ const (
 	// PreviewMinProtocolVersion).
 	// v30 adds job-event replay after a reconnect: JobEvent.seq, ResumeJob.event_seq
 	// and ResumeJob.acp_off (see JobEventSeqMinProtocolVersion).
-	CurrentProtocolVersion = 30
+	// v31 adds the optional dispatch.permission_tier (see PermissionTierMinProtocolVersion).
+	CurrentProtocolVersion = 31
 )
 
 // UpgradeMinProtocolVersion is the first protocol version that can receive a
@@ -169,6 +170,15 @@ const StdinMinProtocolVersion = 18
 // SupportsStdin reports whether a peer that registered with protocol version proto
 // understands dispatch.stdin.
 func SupportsStdin(proto int) bool { return proto >= StdinMinProtocolVersion }
+
+// PermissionTierMinProtocolVersion is the first protocol version whose Dispatch carries
+// permission_tier (auto|ask|strict). A worker below it ignores the key and would run the
+// job under its own, possibly looser, approval gate — so the hub REFUSES such a dispatch
+// instead of downgrading it (see job.checkPermissionTierWorker).
+const PermissionTierMinProtocolVersion = 31
+
+// SupportsPermissionTier reports whether a worker understands dispatch.permission_tier.
+func SupportsPermissionTier(proto int) bool { return proto >= PermissionTierMinProtocolVersion }
 
 // ReadDirsMinProtocolVersion is the first protocol version whose Dispatch carries
 // read_dirs. An older worker would ignore the field and run without the requested
@@ -736,6 +746,10 @@ type Dispatch struct {
 	// against its OWN agent config. An OLD worker ignores the field and runs the job
 	// writable (see SessionLoadMinProtocolVersion).
 	ReadOnly bool `json:"read_only,omitempty"`
+	// PermissionTier (auto|ask|strict) is the job's approval tier; the worker passes it to
+	// its local Submit, which tightens ITS approval gate with it (never loosens). Empty =
+	// as configured. A worker below PermissionTierMinProtocolVersion is refused it.
+	PermissionTier string `json:"permission_tier,omitempty"`
 	// NoRules carries the caller's `--no-rules` ("no gofer-injected context"). The hub
 	// already applied it to the rules it rendered into Prompt; the worker needs it only
 	// to skip the section IT renders — its own declared tools (CFG-16). An old worker

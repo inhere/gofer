@@ -373,7 +373,7 @@ var routeDecls = map[string]routeDecl{
 	// (pushUserCaller: a worker token and a job credential may not keep a browser
 	// subscription); the notification's ACTION BUTTONS are the permission-gated part, and
 	// internal/webpush checks them at MINT and at REDEEM time (design §6).
-	"POST /v1/jobs/{id}/interactions":                         {user: InHandler(permDeny, authz.PermJobManageOthers), scope: Resource("job")},
+	"POST /v1/jobs/{id}/interactions":                         {user: InHandler(permDeny, authz.PermJobManageOthers), jobCred: "POST /v1/jobs/*/interactions", scope: Resource("job")},
 	"GET /v1/jobs/{id}/interactions":                          {user: InHandler(permDeny, authz.PermJobReadOthers), scope: Resource("job")},
 	"POST /v1/jobs/{id}/interactions/{interaction_id}/answer": {user: Require(authz.PermInteractionAnswer), scope: Resource("job")},
 	"POST /v1/jobs/{id}/interactions/{interaction_id}/punt":   {user: Require(authz.PermInteractionAnswer), scope: Resource("job")},

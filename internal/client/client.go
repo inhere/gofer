@@ -2476,6 +2476,30 @@ func (c *Client) GetInteractions(id string) ([]job.Interaction, error) {
 	return resp.Interactions, nil
 }
 
+// CreateInteractionRequest is the body of POST /v1/jobs/{id}/interactions. A job credential
+// opens question / choice / confirmation interactions on its own job with it (gofer_ask).
+type CreateInteractionRequest struct {
+	Type        string                  `json:"type,omitempty"`
+	Prompt      string                  `json:"prompt"`
+	Options     []job.InteractionOption `json:"options,omitempty"`
+	Multi       bool                    `json:"multi,omitempty"`
+	AllowOther  bool                    `json:"allow_other,omitempty"`
+	Recommended string                  `json:"recommended,omitempty"`
+	TimeoutSec  int                     `json:"timeout_sec,omitempty"`
+}
+
+// CreateInteraction raises an interaction on a live job (POST /v1/jobs/{id}/interactions)
+// and returns the created job.Interaction.
+func (c *Client) CreateInteraction(jobID string, req CreateInteractionRequest) (job.Interaction, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return job.Interaction{}, fmt.Errorf("encode interaction: %w", err)
+	}
+	var it job.Interaction
+	err = c.doJSON(http.MethodPost, "/v1/jobs/"+url.PathEscape(jobID)+"/interactions", bytes.NewReader(body), &it)
+	return it, err
+}
+
 // ListPendingInteractions fetches the pending interactions across all active jobs
 // (E25 监督, GET /v1/interactions?status=pending), unwrapping the
 // {"interactions":[...]} envelope. Used by the mcp client backend's
