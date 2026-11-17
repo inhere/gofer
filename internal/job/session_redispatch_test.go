@@ -45,6 +45,13 @@ func (r *restartingRunner) Run(_ context.Context, req runner.Request) runner.Res
 	return r.onRedispatch(req)
 }
 
+// forwardCount is how many runs (first dispatch + re-dispatches) have started.
+func (r *restartingRunner) forwardCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.forwards)
+}
+
 func (r *restartingRunner) forwardAt(i int) runner.Forward {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -75,12 +82,15 @@ func submitHostedWorkerSession(t *testing.T, s *Service) JobResult {
 func TestWorkerSessionReloadedAfterWorkerProcessRestart(t *testing.T) {
 	t.Parallel()
 	release := make(chan struct{})
+	var startedMu sync.Mutex
 	var started func()
 	run := &restartingRunner{
 		status: wsproto.Status{Status: StatusAwaitingInput, SessionStatus: StatusAwaitingInput, TurnNo: 3, SessionID: "agent-sess-1"},
 	}
 	run.onRedispatch = func(req runner.Request) runner.Result {
+		startedMu.Lock()
 		started = req.OnStarted
+		startedMu.Unlock()
 		<-release
 		return runner.Result{ExitCode: 0}
 	}
@@ -91,12 +101,20 @@ func TestWorkerSessionReloadedAfterWorkerProcessRestart(t *testing.T) {
 		cur, _ := s.Get(res.ID)
 		return cur.Status == StatusRecovering, cur.Status
 	})
+	// The job turns `recovering` before the re-dispatch run starts; wait for that run.
+	wait.Until(t, 10*time.Second, "re-dispatch run started", func() bool { return run.forwardCount() >= 2 })
 	f := run.forwardAt(1)
 	if f.SessionID != "agent-sess-1" || f.ResumedFrom != res.ID || f.Prompt != "" || !f.Hosted || !f.Session || f.WaitWorkerOnline <= 0 {
 		t.Fatalf("re-dispatch forward = %+v, want the same session to load, no prompt, hosted kept, a wait for the worker", f)
 	}
-	wait.Until(t, 5*time.Second, "redispatch started callback wired", func() bool { return started != nil })
-	started()
+	var onStarted func()
+	wait.Until(t, 5*time.Second, "redispatch started callback wired", func() bool {
+		startedMu.Lock()
+		defer startedMu.Unlock()
+		onStarted = started
+		return onStarted != nil
+	})
+	onStarted()
 	wait.For(t, 5*time.Second, "job back out of recovering after the worker reports started", func() (bool, any) {
 		cur, _ := s.Get(res.ID)
 		return cur.Status == StatusRunning && cur.RecoveringSince == 0 && cur.Error == "", cur
