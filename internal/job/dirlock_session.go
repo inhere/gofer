@@ -174,7 +174,12 @@ func (h *sessionDirHold) reacquire() error {
 		// awaiting_input (the person can send it again); it is never failed for this.
 		lockPathText := strings.Join(h.dirs, ", ")
 		h.s.recordEvent(h.jobID, EventJobDirWaitTimeout, map[string]any{"holder_job": holder, "dir": lockPathText, "wait_sec": h.wait, "unsent": true})
-		return &runner.TurnNotStartedError{Reason: i18n.T(h.lang(), "job.dir_wait.unsent", "holder", holder)}
+		holderText := holder
+		if holderText == "" {
+			// The wait was behind a queue rather than one named job.
+			holderText = i18n.T(h.lang(), "job.dir_wait.other_jobs")
+		}
+		return &runner.TurnNotStartedError{Reason: i18n.T(h.lang(), "job.dir_wait.unsent", "holder", holderText)}
 	}
 	if h.closed {
 		h.mu.Unlock()
