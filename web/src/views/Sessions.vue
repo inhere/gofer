@@ -13,6 +13,7 @@ import { createLiveTopic } from '../utils/useLiveTopic'
 import {
   attachWorkSession,
   downloadPtyRecording,
+  listAgentSessions,
   listRecentPtySessions,
   listWorkItems,
 } from '../api/client'
@@ -20,6 +21,7 @@ import { getMetaCached } from '../api/metaCache'
 import { listWorkbenchThreads } from '../api/workbench'
 import { fmtAgo, fmtDateTime } from '../api/time'
 import type {
+  AgentSession,
   MetaResp,
   PtySession,
   WorkItem,
@@ -38,6 +40,9 @@ import {
   historyTabs,
   type HistorySource,
 } from '../utils/sessionHistory'
+import { findQuery, findRowTarget } from '../utils/sessionFind'
+import { findSummary, hitReasons, topicDisplay } from '../utils/sessionTopic'
+import { sessionDisplayName } from '../utils/sessionMessaging'
 import { t } from '../i18n'
 import Tabs from '../ui/Tabs.vue'
 import StatusPill from '../ui/StatusPill.vue'
@@ -223,6 +228,12 @@ async function loadHistory(reset = true): Promise<void> {
 }
 
 function runSearch(): void {
+  // 「按主题 / 路径找」打开时搜索走会话查找接口（gofer session find 同一套口径），
+  // 关掉就走历史列表的服务端过滤。
+  if (findMode.value) {
+    void loadFind()
+    return
+  }
   activeQuery.value = searchInput.value
   void loadHistory()
 }
@@ -233,11 +244,65 @@ function clearSearch(): void {
 }
 
 function reload(): void {
+  if (findMode.value) {
+    void loadFind()
+    return
+  }
   void loadHistory()
 }
 
-watch([project, agentFilter, runnerFilter, statusFilter, onlyLive], () => { void loadHistory() })
+// ---------------- 按主题 / 路径找（R13 保留旧页的查找） ----------------
+//
+// 旧会话页的查找：关键词（主题 / 会话名 / 项目）或路径（如 internal/job）打 GET /v1/sessions?q=|path=，
+// 结果按服务端相关度排序、带命中原因；点一行打开该会话。合一历史页按新结构接回：入口是
+// 搜索框旁的开关，结果是一行一条（不是旧的整页卡片），终端会话仍进详情抽屉。
+const findMode = ref(false)
+const findRows = ref<AgentSession[]>([])
+const findLoading = ref(false)
+const findError = ref('')
+// 已生效的查找词：摘要文案用它，输入框继续改不影响上一轮结果的说明。
+const findText = ref('')
+
+async function loadFind(): Promise<void> {
+  const query = findQuery(searchInput.value, PAGE_SIZE, project.value)
+  findText.value = query ? searchInput.value : ''
+  if (!query) {
+    findRows.value = []
+    findError.value = ''
+    return
+  }
+  findLoading.value = true
+  try {
+    findRows.value = (await listAgentSessions(query)).sessions ?? []
+    findError.value = ''
+  } catch (e) {
+    findRows.value = []
+    findError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    findLoading.value = false
+  }
+}
+
+// 点一行：终端会话（relay）开详情抽屉；ACP / pty 有工作台线程的进那个线程。
+function openFound(row: AgentSession): void {
+  const target = findRowTarget(row.session_id, threads.value)
+  if (target.kind === 'thread') {
+    void router.push(target.link)
+    return
+  }
+  openDrawer(target.sid)
+}
+
+watch([project, agentFilter, runnerFilter, statusFilter, onlyLive], () => { void reload() })
 watch(activeTab, () => { void loadHistory() })
+// 开关切换：打开时若已经有输入就立即按查找跑一轮，关掉时回到历史列表（列表可能已过期）。
+watch(findMode, (on) => {
+  if (!on) {
+    void loadHistory()
+    return
+  }
+  if (searchInput.value.trim()) void loadFind()
+})
 
 // ---------------- 行上的动作 ----------------
 
@@ -380,14 +445,18 @@ onUnmounted(() => {
               class="find-input"
               type="search"
               data-test="find-input"
-              :placeholder="t('sessions.history.searchPlaceholder')"
-              :aria-label="t('sessions.history.searchPlaceholder')"
+              :placeholder="findMode ? t('sessions.find.placeholder') : t('sessions.history.searchPlaceholder')"
+              :aria-label="findMode ? t('sessions.find.label') : t('sessions.history.searchPlaceholder')"
             />
             <button class="act" type="submit" data-test="find-submit">{{ t('sessions.find.submit') }}</button>
+            <label class="check find-mode" :title="t('sessions.history.findHint')">
+              <input v-model="findMode" type="checkbox" data-test="find-mode" />
+              {{ t('sessions.history.findByTopic') }}
+            </label>
             <button v-if="activeQuery || searchInput" class="act" type="button" data-test="find-clear" @click="clearSearch">{{ t('sessions.find.clear') }}</button>
           </form>
 
-          <div class="filter-row">
+          <div v-if="!findMode" class="filter-row">
             <label class="filter-field">
               <span>agent</span>
               <select v-model="agentFilter" data-test="history-agent">
@@ -422,7 +491,42 @@ onUnmounted(() => {
           <p v-if="error" class="error mono">{{ error }}</p>
           <p v-if="linkError" class="error mono" data-test="link-error">{{ linkError }}</p>
 
-          <div v-if="threads.length > 0" class="icard-grid" data-test="history-cards">
+          <div v-if="findMode" class="find-results" data-test="find-results">
+            <div class="find-head">
+              <span v-if="findText.trim()" class="find-note" data-test="find-summary">{{ findSummary(findRows.length, findText) }}</span>
+              <span v-else class="find-note" data-test="find-hint">{{ t('sessions.history.findHint') }}</span>
+              <button class="act" type="button" :disabled="findLoading" data-test="find-refresh" @click="loadFind">
+                {{ findLoading ? t('sessions.refreshing') : t('sessions.refresh') }}
+              </button>
+            </div>
+            <p v-if="findError" class="error mono" data-test="find-error">{{ findError }}</p>
+            <div v-if="findRows.length > 0" class="find-list">
+              <button
+                v-for="row in findRows"
+                :key="row.session_id"
+                class="find-row"
+                type="button"
+                data-test="find-row"
+                :title="row.session_id"
+                @click="openFound(row)"
+              >
+                <span class="find-name mono" data-test="find-name">{{ sessionDisplayName(row) }}</span>
+                <span
+                  v-if="topicDisplay(row).text"
+                  class="find-topic mono"
+                  :class="{ 'find-topic--inferred': topicDisplay(row).inferred }"
+                  :title="topicDisplay(row).title || t('sessions.card.inferredTitle')"
+                  data-test="find-topic"
+                >{{ topicDisplay(row).text }}<em v-if="topicDisplay(row).inferred" class="find-topic-tag">{{ t('sessions.card.inferred') }}</em></span>
+                <span v-for="(reason, i) in hitReasons(row.hits)" :key="i" class="find-reason mono" data-test="hit-reason">{{ reason }}</span>
+                <span v-if="row.maybe_offline" class="find-reason mono" data-test="find-offline">{{ t('sessions.card.maybeOffline') }}</span>
+                <span class="find-where mono">{{ row.agent }} · {{ row.project_key || '—' }}</span>
+              </button>
+            </div>
+            <div v-else-if="!findLoading && !findError" class="empty" data-test="find-empty">{{ t('sessions.history.findEmpty') }}</div>
+          </div>
+
+          <div v-if="!findMode && threads.length > 0" class="icard-grid" data-test="history-cards">
             <InfoCard
               v-for="thread in threads"
               :key="thread.id"
@@ -533,10 +637,10 @@ onUnmounted(() => {
             </InfoCard>
           </div>
 
-          <button v-if="hasMore" class="act" type="button" :disabled="loadingMore" data-test="history-load-more" @click="loadHistory(false)">
+          <button v-if="!findMode && hasMore" class="act" type="button" :disabled="loadingMore" data-test="history-load-more" @click="loadHistory(false)">
             {{ loadingMore ? t('sessions.acp.loadingMore') : t('sessions.acp.loadMore') }}
           </button>
-          <div v-else-if="!loading && !error && threads.length === 0" class="empty">{{ t('sessions.history.empty') }}</div>
+          <div v-else-if="!findMode && !loading && !error && threads.length === 0" class="empty">{{ t('sessions.history.empty') }}</div>
         </section>
       </template>
     </Tabs>
@@ -571,6 +675,30 @@ onUnmounted(() => {
   background: var(--sunken); color: var(--ink); font-size: 12px;
 }
 .find-input:focus { outline: none; border-color: var(--accent); }
+/* 按主题 / 路径找：开关 + 一行一条的查找结果（命中原因用小胶囊）。 */
+.find-mode { flex: 0 0 auto; white-space: nowrap; }
+.find-results { display: flex; flex-direction: column; gap: 10px; margin: 0 0 12px; }
+.find-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.find-note { margin: 0; color: var(--ink-3); font-size: 12px; }
+.find-list { display: flex; flex-direction: column; gap: 6px; }
+.find-row {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  width: 100%; text-align: left; cursor: pointer;
+  padding: 8px 10px;
+  background: var(--sunken); color: var(--ink);
+  border: 1px solid var(--line); border-radius: var(--r-chip);
+  font-size: 12px;
+}
+.find-row:hover { border-color: var(--accent); }
+.find-name { color: var(--ink); overflow-wrap: anywhere; }
+.find-topic { color: var(--ink-2); overflow-wrap: anywhere; }
+.find-topic--inferred { color: var(--ink-3); font-style: italic; }
+.find-topic-tag { margin-left: 4px; font-size: 10px; font-style: normal; color: var(--ink-3); }
+.find-reason {
+  border: 1px solid var(--line); border-radius: 9px; padding: 0 7px;
+  font-size: 10px; color: var(--ink-3);
+}
+.find-where { margin-left: auto; color: var(--ink-3); }
 .filter-row {
   display: flex;
   align-items: center;
@@ -631,6 +759,7 @@ onUnmounted(() => {
 }
 @media (max-width: 760px) {
   .find-input { font-size: 16px; }
+  .find-where { margin-left: 0; }
   .board-head { flex-wrap: wrap; gap: 8px; }
   .filter-row { gap: 8px; }
 }

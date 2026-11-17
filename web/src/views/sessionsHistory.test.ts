@@ -243,3 +243,62 @@ describe('continue an ended session', () => {
     await expect(continueThread({ latest_job_id: undefined })).rejects.toThrow()
   })
 })
+
+// ---------------- 按主题 / 路径找（旧页的查找在这个页上保留） ----------------
+//
+// 口径的单测在 utils/sessionFind.test.ts；这里钉住页面接线（本仓库的组件测试不引
+// @vue/test-utils，与 mailWiring.test.ts 同法读源文件）：开关 → 会话查找接口，
+// 结果行显示会话名 / 主题 / 命中原因，点行打开该会话。
+const RAW = import.meta.glob(['./Sessions.vue', '../utils/sessionFind.ts'], {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+}) as Record<string, string>
+
+function src(name: string): string {
+  const key = Object.keys(RAW).find((path) => path.endsWith(name))
+  if (!key) throw new Error(`missing ${name}`)
+  return RAW[key]
+}
+
+describe('sessions page: find by topic / path', () => {
+  it('switches the search box to the session find request when the toggle is on', () => {
+    const page = src('Sessions.vue')
+    // 搜索框旁的开关（i18n 文案 + 说明来自字典）。
+    expect(page).toContain('data-test="find-mode"')
+    expect(page).toContain('v-model="findMode"')
+    expect(page).toContain("t('sessions.history.findByTopic')")
+    expect(page).toContain("t('sessions.history.findHint')")
+    // 开关打开时用既有查找接口（GET /v1/sessions?q=|path=），不是历史列表的 q。
+    expect(page).toContain('listAgentSessions(')
+    expect(page).toContain('findQuery(searchInput.value, PAGE_SIZE, project.value)')
+    expect(page).toContain('if (findMode.value)')
+    expect(src('sessionFind.ts')).toContain('buildFindParams(')
+  })
+
+  it('renders one row per hit with its name, topic and reason', () => {
+    const page = src('Sessions.vue')
+    const block = page.slice(page.indexOf('data-test="find-results"'), page.indexOf('data-test="history-cards"'))
+    expect(block).toContain('data-test="find-row"')
+    expect(block).toContain('sessionDisplayName(row)')
+    expect(block).toContain('topicDisplay(row)')
+    expect(block).toContain('data-test="find-topic"')
+    expect(block).toContain('hitReasons(row.hits)')
+    expect(block).toContain('data-test="hit-reason"')
+    expect(block).toContain('findSummary(findRows.length, findText)')
+    // 不恢复旧的整页卡片渲染：查找结果是一行一条（卡片仍只归历史列表）。
+    expect(block).toContain('class="find-row"')
+    expect(block).not.toContain('InfoCard')
+  })
+
+  it('opens the row: terminal sessions in the drawer, acp / pty in the workbench', () => {
+    const page = src('Sessions.vue')
+    expect(page).toContain('@click="openFound(row)"')
+    expect(page).toContain('findRowTarget(row.session_id, threads.value)')
+    expect(page).toContain('openDrawer(target.sid)')
+    expect(page).toContain('router.push(target.link)')
+    // 关掉开关回到历史列表，查找错误在结果区单独提示（不串到列表的 error）。
+    expect(page).toContain('data-test="find-error"')
+    expect(page).toContain('data-test="find-empty"')
+  })
+})
