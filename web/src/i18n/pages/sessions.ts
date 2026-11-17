@@ -147,15 +147,9 @@ export const sessions: PageDict = {
     // 终端工具授权请求（components/SessionPermissionPrompt.vue）
     'sessions.perm.waiting': '等你回答',
     'sessions.perm.needsGrant': '需要授权',
-    'sessions.perm.multi': '（可多选）',
     'sessions.perm.other': '其他（自由填写，填了以它为准）',
-    'sessions.perm.submit': '提交回答',
     'sessions.perm.questionHint': '终端在等这些回答；提交后 agent 直接拿到答案继续。',
-    'sessions.perm.hideInput': '收起参数',
-    'sessions.perm.showInput': '查看参数',
-    'sessions.perm.denyNote': '附原因拒绝',
     'sessions.perm.denyReasonPlaceholder': '拒绝原因（会告诉 agent）',
-    'sessions.perm.denyButton': '拒绝',
     'sessions.perm.hint': '终端里的授权对话框同时在等；先答的一方生效。',
 
     // 会话临时授权弹窗（components/SessionGrantDialog.vue）
@@ -490,15 +484,9 @@ export const sessions: PageDict = {
 
     'sessions.perm.waiting': 'Waiting for your answer',
     'sessions.perm.needsGrant': 'Permission needed',
-    'sessions.perm.multi': ' (multiple answers allowed)',
     'sessions.perm.other': 'Other (free text; takes precedence)',
-    'sessions.perm.submit': 'Submit answers',
     'sessions.perm.questionHint': 'The terminal is waiting for these answers; once submitted the agent gets them and continues.',
-    'sessions.perm.hideInput': 'Hide the parameters',
-    'sessions.perm.showInput': 'Show the parameters',
-    'sessions.perm.denyNote': 'Deny with a reason',
     'sessions.perm.denyReasonPlaceholder': 'Reason for denying (shown to the agent)',
-    'sessions.perm.denyButton': 'Deny',
     'sessions.perm.hint': 'The permission dialog in the terminal is waiting too; whichever answers first wins.',
 
     'sessions.grant.title': 'Grant this session',

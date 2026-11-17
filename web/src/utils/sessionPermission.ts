@@ -75,13 +75,20 @@ export function questionAnswer(
 // 已作答的选择题：「问题 → 答案」逐行。
 export function questionAnswerText(d: Decision): string {
   const a = (d.answer ?? '').trim()
-  if (!a.startsWith('answers:')) return a
+  const m = questionAnswerRecord(d)
+  if (!m) return a
+  return Object.entries(m)
+    .map(([q, v]) => `${q} → ${v}`)
+    .join('\n')
+}
+
+// 已作答的选择题：问题 → 答案的原文（answers:<JSON> 的形状；不是这个形状或解析失败返回 null）。
+export function questionAnswerRecord(d: Decision): Record<string, string> | null {
+  const a = (d.answer ?? '').trim()
+  if (!a.startsWith('answers:')) return null
   try {
-    const m = JSON.parse(a.slice('answers:'.length)) as Record<string, string>
-    return Object.entries(m)
-      .map(([q, v]) => `${q} → ${v}`)
-      .join('\n')
+    return JSON.parse(a.slice('answers:'.length)) as Record<string, string>
   } catch {
-    return a
+    return null
   }
 }
