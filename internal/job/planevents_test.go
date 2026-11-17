@@ -394,3 +394,86 @@ func TestPlanSweepLinksFinishedDoneJob(t *testing.T) {
 		t.Fatalf("jobs of the second item = %d (err %v), want exactly 1", len(recs), err)
 	}
 }
+
+// TestPlanEventSerialPerPlan pins the per-plan serialisation itself (the duplicate and
+// concurrency tests above are also satisfied by the store's own state checks): while one
+// event of a plan is being processed, no other event of that plan enters processing, yet
+// another plan's event is not held up.
+func TestPlanEventSerialPerPlan(t *testing.T) {
+	t.Parallel()
+	s := newChainService(t, t.TempDir())
+	seedChain(t, s, "plan-ser-a", chainTodo("todo-sa", "only", "ok"))
+	seedChain(t, s, "plan-ser-b", chainTodo("todo-sb", "only", "ok"))
+
+	var mu sync.Mutex
+	active := map[string]int{}
+	maxActive := map[string]int{}
+	entered := map[string]int{}
+	release := make(chan struct{})
+	s.planEventHook = func(ev PlanEvent) func() {
+		mu.Lock()
+		active[ev.PlanID]++
+		entered[ev.PlanID]++
+		if active[ev.PlanID] > maxActive[ev.PlanID] {
+			maxActive[ev.PlanID] = active[ev.PlanID]
+		}
+		mu.Unlock()
+		<-release // hold the event "in processing" until the test lets go
+		return func() {
+			mu.Lock()
+			active[ev.PlanID]--
+			mu.Unlock()
+		}
+	}
+	read := func(m map[string]int, k string) int {
+		mu.Lock()
+		defer mu.Unlock()
+		return m[k]
+	}
+
+	var all sync.WaitGroup
+	fire := func(planID string) {
+		all.Add(1)
+		go func() {
+			defer all.Done()
+			s.emitPlanEvent(PlanEvent{PlanID: planID, Kind: PlanEventAdvance, By: "alice"}, nil)
+		}()
+	}
+	fire("plan-ser-a")
+	wait.Until(t, 10*time.Second, "first plan-a event in processing", func() bool { return read(entered, "plan-ser-a") == 1 })
+
+	// Further events of the same plan: with the gate they queue and their callers return;
+	// without it they would enter processing next to the held one.
+	var others sync.WaitGroup
+	for i := 0; i < 3; i++ {
+		others.Add(1)
+		go func() {
+			defer others.Done()
+			s.emitPlanEvent(PlanEvent{PlanID: "plan-ser-a", Kind: PlanEventAdvance, By: "alice"}, nil)
+		}()
+	}
+	returned := make(chan struct{})
+	go func() { others.Wait(); close(returned) }()
+	wait.Until(t, 10*time.Second, "other plan-a callers returned or overlapped", func() bool {
+		select {
+		case <-returned:
+			return true
+		default:
+		}
+		return read(maxActive, "plan-ser-a") > 1
+	})
+
+	// Another plan is not held up by plan-a's blocked handler.
+	fire("plan-ser-b")
+	wait.Until(t, 10*time.Second, "plan-b event enters while plan-a is held", func() bool { return read(entered, "plan-ser-b") == 1 })
+
+	close(release)
+	all.Wait()
+	others.Wait()
+	if got := read(maxActive, "plan-ser-a"); got != 1 {
+		t.Fatalf("plan-a events processed concurrently: max active = %d, want 1", got)
+	}
+	if got := read(entered, "plan-ser-a"); got != 4 {
+		t.Fatalf("plan-a events processed = %d, want 4 (every queued event runs)", got)
+	}
+}

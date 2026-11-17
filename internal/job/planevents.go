@@ -207,6 +207,9 @@ func (s *Service) planEventFailed(q queuedPlanEvent, cause error) {
 }
 
 func (s *Service) processPlanEvent(q queuedPlanEvent) error {
+	if hook := s.planEventHook; hook != nil {
+		defer hook(q.ev)()
+	}
 	switch q.ev.Kind {
 	case PlanEventAdvance:
 		return s.doAdvancePlan(q.ev.PlanID, q.ev.By, false)

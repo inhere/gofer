@@ -324,6 +324,9 @@ type Service struct {
 	bg bgGroup
 	// planEvents serialises plan progression per plan (see emitPlanEvent).
 	planEvents planEventHub
+	// planEventHook is a test seam: called when a plan event starts processing, its return
+	// value when the processing ends. Nil (always, in production) costs nothing.
+	planEventHook func(PlanEvent) func()
 
 	// planDriver observes processed plan events (see plandriver_iface.go); nil = unwired.
 	planDriver PlanDriver
