@@ -23,6 +23,8 @@ export interface ACPTextEvent extends ACPEventBase {
   text: string
   // 附图（gofer-ha0x）：发出这条消息时附的图片，历史里在气泡下显示缩略图。
   attachments?: AttachmentRef[]
+  // gofer 注入的规则（R9）：服务端把 prompt 正文里的注入段拆到这里，显示时折成一行。
+  injected?: string
 }
 
 export interface ACPToolLocation {
