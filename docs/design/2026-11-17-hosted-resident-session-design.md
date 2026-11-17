@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.2.0 -->
 # 第 6 批：托管常驻会话 总设计
 
-> 状态：Draft 0.1（待批）
+> 状态：Approved（Draft 0.1；用户 2026-11-17 批准：Q1–Q5 按推荐）
 > issue：gofer-anrv（托管常驻会话）、gofer-xmit（空闲常驻会话拖住 worker 升级）、gofer-geyu（会话已死时 job 无法结束）、gofer-fj5x（worker 上等目录锁只显示 queued）
 > 关联设计：第 5 批 `2026-11-16-web-session-experience-design.md`（本批承接其「遗留」）、`2026-11-10-acp-session-history-design.md`（ACP 历史）
 
