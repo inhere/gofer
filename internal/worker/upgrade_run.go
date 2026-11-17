@@ -91,6 +91,9 @@ type Handover struct {
 type upgradeRun struct {
 	deps     UpgradeDeps
 	inflight func() int
+	// blockers names the jobs inflight counts (nil in tests that only count); an abandoned
+	// upgrade lists them so the operator knows what held it up.
+	blockers func() []string
 	hold     func(bool) // suppress (true) / allow (false) reconnecting to the hub
 	exit     func()     // graceful process exit after a successful handover
 	pid      int
@@ -102,7 +105,8 @@ type upgradeRun struct {
 func (cl *Client) newUpgradeRun(deps UpgradeDeps) *upgradeRun {
 	return &upgradeRun{
 		deps:     deps,
-		inflight: func() int { return len(cl.inflightIDs()) },
+		inflight: func() int { return len(cl.drainBlockers()) },
+		blockers: cl.drainBlockers,
 		hold:     func(v bool) { cl.holdReconnect.Store(v) },
 		exit:     cl.requestExit,
 		pid:      os.Getpid(),
@@ -257,7 +261,7 @@ func (u *upgradeRun) drain(ctx context.Context, limit time.Duration) error {
 			return nil
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("drain timed out after %s with %d job(s) still running; upgrade abandoned, worker takes jobs again", limit, n)
+			return fmt.Errorf("drain timed out after %s with %d job(s) still running%s; upgrade abandoned, worker takes jobs again", limit, n, u.blockerList())
 		}
 		select {
 		case <-ctx.Done():
@@ -265,6 +269,19 @@ func (u *upgradeRun) drain(ctx context.Context, limit time.Duration) error {
 		case <-time.After(u.poll()):
 		}
 	}
+}
+
+// blockerList renders " (job-a, job-b)" for the jobs still holding the drain, "" when the
+// run cannot name them.
+func (u *upgradeRun) blockerList() string {
+	if u.blockers == nil {
+		return ""
+	}
+	ids := u.blockers()
+	if len(ids) == 0 {
+		return ""
+	}
+	return " (" + strings.Join(ids, ", ") + ")"
 }
 
 // waitReady polls for the readiness marker the new process writes once registered.

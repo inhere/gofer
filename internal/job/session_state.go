@@ -34,6 +34,11 @@ func (s *Service) configureResidentACP(entry *jobEntry, request *runner.ACPReque
 		entry.result.SessionImages = ok
 		entry.mu.Unlock() // persisted with the OnSessionReady snapshot that follows
 	}
+	request.OnLoadCapability = func(ok bool) {
+		entry.mu.Lock()
+		entry.result.SessionLoadable = ok
+		entry.mu.Unlock()
+	}
 	request.OnSessionReady = func(id string) { s.sessionReady(entry, id) }
 	request.OnTurnStart = func() error {
 		// R8: a session that gave its directory lock back takes it again BEFORE the turn

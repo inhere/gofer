@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -111,6 +112,19 @@ type Jobs interface {
 type sessionJobs interface {
 	SaySession(id, message string) error
 	EndSession(id string) error
+}
+
+// reloadableJobs is the optional seam that says whether a persistent session can be reloaded
+// on a restarted worker process.
+type reloadableJobs interface {
+	SessionReloadable(res job.JobResult) bool
+}
+
+// sessionReloadable reports whether the local session res can be reloaded after this process
+// exits (false for a job service that cannot say).
+func (cl *Client) sessionReloadable(res job.JobResult) bool {
+	r, ok := cl.jobs.(reloadableJobs)
+	return ok && r.SessionReloadable(res)
 }
 
 // imageSessionJobs is the optional image-carrying say of the local job service.
@@ -632,6 +646,9 @@ type inflightJob struct {
 	turnNo        int
 	sessionImages bool
 	sessionStatus string
+	// reloadable is true while the job is a persistent session that can be reloaded on a
+	// restarted worker process (its agent supports session/load); see drainBlockers.
+	reloadable bool
 	// result, when non-nil, is a terminal Result the worker could not deliver because
 	// the connection was down when the job finished. resultAt bounds how long it is
 	// kept for replay (workerResultTTL).
@@ -690,6 +707,16 @@ func (cl *Client) inflightSetStatus(remoteID, status string) {
 	cl.inflMu.Lock()
 	if f := cl.inflight[remoteID]; f != nil {
 		f.status = status
+	}
+	cl.inflMu.Unlock()
+}
+
+// inflightSetReloadable records whether the job's session can be reloaded after this
+// process exits.
+func (cl *Client) inflightSetReloadable(remoteID string, reloadable bool) {
+	cl.inflMu.Lock()
+	if f := cl.inflight[remoteID]; f != nil {
+		f.reloadable = reloadable
 	}
 	cl.inflMu.Unlock()
 }
@@ -814,6 +841,27 @@ func (cl *Client) inflightIDs() []string {
 	for id := range cl.inflight {
 		ids = append(ids, id)
 	}
+	return ids
+}
+
+// drainBlockers lists the in-flight jobs an upgrade has to wait for before this process may
+// exit, sorted. A persistent session that is idle (waiting for its next message) and can be
+// reloaded does not count: the exiting process reports nothing for it (its dispatch ends with
+// the process context, so no terminal result is sent), the hub sees a new process instance
+// and reloads the session on it. That only holds for a hub that does the reload (protocol
+// v32+); against an older hub every in-flight job counts, as before.
+func (cl *Client) drainBlockers() []string {
+	hubReloads := wsproto.SupportsHosted(int(cl.serverProto.Load()))
+	cl.inflMu.Lock()
+	defer cl.inflMu.Unlock()
+	ids := make([]string, 0, len(cl.inflight))
+	for id, f := range cl.inflight {
+		if hubReloads && f.reloadable && f.result == nil && f.sessionStatus == job.StatusAwaitingInput {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
 	return ids
 }
 

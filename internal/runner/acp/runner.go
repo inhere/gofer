@@ -241,6 +241,9 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		if req.ACP.OnImageCapability != nil {
 			req.ACP.OnImageCapability(initRes.AgentCapabilities.PromptImage())
 		}
+		if req.ACP.OnLoadCapability != nil {
+			req.ACP.OnLoadCapability(initRes.AgentCapabilities.LoadSession)
+		}
 		if req.ACP.OnSessionReady != nil {
 			req.ACP.OnSessionReady(sess.SessionID)
 		}

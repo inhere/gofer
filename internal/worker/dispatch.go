@@ -637,6 +637,7 @@ func (cl *Client) streamLocalJob(ctx context.Context, localID, resultDir, remote
 				cl.inflightSetStatus(remoteJobID, cur.Status)
 				if cur.Session {
 					cl.inflightSetSession(remoteJobID, cur.TurnNo, cur.Status, cur.SessionImages)
+					cl.inflightSetReloadable(remoteJobID, cl.sessionReloadable(cur))
 					if cur.Status != lastSessionStatus || cur.TurnNo != lastSessionTurn ||
 						cur.SessionImages != lastSessionImages || cl.connEpochNow() != lastSessionEpoch {
 						epoch, err := cl.writeFrameEpoch(ctx, wsproto.TypeStatus, remoteJobID, wsproto.Status{
