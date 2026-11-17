@@ -89,6 +89,8 @@ export interface Job {
   // ACP 持续会话：会话模式、轮次与等待输入时限。
   session?: boolean
   turn_no?: number
+  // hosted: the session never ends for being idle and has no maximum length.
+  hosted?: boolean
   idle_timeout_sec?: number
   max_session_sec?: number
   idle_deadline_at?: number
@@ -2266,6 +2268,9 @@ export interface SubmitJobReq {
   worktree?: boolean
   timeout_sec?: number
   session?: boolean
+  // 托管常驻会话（仅 --session 有效）：不按空闲结束、不限最长时长——像开着的终端一样用。
+  // 与 idle_timeout_sec / max_session_sec 同用后端 400。
+  hosted?: boolean
   idle_timeout_sec?: number
   max_session_sec?: number
   title?: string

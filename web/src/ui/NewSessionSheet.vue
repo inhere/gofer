@@ -58,6 +58,9 @@ const error = ref('')
 const tier = ref<PermissionTier>('auto')
 // 保持目录锁（R8）：默认不勾，等待输入时让出目录，别的任务能用同一目录。
 const keepDirLock = ref(false)
+// 托管常驻会话（第 6 批）：默认勾上——web 里开的会话就是要一直开着用，不按空闲结束、
+// 不限最长时长；取消勾选则回到默认的空闲时限。
+const hosted = ref(true)
 // 「更多」：模型 / 工作目录 / 锁定目录 / 标题收起来（最常用的只有类型、项目、agent、runner）。
 const moreOpen = ref(false)
 
@@ -167,7 +170,7 @@ async function create(): Promise<void> {
   const lockList = parseLockPaths(lockPaths.value)
   if (lockList.length > 0) req.lock_paths = lockList
   // 两个新选项（R7 / R8）：auto 是后端默认，不发；保持目录锁默认关。
-  Object.assign(req, sessionSubmitOptions({ type: type.value, tier: tier.value, keepDirLock: keepDirLock.value }))
+  Object.assign(req, sessionSubmitOptions({ type: type.value, tier: tier.value, keepDirLock: keepDirLock.value, hosted: hosted.value }))
   try {
     const result = await submitJob(req)
     rememberProject(projectKey.value)
@@ -194,6 +197,7 @@ watch(open, (value) => {
   error.value = ''
   tier.value = 'auto'
   keepDirLock.value = false
+  hosted.value = true
   moreOpen.value = false
   void loadMeta()
 })
@@ -251,6 +255,13 @@ if (open.value) void loadMeta()
           <option value="ask">{{ t('sessions.new.permissionAsk') }}</option>
           <option value="strict">{{ t('sessions.new.permissionStrict') }}</option>
         </select>
+      </label>
+      <label v-if="type === 'acp'" class="ns-field ns-field--check" data-test="session-hosted-field">
+        <span class="ns-check">
+          <input v-model="hosted" type="checkbox" data-test="session-hosted" />
+          {{ t('sessions.new.hosted') }}
+        </span>
+        <span class="ns-hint ns-hint--note">{{ t('sessions.new.hostedHint') }}</span>
       </label>
       <label v-if="type === 'acp'" class="ns-field ns-field--check" data-test="session-keep-lock-field">
         <span class="ns-check">
