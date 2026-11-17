@@ -7,6 +7,7 @@ package runner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 
 	"github.com/inhere/gofer/internal/config"
@@ -291,6 +292,11 @@ type Request struct {
 	Meter *BudgetMeter
 }
 
+// ErrSessionEndRequested is what a resident ACP session's OnTurnStart returns when the
+// session was ended (not cancelled) while it waited to start the next turn: the runner
+// ends the session as a manual end instead of failing it.
+var ErrSessionEndRequested = errors.New("session end requested before the next turn")
+
 // ACPRequest is the acp-agent payload of a runner.Request: everything the acp
 // runner needs beyond the process argv (Command/Args/WorkDir/Env) and the log
 // writers.
@@ -304,8 +310,11 @@ type ACPRequest struct {
 	// OnImageCapability reports whether the agent advertised promptCapabilities.image.
 	// It is called once per session, before OnSessionReady (initialize runs on every
 	// start, including a session/load recovery, so the fact is re-learned each time).
-	OnImageCapability    func(bool)
-	OnTurnStart          func() error
+	OnImageCapability func(bool)
+	OnTurnStart       func() error
+	// TurnNote, when set, is called right after OnTurnStart succeeded and returns text
+	// put in front of that turn's prompt ("" = nothing).
+	TurnNote             func() string
 	OnTurnEnd            func(string) error
 	OnAwaitInput         func() error
 	TurnTimeoutSec       int

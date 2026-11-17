@@ -314,7 +314,16 @@ func runResident(ctx context.Context, req runner.Request, client *acp.Client, h 
 			}
 			if req.ACP.OnTurnStart != nil {
 				if err := req.ACP.OnTurnStart(); err != nil {
+					if errors.Is(err, runner.ErrSessionEndRequested) {
+						events.write(map[string]any{"t": "stop", "stop_reason": "manual_end"})
+						return runner.Result{SessionID: sessionID, ExitCode: 0, SessionEndReason: "manual_end"}
+					}
 					return runner.Result{SessionID: sessionID, ExitCode: -1, Err: err}
+				}
+			}
+			if req.ACP.TurnNote != nil {
+				if note := req.ACP.TurnNote(); note != "" {
+					prompt = note + prompt
 				}
 			}
 			turn++

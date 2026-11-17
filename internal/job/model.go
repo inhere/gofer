@@ -376,6 +376,10 @@ type JobRequest struct {
 	// what an already-submitted job does — and a remote executor applies the hub's
 	// decision instead of re-deriving one from its own config.
 	ExclusiveDir *bool `json:"exclusive_dir,omitempty" yaml:"exclusive_dir,omitempty"`
+	// KeepDirLock keeps the same-directory lock of a persistent session (--session) for
+	// the whole session. false (the default) lets the session give the lock back while
+	// it waits for input and take it again before the next turn starts (R8).
+	KeepDirLock bool `json:"keep_dir_lock,omitempty" yaml:"keep_dir_lock,omitempty"`
 	// StallTimeoutSec is the AUTO-05 output-stall window in seconds for THIS job: a
 	// non-interactive job that produces no stdout/stderr (and no acp update) for that
 	// long is killed and failed as stalled. nil = resolve the default (agent override
@@ -1376,6 +1380,10 @@ const (
 	// wait_sec}. The job is FAILED by that wait (it never ran at all), and this row is
 	// what tells its timeline that the queue — not the work — is what ended it.
 	EventJobDirWaitTimeout = "job.dir_wait_timeout"
+	// EventJobDirWait is a persistent session that gave its directory lock back while it
+	// waited for input and now has to queue for it before the next turn: {holder_job,
+	// dir, turn_no}. The job stays `awaiting_input` meanwhile.
+	EventJobDirWait = "job.dir_wait"
 	// SEC-01 job-scoped credentials, recorded on the job they describe:
 	//   - job.env_allowed  {keys:[...]}  a project's job_env_allow re-admitted
 	//     inherited variables the denylist would otherwise strip. It is recorded per

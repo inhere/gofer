@@ -82,6 +82,7 @@ type jobRunFlags struct {
 	budget          budgetFlags
 	exclusiveDir    bool
 	sharedDir       bool
+	keepDirLock     bool
 	stallTimeout    int
 	noStall         bool
 	verify          string
@@ -1523,6 +1524,7 @@ func bindJobRunFlags(c *gcli.Command) {
 	// exec/只读 job 共享；两者都不给 = 交给 server 按默认规则判定（三态）。
 	c.BoolOpt2(&jobRunOpts.exclusiveDir, "exclusive-dir", "force the exclusive same-directory lock for this job (an exec job included): no other exclusive job runs in this directory, its ancestors or its subdirectories", gflag.WithCategory("Directory lock (advanced)"))
 	c.BoolOpt2(&jobRunOpts.sharedDir, "shared-dir", "give up the exclusive same-directory lock for this job (share the tree with other jobs, at your own risk)", gflag.WithCategory("Directory lock (advanced)"))
+	c.BoolOpt2(&jobRunOpts.keepDirLock, "keep-dir-lock", "persistent session (--session): keep the directory lock while the session waits for input (default: give it back and take it again before the next turn)", gflag.WithCategory("Directory lock (advanced)"))
 	// AUTO-05：输出停滞窗口。默认 = agent 配置 > server.stall_timeout_sec（900s）；exec job
 	// 默认关（构建/测试本来就会长时间没输出），交互 job 恒关。gcli 无法区分"没给"与"给了 0"，
 	// 所以"关掉"由 --no-stall 表达（与 --verify/--no-verify、--fallback/--no-fallback 同一手法）。
@@ -2437,6 +2439,7 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		Budget:        budget,
 		// JOB-11：同 cwd 独占决策（nil = 交给 server 的默认规则）。
 		ExclusiveDir: exclusive,
+		KeepDirLock:  jobRunOpts.keepDirLock,
 		// AUTO-05：停滞窗口（nil = 交给 server 按 request > agent > server 解析）。
 		StallTimeoutSec: stall,
 		// GATE-01 S3：人工验收（正常完成 → needs_review，等人 accept/reject）。

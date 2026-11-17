@@ -72,7 +72,7 @@ var continuationFieldClasses = map[string]string{
 	"LockPaths": fieldCleared, "LockSource": fieldCleared, "Secrets": fieldCleared, "EnvFiles": fieldCleared, "ReviewFixed": fieldCleared,
 	"Template": fieldCleared, "TemplateVars": fieldCleared, "Worktree": fieldCleared, "WorktreeBase": fieldCleared,
 	"WorktreeName": fieldCleared, "WorktreeBranch": fieldCleared, "Ref": fieldCleared,
-	"ExclusiveDir": fieldCleared, "Env": fieldCleared,
+	"ExclusiveDir": fieldCleared, "KeepDirLock": fieldCleared, "Env": fieldCleared,
 	// a continuation of a plan item is nobody's child receipt: the parent id comes from
 	// the credential of the submitting job and the sync marker from the HTTP entry, so
 	// neither is ever inherited from (or set for) the predecessor.

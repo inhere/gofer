@@ -36,6 +36,14 @@ func (s *Service) configureResidentACP(entry *jobEntry, request *runner.ACPReque
 	}
 	request.OnSessionReady = func(id string) { s.sessionReady(entry, id) }
 	request.OnTurnStart = func() error {
+		// R8: a session that gave its directory lock back takes it again BEFORE the turn
+		// begins (queued, cancellable, no entry.mu held); the job stays awaiting_input
+		// until it has the lock.
+		if hold := entry.dirHold.Load(); hold != nil {
+			if err := hold.reacquire(); err != nil {
+				return err
+			}
+		}
 		if err := s.beginSessionTurn(entry); err != nil {
 			return err
 		}
@@ -48,7 +56,16 @@ func (s *Service) configureResidentACP(entry *jobEntry, request *runner.ACPReque
 			return err
 		}
 		s.pauseStall(entry)
+		if hold := entry.dirHold.Load(); hold != nil {
+			hold.yield()
+		}
 		return nil
+	}
+	request.TurnNote = func() string {
+		if hold := entry.dirHold.Load(); hold != nil {
+			return hold.takeNote()
+		}
+		return ""
 	}
 }
 

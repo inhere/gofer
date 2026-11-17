@@ -780,8 +780,10 @@ type runJobInput struct {
 	Cwd         string   `json:"cwd,omitempty"`
 	TimeoutSec  int      `json:"timeout_sec,omitempty"`
 	// StrictTimeout refuses a timeout_sec above the applicable limit instead of clamping it.
-	StrictTimeout  bool   `json:"strict_timeout,omitempty"`
-	Session        bool   `json:"session,omitempty"`
+	StrictTimeout bool `json:"strict_timeout,omitempty"`
+	Session       bool `json:"session,omitempty"`
+	// KeepDirLock keeps a persistent session's directory lock while it waits for input.
+	KeepDirLock    bool   `json:"keep_dir_lock,omitempty"`
 	IdleTimeoutSec int    `json:"idle_timeout_sec,omitempty"`
 	MaxSessionSec  int    `json:"max_session_sec,omitempty"`
 	Title          string `json:"title,omitempty"`
@@ -916,6 +918,7 @@ func runJobHandler(b Backend, scoped string) mcp.ToolHandlerFor[runJobInput, job
 			TimeoutSec:      in.TimeoutSec,
 			StrictTimeout:   in.StrictTimeout,
 			Session:         in.Session,
+			KeepDirLock:     in.KeepDirLock,
 			IdleTimeoutSec:  in.IdleTimeoutSec,
 			MaxSessionSec:   in.MaxSessionSec,
 			Title:           in.Title,

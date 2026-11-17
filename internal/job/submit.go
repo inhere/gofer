@@ -1469,12 +1469,13 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	// agent (a role/template may have filled it above).
 	agentSem := s.agentSemaphore(req.Agent, cfg.Agents[req.Agent].MaxConcurrent)
 	go s.execute(entry, run, execGates{
-		project:   sem,
-		caller:    callerSem,
-		agent:     agentSem,
-		exclusive: req.ExclusiveDir != nil && *req.ExclusiveDir,
-		stall:     stallSec,
-		dirWait:   dirWaitSec,
+		project:     sem,
+		caller:      callerSem,
+		agent:       agentSem,
+		exclusive:   req.ExclusiveDir != nil && *req.ExclusiveDir,
+		stall:       stallSec,
+		dirWait:     dirWaitSec,
+		keepDirLock: req.KeepDirLock,
 		// 配置入库 P1: the owners admission judged are re-judged once the job is through the
 		// queue, so a caller disabled in between never runs (see disabledRecheckOwners).
 		recheckOwners: disabledRecheckOwners(req),
