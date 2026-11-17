@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/job/driver"
 )
 
 // createDriverPlan creates a plan owned by the test caller and returns its id.
@@ -178,5 +179,44 @@ func TestPlanDriverInvalidBody(t *testing.T) {
 	resp.Body.Close()
 	if !strings.Contains(strings.ToLower(e.Error), "body") {
 		t.Fatalf("error = %q, want it to name the body", e.Error)
+	}
+}
+
+// TestPlanDriverReportRoute: the report needs a token, is a 404 for an unknown plan, and
+// answers the (empty) report of a plan whose driver just turned on.
+func TestPlanDriverReportRoute(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, testToken, false)
+	s.jobs.SetPlanDriver(driver.NewEngine(s.jobs))
+	id := createDriverPlan(t, s, "plan-driver-report")
+
+	resp := do(t, s, http.MethodGet, "/v1/plans/"+id+"/driver/report", "", nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated report status=%d, want 401", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	resp = do(t, s, http.MethodGet, "/v1/plans/no-such-plan/driver/report", testToken, nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("unknown plan report status=%d, want 404", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	resp = do(t, s, http.MethodPut, "/v1/plans/"+id+"/driver", testToken, map[string]any{"budget": map[string]any{"max_jobs": 4}})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("enable status=%d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	resp = do(t, s, http.MethodGet, "/v1/plans/"+id+"/driver/report", testToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("report status=%d, want 200", resp.StatusCode)
+	}
+	var rep job.PlanDriverReport
+	decode(t, resp, &rep)
+	if !rep.Enabled || rep.Level != job.PlanDriverLevelRecord || rep.Budget.MaxJobs != 4 || rep.Total != 0 || rep.WindowHours != 24 {
+		t.Fatalf("report = %+v, want an enabled record driver with budget 4 and nothing recorded", rep)
+	}
+	if rep.ByAction == nil || rep.ByRule == nil {
+		t.Fatalf("report lists must encode as [], got %+v", rep)
 	}
 }

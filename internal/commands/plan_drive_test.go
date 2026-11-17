@@ -122,3 +122,42 @@ func TestPlanDriveForwardsALaterLevel(t *testing.T) {
 		t.Fatalf("exit code = 0, want a failure for the refused level (out=%q)", out)
 	}
 }
+
+// TestPlanDriveReportPrintsAgreement: `plan drive report <plan>` GETs the report route and
+// prints the totals, the per-action agreement, the upgrade condition and the per-rule lines.
+func TestPlanDriveReportPrintsAgreement(t *testing.T) {
+	var gotMethod, gotPath string
+	ts := isolateTodoCLI(t, func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath = r.Method, r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(job.PlanDriverReport{
+			PlanID: "plan-drive-cli-rep", Enabled: true, Level: job.PlanDriverLevelRecord,
+			Budget: job.PlanDriverBudget{MaxJobs: 9}, Spent: job.PlanDriverSpent{Jobs: 3, Rework: 1, Hours: 0.5},
+			Total: 5, Pending: 1, WindowHours: 24,
+			ByAction: []job.PlanDriverReportRow{{
+				Action: "dispatch_todo", Total: 5, Match: 3, Mismatch: 1, Pending: 1, Rate: 0.75,
+				RecentN: 4, RecentMatch: 3, RecentRate: 0.75,
+			}},
+			ByRule: []job.PlanDriverReportRow{{Action: "dispatch_todo", Rule: "dispatch_ready", Total: 5, Match: 3, Mismatch: 1, Pending: 1, Rate: 0.75}},
+		})
+	})
+	var code int
+	out := captureOutput(t, func() {
+		code = NewApp("test").Run([]string{"plan", "drive", "report", "--server", ts.URL, "plan-drive-cli-rep"})
+	})
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (%s)", code, out)
+	}
+	if gotMethod != http.MethodGet || gotPath != "/v1/plans/plan-drive-cli-rep/driver/report" {
+		t.Fatalf("request = %s %s, want GET /v1/plans/plan-drive-cli-rep/driver/report", gotMethod, gotPath)
+	}
+	for _, want := range []string{
+		"driver:  on (level=record)", "spent:   jobs 3 / rework 1 / hours 0.50", "5 recorded, 1 not observed yet",
+		"dispatch_todo", "match 3  mismatch 1  no_followup 0  pending 1  agreement 75%",
+		"upgrade condition (20 in a row at >= 90%): not yet", "dispatch_ready",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output missing %q:\n%s", want, out)
+		}
+	}
+}

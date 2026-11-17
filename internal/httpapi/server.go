@@ -1783,6 +1783,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.PUT("/plans/{id}/driver", s.handleSetPlanDriver)
 		r.DELETE("/plans/{id}/driver", s.handleDeletePlanDriver)
 		r.GET("/plans/{id}/driver", s.handleGetPlanDriver)
+		r.GET("/plans/{id}/driver/report", s.handleGetPlanDriverReport)
 		r.PATCH("/todos/{todo_id}", s.handleUpdateTodo)
 		// PLAN-02 P2: explicit dispatch of an assigned item (ignores its status).
 		r.POST("/todos/{todo_id}/dispatch", s.handleDispatchTodo)

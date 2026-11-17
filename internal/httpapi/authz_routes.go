@@ -578,6 +578,7 @@ var routeDecls = map[string]routeDecl{
 	"GET /v1/plans":                                        {user: Public(), scope: Filter()},
 	"GET /v1/plans/{id}":                                   {user: Public(), scope: Resource("plan")},
 	"GET /v1/plans/{id}/driver":                            {user: Public(), scope: Resource("plan")},
+	"GET /v1/plans/{id}/driver/report":                     {user: Public(), scope: Resource("plan")},
 	"GET /v1/plans/{id}/events":                            {user: Public(), scope: Resource("plan")},
 	"GET /v1/plans/{id}/comments":                          {user: Public(), scope: Resource("plan")},
 	"GET /v1/plans/{id}/todos/{todo_id}/comments":          {user: Public(), scope: Resource("plan")},

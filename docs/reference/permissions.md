@@ -258,6 +258,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `DELETE` | `/v1/plans/{id}/driver` | `InHandler(deny)` | `plan.manage.others` | — | `Resource(plan)` | 写 |
 | `GET` | `/v1/plans/{id}/driver` | `Public` | — | — | `Resource(plan)` | 读 |
 | `PUT` | `/v1/plans/{id}/driver` | `InHandler(deny)` | `plan.manage.others` | — | `Resource(plan)` | 写 |
+| `GET` | `/v1/plans/{id}/driver/report` | `Public` | — | — | `Resource(plan)` | 读 |
 | `GET` | `/v1/plans/{id}/events` | `Public` | — | — | `Resource(plan)` | 读 |
 | `GET` | `/v1/plans/{id}/handoff` | `Public` | — | — | `Resource(plan)` | 读 |
 | `PUT` | `/v1/plans/{id}/handoff` | `InHandler(deny)` | `plan.manage.others` | `job` | `Resource(plan)` | 写 |

@@ -72,6 +72,19 @@ func (s *Server) handleGetPlanDriver(c *rux.Context) {
 	s.writePlanDriverStatus(c, c.Param("id"))
 }
 
+// handleGetPlanDriverReport is GET /v1/plans/{id}/driver/report: the plan's recorded
+// driver actions against what actually happened, by action and by rule, with the
+// agreement rate and the "ready to upgrade" verdict (plan R7). Reading it settles the
+// outcomes that can be settled, which only ever touches the driver's own action log.
+func (s *Server) handleGetPlanDriverReport(c *rux.Context) {
+	rep, err := s.jobs.PlanDriverReport(c.Req.Context(), c.Param("id"))
+	if err != nil {
+		writePlanDriverError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, rep)
+}
+
 // writePlanDriverStatus answers with the plan's stored driver state, so every one of the
 // three entries replies with the same shape.
 func (s *Server) writePlanDriverStatus(c *rux.Context, id string) {
@@ -90,6 +103,8 @@ func writePlanDriverError(c *rux.Context, err error) {
 	switch {
 	case errors.Is(err, job.ErrPlanNotFound):
 		writeError(c, http.StatusNotFound, "unknown plan", err.Error())
+	case errors.Is(err, job.ErrPlanDriverUnavailable):
+		writeError(c, http.StatusServiceUnavailable, "plan driver unavailable", err.Error())
 	case errors.Is(err, job.PlanDriverInvalid):
 		writeError(c, http.StatusBadRequest, "invalid plan driver", err.Error())
 	default:

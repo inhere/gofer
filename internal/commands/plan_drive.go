@@ -68,6 +68,16 @@ func newPlanDriveCmd() *gcli.Command {
 				},
 				Func: runPlanDriveStatus,
 			},
+			{
+				Name: "report",
+				Desc: "Compare what the driver recorded it would do with what actually happened: agreement per action and per rule",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("plan-id", "plan id", true)
+				},
+				Func: runPlanDriveReport,
+			},
 		},
 	}
 }
@@ -123,6 +133,63 @@ func runPlanDriveStatus(c *gcli.Command, _ []string) error {
 	}
 	printPlanDriverStatus(c, st)
 	return nil
+}
+
+func runPlanDriveReport(c *gcli.Command, _ []string) error {
+	id := argValue(c, "plan-id")
+	if id == "" {
+		return fmt.Errorf("plan drive report requires a <plan-id>")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	rep, err := cli.GetPlanDriverReport(id)
+	if err != nil {
+		return err
+	}
+	printPlanDriverReport(c, rep)
+	return nil
+}
+
+// printPlanDriverReport prints the report: the driver line, the budget against its spend,
+// then one line per action and per rule. A rate is shown only when something was resolved,
+// and the upgrade verdict names the condition so the number is not mistaken for a decision.
+func printPlanDriverReport(c *gcli.Command, rep job.PlanDriverReport) {
+	c.Printf("plan:    %s\n", rep.PlanID)
+	if rep.Enabled {
+		c.Printf("driver:  on (level=%s)\n", rep.Level)
+	} else {
+		c.Println("driver:  off")
+	}
+	c.Printf("budget:  %s\n", formatPlanDriverBudget(rep.Budget))
+	c.Printf("spent:   jobs %d / rework %d / hours %.2f\n", rep.Spent.Jobs, rep.Spent.Rework, rep.Spent.Hours)
+	c.Printf("actions: %d recorded, %d not observed yet (an action is observed for %dh)\n", rep.Total, rep.Pending, rep.WindowHours)
+	if rep.Total == 0 {
+		return
+	}
+	row := func(r job.PlanDriverReportRow) string {
+		rate := "-"
+		if r.Match+r.Mismatch+r.NoFollowup > 0 {
+			rate = fmt.Sprintf("%.0f%%", r.Rate*100)
+		}
+		return fmt.Sprintf("total %d  match %d  mismatch %d  no_followup %d  pending %d  agreement %s",
+			r.Total, r.Match, r.Mismatch, r.NoFollowup, r.Pending, rate)
+	}
+	c.Println("\nby action:")
+	for _, r := range rep.ByAction {
+		c.Printf("  %-18s %s\n", r.Action, row(r))
+		verdict := "not yet"
+		if r.UpgradeSuggested {
+			verdict = "REACHED"
+		}
+		c.Printf("  %-18s last %d resolved: %d match (%.0f%%); upgrade condition (%d in a row at >= %.0f%%): %s\n", "",
+			r.RecentN, r.RecentMatch, r.RecentRate*100, job.PlanDriverUpgradeWindow, job.PlanDriverUpgradeRate*100, verdict)
+	}
+	c.Println("\nby rule:")
+	for _, r := range rep.ByRule {
+		c.Printf("  %-18s %-28s %s\n", r.Action, r.Rule, row(r))
+	}
 }
 
 // printPlanDriverStatus prints one driver state: the switch, the level, the budget and the

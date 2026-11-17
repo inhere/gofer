@@ -598,6 +598,12 @@ plan drive on	flag max-jobs	cap on the jobs the plan may start, rework and retri
 plan drive on	flag max-rework	cap on the plan's rework rounds (0 = unlimited)
 plan drive on	flag server	server address (overrides config server.addr)
 plan drive on	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+plan drive report	desc	Compare what the driver recorded it would do with what actually happened: agreement per action and per rule
+plan drive report	help	
+plan drive report	examples	
+plan drive report	flag config	path to the gofer config file
+plan drive report	flag server	server address (overrides config server.addr)
+plan drive report	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 plan drive status	desc	Show whether the plan's driver is on, at which level and with which budget
 plan drive status	help	
 plan drive status	examples	
