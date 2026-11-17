@@ -749,6 +749,9 @@ func renderedCommandJSON(req runner.Request) string {
 	return string(b)
 }
 
+// recoveringErrorPrefix starts the Error a job carries while it waits as `recovering`.
+const recoveringErrorPrefix = "recovering: "
+
 // setRecovering moves a RUNNING worker job into the RECOV-01 `recovering` holding
 // state: its worker connection dropped, but the hub is holding the job for a bounded
 // window while the same worker process may reconnect. It records recovering_since
@@ -768,7 +771,7 @@ func (s *Service) setRecovering(entry *jobEntry, jobID, reason string) {
 	if reason != "" {
 		// Keep the reason visible while the job waits: a `job show` of a recovering
 		// job answers WHY it is waiting without a log dive.
-		entry.result.Error = "recovering: " + reason
+		entry.result.Error = recoveringErrorPrefix + reason
 	}
 	snap := entry.result
 	entry.mu.Unlock()

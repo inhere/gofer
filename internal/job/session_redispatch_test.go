@@ -189,14 +189,14 @@ func TestWorkerSessionReloadedWhenServeAndWorkerBothRestarted(t *testing.T) {
 	}
 	if err := s.meta.UpsertJob(jobstore.JobRecord{
 		ID: "both-restarted", ProjectKey: "self", Agent: "acpw", Runner: "remote-w1", WorkerID: "w1",
-		WorkerInstanceID: "old-instance", Status: StatusRecovering, RecoveringSince: now, Cwd: ".", ResultDir: resultDir,
+		WorkerInstanceID: "old-instance", Status: StatusRecovering, RecoveringSince: now, Cwd: root, ResultDir: resultDir,
 		RequestJSON: reqJSON, SessionID: "agent-sess-3", TimeoutSec: 30, StartedAt: now - 60, UpdatedAt: now,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.meta.UpsertJob(jobstore.JobRecord{
 		ID: "plain-lost", ProjectKey: "self", Agent: "exec", Runner: "remote-w1", WorkerID: "w1",
-		WorkerInstanceID: "old-instance", Status: StatusRecovering, RecoveringSince: now, Cwd: ".", ResultDir: t.TempDir(),
+		WorkerInstanceID: "old-instance", Status: StatusRecovering, RecoveringSince: now, Cwd: root, ResultDir: t.TempDir(),
 		RequestJSON: `{"project_key":"self","agent":"exec","runner":"remote-w1","cwd":".","cmd":["echo","x"]}`, StartedAt: now - 60, UpdatedAt: now,
 	}); err != nil {
 		t.Fatal(err)
@@ -240,7 +240,7 @@ func TestAdoptedWorkerSessionReloadedWhenItsProcessRestartsLater(t *testing.T) {
 	now := time.Now().Unix()
 	if err := s.meta.UpsertJob(jobstore.JobRecord{
 		ID: "adopted-restart", ProjectKey: "self", Agent: "acpw", Runner: "remote-w1", WorkerID: "w1",
-		WorkerInstanceID: "inst-1", Status: StatusRecovering, RecoveringSince: now, Cwd: ".", ResultDir: resultDir,
+		WorkerInstanceID: "inst-1", Status: StatusRecovering, RecoveringSince: now, Cwd: root, ResultDir: resultDir,
 		RequestJSON: `{"project_key":"self","agent":"acpw","runner":"remote-w1","cwd":".","session":true,"prompt":"hi"}`,
 		SessionID:   "agent-sess-4", TimeoutSec: 30, StartedAt: now - 60, UpdatedAt: now,
 	}); err != nil {
@@ -289,7 +289,7 @@ func TestRecoveryWindowLeavesARedispatchingSessionAlone(t *testing.T) {
 	}
 	if err := s.meta.UpsertJob(jobstore.JobRecord{
 		ID: "window-race", ProjectKey: "self", Agent: "acpw", Runner: "remote-w1", WorkerID: "w1",
-		WorkerInstanceID: "old-instance", Status: StatusRecovering, RecoveringSince: now, Cwd: ".", ResultDir: resultDir,
+		WorkerInstanceID: "old-instance", Status: StatusRecovering, RecoveringSince: now, Cwd: root, ResultDir: resultDir,
 		RequestJSON: `{"project_key":"self","agent":"acpw","runner":"remote-w1","cwd":".","session":true,"prompt":"hi"}`,
 		SessionID:   "agent-sess-9", TimeoutSec: 30, StartedAt: now - 60, UpdatedAt: now,
 	}); err != nil {
@@ -303,7 +303,7 @@ func TestRecoveryWindowLeavesARedispatchingSessionAlone(t *testing.T) {
 	}
 	if err := s.meta.UpsertJob(jobstore.JobRecord{
 		ID: "unclaimed", ProjectKey: "self", Agent: "exec", Runner: "remote-w1", WorkerID: "w1",
-		Status: StatusRecovering, RecoveringSince: now, Cwd: ".", ResultDir: t.TempDir(),
+		Status: StatusRecovering, RecoveringSince: now, Cwd: root, ResultDir: t.TempDir(),
 		RequestJSON: `{"project_key":"self","agent":"exec","runner":"remote-w1","cwd":".","cmd":["echo","x"]}`, StartedAt: now - 60, UpdatedAt: now,
 	}); err != nil {
 		t.Fatal(err)
@@ -319,5 +319,24 @@ func TestRecoveryWindowLeavesARedispatchingSessionAlone(t *testing.T) {
 	close(release)
 	if final, _ := s.Wait("window-race"); final.Status != StatusDone {
 		t.Fatalf("final = %+v", final)
+	}
+}
+
+// TestRemoteSessionStateClearsTheRecoveringNote: when the session state of a reloaded
+// session arrives before the started report, the "recovering: <why>" note set while it
+// waited must not stay on a session that is back to awaiting input.
+func TestRemoteSessionStateClearsTheRecoveringNote(t *testing.T) {
+	t.Parallel()
+	s := newWorkerTestService(t, t.TempDir(), &restartingRunner{})
+	entry := &jobEntry{result: JobResult{
+		ID: "note-left", ProjectKey: "self", Agent: "acpw", Runner: "remote-w1", Session: true,
+		Status: StatusRecovering, RecoveringSince: time.Now().Unix(), Error: recoveringErrorPrefix + "worker disconnected",
+	}, done: make(chan struct{})}
+	s.mu.Lock()
+	s.jobs[entry.result.ID] = entry
+	s.mu.Unlock()
+	s.applyRemoteSessionState(entry, WorkerInflightJob{JobID: "note-left", Status: StatusAwaitingInput, SessionStatus: StatusAwaitingInput, TurnNo: 1}, false)
+	if cur := entry.snapshot(); cur.Status != StatusAwaitingInput || cur.Error != "" || cur.RecoveringSince != 0 {
+		t.Fatalf("after the session came back: status=%s error=%q recovering_since=%d", cur.Status, cur.Error, cur.RecoveringSince)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/inhere/gofer/internal/agent"
@@ -209,6 +210,12 @@ func (s *Service) applyRemoteSessionState(entry *jobEntry, state WorkerInflightJ
 		entry.result.Status = StatusWaitingDir
 	case "session_ending":
 		entry.result.SessionEnding = true
+	}
+	if entry.result.Status != StatusRecovering && strings.HasPrefix(entry.result.Error, recoveringErrorPrefix) {
+		// The session is back on a worker process: the "recovering: <why>" note set while
+		// it waited is no longer true (clearRecovering misses it when the session state
+		// arrives before the started report).
+		entry.result.Error, entry.result.RecoveringSince = "", 0
 	}
 	snap := entry.result
 	entry.mu.Unlock()
