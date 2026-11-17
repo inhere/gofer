@@ -179,6 +179,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `POST` | `/v1/jobs/{id}/comments` | `InHandler(deny)` | `job.submit` | `job` | `Resource(job)` | 写 |
 | `POST` | `/v1/jobs/{id}/deliver` | `InHandler(deny)` | `job.manage.others` | — | `Resource(job)` | 写 |
 | `GET` | `/v1/jobs/{id}/deliveries` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |
+| `GET` | `/v1/jobs/{id}/diagnosis` | `InHandler(deny)` | `job.read.others` | `job` | `Resource(job)` | 读 |
 | `GET` | `/v1/jobs/{id}/diff` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |
 | `POST` | `/v1/jobs/{id}/end` | `InHandler(deny)` | `job.manage.others` | `job` | `Resource(job)` | 写 |
 | `GET` | `/v1/jobs/{id}/events` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |

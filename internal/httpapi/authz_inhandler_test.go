@@ -225,6 +225,9 @@ var jobAuthzCases = []authzCase{
 	{key: "GET /v1/jobs/{id}/retries", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodGet, "/v1/jobs/" + e.job.ID + "/retries", nil}
 	}},
+	{key: "GET /v1/jobs/{id}/diagnosis", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodGet, "/v1/jobs/" + e.job.ID + "/diagnosis", nil}
+	}},
 	{key: "GET /v1/wakeups/{wid}", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodGet, "/v1/wakeups/" + e.wakeup(), nil}
 	}},

@@ -1623,6 +1623,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/jobs/secret-scan", s.handleSecretScan)
 		r.GET("/jobs", s.handleListJobs)
 		r.GET("/jobs/{id}", s.handleGetJob)
+		r.GET("/jobs/{id}/diagnosis", s.handleGetJobDiagnosis)
 		r.PATCH("/jobs/{id}", s.handlePatchJob)
 		r.POST("/jobs/{id}/redact", s.handleRedactJob)
 		r.DELETE("/jobs/{id}", s.handleDeleteJob)
