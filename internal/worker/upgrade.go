@@ -46,7 +46,7 @@ func VerifyUpgradeFile(path string, size int64, wantSHA256 string) error {
 }
 
 // SwitchBinary atomically puts candidate at target and leaves one rollback copy
-// at target.old. On Unix rename is atomic; on Windows a running executable may be
+// at target.old (target.old-<n> when a process still holds an earlier target.old). On Unix rename is atomic; on Windows a running executable may be
 // renamed, so the same sequence works without stopping the old process first.
 func SwitchBinary(target, candidate string) (rollback func() error, err error) {
 	return util.SwitchBinary(target, candidate)

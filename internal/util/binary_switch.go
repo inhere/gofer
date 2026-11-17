@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 func VerifyUpgradeFile(path string, size int64, wantSHA256 string) error {
@@ -49,8 +50,7 @@ func SwitchBinary(target, candidate string) (rollback func() error, err error) {
 	if target == "" || candidate == "" {
 		return nil, errors.New("upgrade target and candidate are required")
 	}
-	old := target + ".old"
-	_ = os.Remove(old)
+	old := parkPath(target)
 	if err := os.Rename(target, old); err != nil {
 		return nil, fmt.Errorf("upgrade park old binary: %w", err)
 	}
@@ -70,6 +70,32 @@ func SwitchBinary(target, candidate string) (rollback func() error, err error) {
 		}
 		return nil
 	}, nil
+}
+
+// parkPath picks where SwitchBinary parks the running image. It first removes the
+// images earlier upgrades parked (target.old and target.old-<n>). One of them can
+// still be the image of a long-lived process that outlived an upgrade (a tunnel,
+// say); Windows refuses to delete or overwrite it, so the old image then goes to a
+// fresh target.old-<n> and the stuck one is removed by a later upgrade.
+func parkPath(target string) string {
+	old := target + ".old"
+	dir, base := filepath.Dir(target), filepath.Base(old)
+	if entries, err := os.ReadDir(dir); err == nil {
+		for _, e := range entries {
+			if name := e.Name(); name == base || strings.HasPrefix(name, base+"-") {
+				_ = os.Remove(filepath.Join(dir, name))
+			}
+		}
+	}
+	if _, err := os.Lstat(old); errors.Is(err, os.ErrNotExist) {
+		return old
+	}
+	for n := time.Now().UnixNano(); ; n++ {
+		alt := fmt.Sprintf("%s-%d", old, n)
+		if _, err := os.Lstat(alt); errors.Is(err, os.ErrNotExist) {
+			return alt
+		}
+	}
 }
 
 // Stage copies a verified candidate into the executable's directory, so the
