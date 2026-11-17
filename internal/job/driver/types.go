@@ -74,6 +74,7 @@ const (
 	RuleFailureTransientRetry = "failure_transient_retry"
 	RuleFailureOtherEscalate  = "failure_other_escalate"
 	RuleBudgetExhausted       = "budget_exhausted"
+	RuleNeedsReviewEscalate   = "needs_review_escalate"
 )
 
 // Outcomes stamped on an action once what actually happened is known (plan R7).

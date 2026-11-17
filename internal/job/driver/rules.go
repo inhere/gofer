@@ -57,7 +57,12 @@ func isFailureStatus(st string) bool {
 func decideJob(kind string, f jobFacts, rw reworkBudget) (Decision, bool) {
 	failed := kind == job.PlanEventBlock && isFailureStatus(f.Status)
 	done := kind == job.PlanEventAdvance && f.Status == job.StatusDone
-	if !failed && !done {
+	// An observe event is a job that ended without moving its item: waiting for a human
+	// verdict, or done with the item still open. Only the strong signals decide for the
+	// latter; the former escalates when nothing stronger speaks.
+	review := kind == job.PlanEventObserve && f.Status == job.StatusNeedsReview
+	open := kind == job.PlanEventObserve && f.Status == job.StatusDone
+	if !failed && !done && !review && !open {
 		return Decision{}, false
 	}
 	params := map[string]any{"status": f.Status, "termination": f.Termination}
@@ -89,11 +94,17 @@ func decideJob(kind string, f jobFacts, rw reworkBudget) (Decision, bool) {
 	case job.ResultFail:
 		return d(ActionEscalate, RuleSelfFailEscalate)
 	}
-	if done && f.CheckVerdict == "fail" {
+	if (done || review || open) && f.CheckVerdict == "fail" {
 		return resume(RuleCheckFailedResume)
 	}
 	if f.SelfDecision == job.ResultRework {
 		return resume(RuleSelfReworkResume)
+	}
+	if review {
+		return d(ActionEscalate, RuleNeedsReviewEscalate)
+	}
+	if open {
+		return Decision{}, false
 	}
 	if failed {
 		switch f.Termination {

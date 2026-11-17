@@ -166,3 +166,11 @@ func (s *Service) advancePlanFor(planID, todoID, jobID, by string) {
 // TerminationReasonOf is TerminationReason for a stored job row, for readers that hold the
 // record and not a service (the driver's rules).
 func TerminationReasonOf(rec jobstore.JobRecord) string { return TerminationReason(fromRecord(rec)) }
+
+// observePlanJob delivers a PlanEventObserve for a job outcome the advance does not act on.
+func (s *Service) observePlanJob(planID, todoID, jobID, by string) {
+	if s.planDriver == nil {
+		return
+	}
+	s.emitPlanEvent(PlanEvent{PlanID: planID, TodoID: todoID, JobID: jobID, Kind: PlanEventObserve, By: by}, nil)
+}

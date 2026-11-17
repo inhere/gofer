@@ -33,6 +33,11 @@ const (
 	PlanEventBlock = "block"
 	// PlanEventSweep is the periodic catch-up advance; it is never persisted.
 	PlanEventSweep = "sweep"
+	// PlanEventObserve tells the plan driver that a plan item's job reached a terminal
+	// state that moves nothing by itself (needs_review, a done job whose todo stays open).
+	// It advances and blocks nothing and, like a sweep, is never persisted: it is only a
+	// notification, and one lost to a crash costs a missing observation, not progress.
+	PlanEventObserve = "observe"
 )
 
 // PlanEventDroppedAudit is the audit_events kind written when a persisted plan event is
@@ -83,7 +88,7 @@ type planEventHub struct {
 // emitPlanEvent records ev and runs the progression it asks for (see the file comment).
 func (s *Service) emitPlanEvent(ev PlanEvent, snap *JobResult) {
 	var id int64
-	if ev.Kind != PlanEventSweep {
+	if ev.Kind != PlanEventSweep && ev.Kind != PlanEventObserve {
 		row, err := s.meta.InsertPlanEvent(jobstore.PlanEventRow{
 			PlanID: ev.PlanID, TodoID: ev.TodoID, JobID: ev.JobID, Kind: ev.Kind, By: ev.By,
 		})
@@ -204,6 +209,8 @@ func (s *Service) processPlanEvent(q queuedPlanEvent) error {
 	switch q.ev.Kind {
 	case PlanEventAdvance:
 		return s.doAdvancePlan(q.ev.PlanID, q.ev.By, false)
+	case PlanEventObserve:
+		return nil // the driver (runPlanEvent) is the only consumer
 	case PlanEventSweep:
 		p, ok, err := s.meta.GetPlan(q.ev.PlanID)
 		if err != nil {

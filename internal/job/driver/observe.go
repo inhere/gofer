@@ -2,6 +2,7 @@ package driver
 
 import (
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/inhere/gofer/internal/job"
@@ -139,7 +140,9 @@ func (e *Engine) observedCategory(plan jobstore.Plan, a jobstore.PlanDriverActio
 	case todo.Status == jobstore.TodoSkipped:
 		return catSkip, nil
 	case todo.Status == jobstore.TodoDone:
-		if rec.Status == job.StatusDone {
+		// A job that was waiting for a human verdict when the action was recorded was
+		// closed by that person, not by the chain.
+		if rec.Status == job.StatusDone && !strings.Contains(a.ParamsJSON, `"status":"`+job.StatusNeedsReview+`"`) {
 			return catComplete, nil
 		}
 		return catManual, nil

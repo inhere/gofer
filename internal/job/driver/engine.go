@@ -41,7 +41,7 @@ func (e *Engine) BeforePlanEvent(_ context.Context, ev job.PlanEventView) any {
 		return nil
 	}
 	t := &ticket{at: e.ops.Now()}
-	if ev.Kind == job.PlanEventBlock {
+	if ev.Kind == job.PlanEventBlock || ev.Kind == job.PlanEventObserve {
 		return t
 	}
 	plan, ok, err := meta.GetPlan(ev.PlanID)

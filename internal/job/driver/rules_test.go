@@ -39,6 +39,10 @@ func TestDecideJobRules(t *testing.T) {
 		{"transient failure retries", job.PlanEventBlock, failed(job.TerminationTransient, jobFacts{}), reworkBudget{}, ActionRetry, RuleFailureTransientRetry},
 		{"stalled failure retries like a transient one", job.PlanEventBlock, failed(job.TerminationStalled, jobFacts{}), reworkBudget{}, ActionRetry, RuleFailureTransientRetry},
 		{"other failure escalates", job.PlanEventBlock, failed(job.TerminationAgentError, jobFacts{}), reworkBudget{}, ActionEscalate, RuleFailureOtherEscalate},
+		{"needs_review with nothing stronger escalates", job.PlanEventObserve, jobFacts{Status: job.StatusNeedsReview, Termination: job.TerminationUnknown}, reworkBudget{}, ActionEscalate, RuleNeedsReviewEscalate},
+		{"needs_review with a failed check resumes", job.PlanEventObserve, jobFacts{Status: job.StatusNeedsReview, CheckVerdict: "fail"}, reworkBudget{}, ActionResumeWithNotes, RuleCheckFailedResume},
+		{"needs_review with a self-reported human keeps that rule", job.PlanEventObserve, jobFacts{Status: job.StatusNeedsReview, SelfDecision: job.ResultHuman}, reworkBudget{}, ActionEscalate, RuleSelfHumanEscalate},
+		{"done but open with a self rework resumes", job.PlanEventObserve, jobFacts{Status: job.StatusDone, SelfDecision: job.ResultRework}, reworkBudget{}, ActionResumeWithNotes, RuleSelfReworkResume},
 		{"self human on a failed job escalates as reported", job.PlanEventBlock, failed(job.TerminationTransient, jobFacts{SelfDecision: job.ResultHuman}), reworkBudget{}, ActionEscalate, RuleSelfHumanEscalate},
 	}
 	for _, tc := range cases {
@@ -55,6 +59,8 @@ func TestDecideJobRules(t *testing.T) {
 	assert.False(t, ok, "an advance event is about a finished job")
 	_, ok = decideJob(job.PlanEventBlock, jobFacts{Status: job.StatusDone}, reworkBudget{})
 	assert.False(t, ok, "a block event is about a failed job")
+	_, ok = decideJob(job.PlanEventObserve, jobFacts{Status: job.StatusDone}, reworkBudget{})
+	assert.False(t, ok, "a done job with its item open and no strong signal decides nothing")
 	_, ok = decideJob(job.PlanEventSweep, jobFacts{Status: job.StatusDone}, reworkBudget{})
 	assert.False(t, ok)
 }

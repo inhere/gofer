@@ -216,3 +216,66 @@ func TestDriverFailureNeverAffectsAdvance(t *testing.T) {
 		})
 	}
 }
+
+// runReview runs a one-item plan whose item asks for a human review, optionally with the
+// driver on, and waits until the job is parked in needs_review.
+func runReview(t *testing.T, driverOn bool) *job.Service {
+	t.Helper()
+	svc := newRealService(t, func(s *job.Service) job.PlanDriver { return NewEngine(s) })
+	assert.NoErr(t, svc.Meta().InsertPlan(jobstore.Plan{PlanID: "plan-it", Title: "it", Status: jobstore.PlanOpen, ProjectKey: "self", CreatedAt: 1, UpdatedAt: 1}))
+	assert.NoErr(t, svc.Meta().InsertTodo(jobstore.PlanTodo{
+		TodoID: "td-0", PlanID: "plan-it", Title: "reviewed", Status: jobstore.TodoPending,
+		Assignee: "ok", Auto: true, Review: true, Sort: 10, CreatedAt: 1, UpdatedAt: 1,
+	}))
+	if driverOn {
+		assert.NoErr(t, svc.EnablePlanDriver("plan-it", "", job.PlanDriverBudget{}))
+	}
+	_, err := svc.RunPlan("plan-it", "alice")
+	assert.NoErr(t, err)
+	wait.For(t, 30*time.Second, "job in needs_review", func() (bool, any) {
+		jobs, _ := svc.Meta().ListJobsByTodo("td-0", 5)
+		rows, _ := svc.Meta().ListPlanEvents(10)
+		return len(jobs) == 1 && jobs[0].Status == job.StatusNeedsReview && len(rows) == 0, jobs
+	})
+	return svc
+}
+
+// TestDriverSeesNeedsReview: a job parked for review is recorded as an escalate, the final
+// state is the same with and without the driver, and the human's accept settles the record.
+func TestDriverSeesNeedsReview(t *testing.T) {
+	t.Parallel()
+	off := runReview(t, false)
+	on := runReview(t, true)
+	assert.Eq(t, finalState(t, off), finalState(t, on))
+	assert.StrContains(t, finalState(t, on), "status=needs_review")
+
+	var rec jobstore.PlanDriverAction
+	wait.For(t, 10*time.Second, "needs_review escalate recorded", func() (bool, any) {
+		acts, _ := on.Meta().ListPlanDriverActions("plan-it", false)
+		for _, a := range acts {
+			if a.Rule == RuleNeedsReviewEscalate {
+				rec = a
+				return true, a
+			}
+		}
+		return false, acts
+	})
+	assert.Eq(t, ActionEscalate, rec.Action)
+	assert.Eq(t, "td-0", rec.TodoID)
+	assert.Eq(t, "", rec.Outcome, "nobody has ruled yet")
+	none, _ := off.Meta().ListPlanDriverActions("plan-it", false)
+	assert.Eq(t, 0, len(none))
+
+	jobs, _ := on.Meta().ListJobsByTodo("td-0", 5)
+	_, err := on.AcceptJob(jobs[0].ID, "alice", "ok")
+	assert.NoErr(t, err)
+	wait.For(t, 30*time.Second, "outcome stamped after the accept", func() (bool, any) {
+		acts, _ := on.Meta().ListPlanDriverActions("plan-it", false)
+		for _, a := range acts {
+			if a.Rule == RuleNeedsReviewEscalate && a.Outcome == OutcomeMatch {
+				return true, a
+			}
+		}
+		return false, acts
+	})
+}
