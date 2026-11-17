@@ -449,6 +449,9 @@ func (s *Store) SetPlanStatus(id, status string, progress int) error {
 		if _, err := tx.Exec(`DELETE FROM plan_drivers WHERE plan_id=?`, id); err != nil {
 			return fmt.Errorf("jobstore: archive plan %q: delete driver: %w", id, err)
 		}
+		if _, err := tx.Exec(`DELETE FROM plan_driver_actions WHERE plan_id=?`, id); err != nil {
+			return fmt.Errorf("jobstore: archive plan %q: delete driver actions: %w", id, err)
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("jobstore: set plan %q status %s: commit: %w", id, status, err)
