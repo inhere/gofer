@@ -253,7 +253,7 @@ gofer plan answer <decision-id> --answer "方案A"
 
 ## 自主推进（plan drive）
 
-推进引擎（driver）让 gofer 自己盯着一条 plan 往前走。本版只开放**只记录**等级：它对每个推进事件算出「本来会做什么」并记下来，**不派发、不续接、不重试、不暂停**；随后把记录与实际发生的处理对比，给出一致率，先量准了再谈放权。`assist` / `auto` 未开放（指定这两个等级会被服务端拒绝并提示「后续版本」）。
+推进引擎（driver）让 gofer 自己盯着一条 plan 往前走。本版只开放**只记录**等级：它对每个推进事件算出「本来会做什么」并记下来，**不派发、不续接、不重试、不暂停**；随后把记录与实际发生的处理对比，给出一致率，先量准了再谈放权。`assist` / `auto` 未开放（指定这两个等级会被服务端拒绝，提示「该等级在后续版本支持」）。
 
 ```bash
 gofer plan drive on <plan> [--level record] [--max-jobs N --max-rework N --max-hours H]   # 开启（默认 record），预算可留空 = 不限
