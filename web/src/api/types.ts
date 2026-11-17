@@ -2967,6 +2967,9 @@ export interface Plan {
   needs_review?: number
   // 失败 job 数（含 timeout / cancelled），等于 counts.failed。
   failed_jobs?: number
+  // 推进引擎等级（设计 2026-11-16 §1，R12）：只有 GET /v1/plans 列表带，启用时是 'record'
+  // （本版唯一等级），未启用时服务端省略这个字段。列表行据此显示「只记录」徽标。
+  driver?: string
 }
 
 // plan 的 leader 回合状态（MCP-05 阶段 B）：round=已用轮次（起过一个 leader job 才算），

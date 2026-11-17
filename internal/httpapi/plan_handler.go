@@ -73,6 +73,9 @@ type planListItem struct {
 	// spelled out for the blocker column.
 	FailedJobs int                     `json:"failed_jobs"`
 	Completion jobstore.PlanCompletion `json:"completion"`
+	// Driver 是这个 plan 的推进引擎等级（record / assist / auto），未启用时为空并省略；
+	// 列表行的「只记录」徽标读它（设计 2026-11-16 §1，R12），不用逐个拉详情。
+	Driver string `json:"driver,omitempty"`
 }
 
 // effectivePlanLeader normalises the column for the wire: anything that is not `on`
@@ -442,6 +445,16 @@ func (s *Server) handleListPlans(c *rux.Context) {
 		return
 	}
 	out := make([]planListItem, 0, len(list))
+	// 一次查出所有启用推进引擎的 plan（不是一个 plan 一次查询），列表行据此显示等级徽标。
+	drivers, err := s.jobs.Meta().ListPlanDrivers()
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "plan drivers failed", err.Error())
+		return
+	}
+	driverLevel := make(map[string]string, len(drivers))
+	for _, d := range drivers {
+		driverLevel[d.PlanID] = d.Level
+	}
 	for _, p := range list {
 		jc, tc := jobstore.RollupPlanCounts(jobCounts[p.PlanID]), todoCounts[p.PlanID]
 		out = append(out, planListItem{
@@ -451,6 +464,7 @@ func (s *Server) handleListPlans(c *rux.Context) {
 			NeedsReview: jobCounts[p.PlanID][job.StatusNeedsReview],
 			FailedJobs:  jc.Failed,
 			Completion:  jobstore.RollupPlanCompletion(jc, tc),
+			Driver:      driverLevel[p.PlanID],
 		})
 	}
 	c.JSON(http.StatusOK, map[string]any{

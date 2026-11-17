@@ -71,7 +71,8 @@ gofer plan brief <plan> [--json]
 gofer plan ask / decisions / answer          # 决策点（人这一侧）
 gofer plan comment <plan> "…" [--todo <todo>] / comments <plan>
 gofer plan drive on <plan> [--level record] [--max-jobs N --max-rework N --max-hours H]   # 推进引擎（本版只有只记录）
-gofer plan drive status / off / report <plan>                                              # 状态 / 关闭 / 一致率报告
+gofer plan drive status / off <plan>                                                       # 状态 / 关闭
+gofer plan drive report <plan> [--recent N]                                                # 一致率报告 + 最近动作明细（默认 20 条，0 = 不印）
 ```
 
 细节（派发字段、依赖链、方案规则、决策点、自主推进、主 Agent 会话）见 [plans-workflows.md](plans-workflows.md)。
