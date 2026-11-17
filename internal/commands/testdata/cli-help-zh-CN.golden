@@ -250,6 +250,7 @@ job run	flag from-session	start a NEW agent session that inherits this earlier s
 job run	flag hold	hold the job for a person's approval: it parks in awaiting_approval and runs only after someone approves it in the web console (or gofer job approve outside an agent session); rejected or expired = cancelled, never run
 job run	flag hold-reason	why the job needs approval, shown to the approver (with --hold)
 job run	flag hold-timeout	seconds to wait for a decision before the job is cancelled (0 = server.hold.default_timeout_sec, 86400; above server.hold.max_timeout_sec is refused)
+job run	flag hosted	persistent session (--session) that never ends for being idle and has no maximum length: use it like an open terminal (cannot be combined with --idle-timeout / --max-session)
 job run	flag idle-timeout	seconds to await the next session message (0 = 1800)
 job run	flag interactive	request an interactive pty job
 job run	flag issue	link this job to a repository tracker issue
@@ -274,7 +275,7 @@ job run	flag no-skills	mount no skills for this job (overrides every configured 
 job run	flag no-stall	never kill this job for silence (overrides --stall-timeout, the agent's and the server's settings)
 job run	flag no-verify	do not run the project's default verify step for this job
 job run	flag notify	tell the submitting session through the gofer messenger when this job ends (a system notice; off by default because each notice starts a messenger process)
-job run	flag notify-session	session id to notify when this job ends (implies --notify); default: the source session, else the agent session this command runs in ($GOFER_SESSION_ID / $CLAUDE_CODE_SESSION_ID)
+job run	flag notify-session	session id to notify when this job ends (implies --notify); also accepts a persistent session job id (job-…), which gets the result as its next turn; default: the source session, else the agent session this command runs in ($GOFER_SESSION_ID / $CLAUDE_CODE_SESSION_ID)
 job run	flag parent-wake-events	with a resident parent: which child events wake it, comma-separated (job.terminal,job.needs_review,job.awaiting_approval,interaction.created; job.terminal is always included)
 job run	flag permission-tier	acp-agent approval tier: auto (as configured, default) | ask | strict; it only tightens the project's approval gate and switches the agent to its acp.modes.ask mode when it has one
 job run	flag plan	attach the job to a plan (grouping key)

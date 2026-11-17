@@ -39,11 +39,30 @@ func notifyTarget(req JobRequest) string {
 	return strings.TrimSpace(req.SourceSessionID)
 }
 
-// notifyTargetJobID reports whether target addresses a session by its JOB id
-// (`--notify-session job-…`), the form that reaches an ACP session job. A job id this
-// server minted is recognizable before anything is looked up, which is what keeps a
-// session id and a job id apart: the two live in different address spaces.
+// notifyTargetJobID reports whether target CAN be a job id of this server: a job id is
+// recognizable by its prefix before anything is looked up. It only narrows the search —
+// an agent session id may start with the same letters, so an id that resolves as a
+// session is always treated as one (see notifySessionJobReason).
 func notifyTargetJobID(target string) bool { return strings.HasPrefix(target, JobIDPrefix) }
+
+// notifySessionJobReason answers "may a finished job tell this session job?": "" when the
+// target is a live persistent session of this server, else the reason it is not (the
+// same wording for an unknown target whether it was meant as a job id or a session id).
+func (s *Service) notifySessionJobReason(target string) string {
+	if !notifyTargetJobID(target) {
+		return fmt.Sprintf("notify session %q is not a registered session of this server", target)
+	}
+	res, ok := s.Get(target)
+	switch {
+	case !ok:
+		return fmt.Sprintf("notify session %q is neither a registered session nor a job of this server", target)
+	case !res.Session:
+		return fmt.Sprintf("job %q is not a persistent session: pass the session id of an agent session, or the job id of a --session job", target)
+	case IsFinished(res.Status):
+		return fmt.Sprintf("session job %q has already ended (status %s)", target, res.Status)
+	}
+	return ""
+}
 
 // droppedNotify is an end-notification a submit could not honour and gave up
 // (gofer-3db4): the resolved target and why it is unusable. Submit records it as a
@@ -82,19 +101,6 @@ func (s *Service) resolveNotifyRequest(req *JobRequest) (*droppedNotify, error) 
 		reason = "no session to tell: the request named no notify_session and has no source session"
 	case target == strings.TrimSpace(req.SourceSessionID):
 		return nil, nil // proven by validateSourceSession
-	case notifyTargetJobID(target):
-		// A persistent session named by its job id: it must be one of this server's
-		// session jobs and still alive, because a receipt for an ended session has
-		// nobody to speak to.
-		res, ok := s.Get(target)
-		switch {
-		case !ok:
-			reason = fmt.Sprintf("notify session %q is not a job of this server", target)
-		case !res.Session:
-			reason = fmt.Sprintf("job %q is not a persistent session: pass the session id of an agent session, or the job id of a --session job", target)
-		case IsFinished(res.Status):
-			reason = fmt.Sprintf("session job %q has already ended (status %s)", target, res.Status)
-		}
 	default:
 		session, ok, err := s.meta.GetAgentSession(target)
 		switch {
@@ -103,7 +109,10 @@ func (s *Service) resolveNotifyRequest(req *JobRequest) (*droppedNotify, error) 
 			// problem, and the caller (internal producer included) needs to see it.
 			return nil, fmt.Errorf("load notify session: %w", err)
 		case !ok:
-			reason = fmt.Sprintf("notify session %q is not a registered session of this server", target)
+			// Not a registered agent session. It may be a persistent session named by its
+			// JOB id (`--notify-session <job id>`), which is delivered as that session's
+			// next turn instead of by the messenger (see registerNotifySessionReceipt).
+			reason = s.notifySessionJobReason(target)
 		case session.CallerID != "" && strings.TrimSpace(req.CallerID) != "" && session.CallerID != strings.TrimSpace(req.CallerID):
 			reason = fmt.Sprintf("notify session %q belongs to another caller", target)
 		}
@@ -152,7 +161,10 @@ func (s *Service) watchNotifyTarget(req JobRequest, jobID string) error {
 		return nil
 	}
 	if notifyTargetJobID(target) {
-		return s.registerNotifySessionReceipt(req, target, jobID)
+		if _, isSession, err := s.meta.GetAgentSession(target); err != nil || !isSession {
+			// Not an agent session: a live persistent session JOB gets the spoken receipt.
+			return s.registerNotifySessionReceipt(req, target, jobID)
+		}
 	}
 	if _, err := s.meta.AddSessionJobWatch(target, jobID); err != nil {
 		return fmt.Errorf("register notify session watch: %w", err)
@@ -221,15 +233,17 @@ func (s *Service) dropNotifyTargetWatch(req JobRequest, jobID string) {
 		return
 	}
 	if notifyTargetJobID(target) {
-		// Undo registerNotifySessionReceipt. Best-effort for the same reason as below.
-		if rows, err := s.meta.ListEventWakeupsByChild(jobID); err == nil {
-			for _, w := range rows {
-				if w.JobID == target {
-					_ = s.meta.DeleteWakeup(w.ID)
+		if _, isSession, err := s.meta.GetAgentSession(target); err != nil || !isSession {
+			// Undo registerNotifySessionReceipt. Best-effort for the same reason as below.
+			if rows, err := s.meta.ListEventWakeupsByChild(jobID); err == nil {
+				for _, w := range rows {
+					if w.JobID == target {
+						_ = s.meta.DeleteWakeup(w.ID)
+					}
 				}
 			}
+			return
 		}
-		return
 	}
 	_, _ = s.meta.RemoveSessionJobWatch(target, jobID)
 }
