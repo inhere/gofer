@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.1.0 -->
 # 第 6 批：托管常驻会话 实施计划
 
-> 状态：Draft 0.1（待批）
+> 状态：Draft 0.1 已批准（2026-11-17，用户：「第 6 批计划批准」）
 > 设计：`docs/design/2026-11-17-hosted-resident-session-design.md`（已批准，Q1–Q5 按推荐）
 > issue：gofer-anrv、gofer-xmit、gofer-geyu、gofer-fj5x
 
