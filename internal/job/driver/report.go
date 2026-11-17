@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"encoding/json"
 	"sort"
 
 	"github.com/inhere/gofer/internal/job"
@@ -43,6 +44,7 @@ func (e *Engine) PlanDriverReport(_ context.Context, planID string) (job.PlanDri
 			rep.Pending++
 		}
 	}
+	rep.Recent = recentActions(actions, job.PlanDriverReportRecent)
 	return rep, nil
 }
 
@@ -122,4 +124,23 @@ func rate(r job.PlanDriverReportRow) float64 {
 		return 0
 	}
 	return float64(r.Match) / float64(n)
+}
+
+// recentActions lists the newest n actions (the store returns them oldest first),
+// newest first, for the report's line-by-line view.
+func recentActions(actions []jobstore.PlanDriverAction, n int) []job.PlanDriverActionView {
+	out := make([]job.PlanDriverActionView, 0, min(len(actions), n))
+	for i := len(actions) - 1; i >= 0 && len(out) < n; i-- {
+		a := actions[i]
+		v := job.PlanDriverActionView{
+			ID: a.ID, TodoID: a.TodoID, JobID: a.JobID, EventKind: a.EventKind,
+			Action: a.Action, Rule: a.Rule, Risk: a.Risk, WouldPause: a.WouldPause,
+			Outcome: a.Outcome, MatchedAt: a.MatchedAt, CreatedAt: a.CreatedAt,
+		}
+		if json.Valid([]byte(a.ParamsJSON)) {
+			v.Params = json.RawMessage(a.ParamsJSON)
+		}
+		out = append(out, v)
+	}
+	return out
 }

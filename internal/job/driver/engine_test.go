@@ -455,4 +455,11 @@ func TestReportSummarizesAndSuggestsUpgrade(t *testing.T) {
 	assert.Eq(t, 1, byRule[ActionEscalate+"/"+RuleFailureOtherEscalate].Pending)
 	assert.Eq(t, 3, len(rep.ByAction))
 	assert.Eq(t, 4, len(rep.ByRule))
+	// The line-by-line view: newest first, every action while under the cap.
+	assert.Eq(t, 44, len(rep.Recent))
+	assert.Eq(t, ActionEscalate, rep.Recent[0].Action)
+	assert.Eq(t, RuleFailureOtherEscalate, rep.Recent[0].Rule)
+	assert.Eq(t, ActionDispatchTodo, rep.Recent[43].Action)
+	assert.Eq(t, OutcomeMismatch, rep.Recent[43].Outcome)
+	assert.True(t, rep.Recent[0].ID > rep.Recent[43].ID)
 }

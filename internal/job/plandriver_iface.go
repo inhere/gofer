@@ -2,6 +2,7 @@ package job
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 
@@ -105,6 +106,28 @@ type PlanDriverReport struct {
 	WindowHours int                   `json:"window_hours"`
 	ByAction    []PlanDriverReportRow `json:"by_action"`
 	ByRule      []PlanDriverReportRow `json:"by_rule"`
+	// Recent is the newest recorded actions (at most PlanDriverReportRecent), newest
+	// first: what the driver would have done, so a person can check it line by line.
+	Recent []PlanDriverActionView `json:"recent"`
+}
+
+// PlanDriverReportRecent caps PlanDriverReport.Recent.
+const PlanDriverReportRecent = 100
+
+// PlanDriverActionView is one recorded action as the report shows it.
+type PlanDriverActionView struct {
+	ID         int64           `json:"id"`
+	TodoID     string          `json:"todo_id,omitempty"`
+	JobID      string          `json:"job_id,omitempty"`
+	EventKind  string          `json:"event_kind"`
+	Action     string          `json:"action"`
+	Rule       string          `json:"rule"`
+	Risk       string          `json:"risk"`
+	WouldPause bool            `json:"would_pause,omitempty"`
+	Outcome    string          `json:"outcome,omitempty"`
+	MatchedAt  int64           `json:"matched_at,omitempty"`
+	CreatedAt  int64           `json:"created_at"`
+	Params     json.RawMessage `json:"params,omitempty"`
 }
 
 // PlanDriverReport asks the wired driver for a plan's report. An unknown plan is
