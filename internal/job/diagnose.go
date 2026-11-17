@@ -49,13 +49,13 @@ type DiagnosisLink struct {
 	JobID string `json:"job_id"`
 	// Relation of this link to the diagnosed job: target / source / resume / failover /
 	// retry. It says HOW the link was found, which is what makes the chain readable.
-	Relation    string `json:"relation"`
-	Status      string `json:"status"`
-	Reason      string `json:"termination_reason"`
-	Error       string `json:"error,omitempty"`
-	Attempt     int    `json:"attempt,omitempty"`
-	StartedAt   int64  `json:"started_at,omitempty"`
-	EndedAt     int64  `json:"ended_at,omitempty"`
+	Relation  string `json:"relation"`
+	Status    string `json:"status"`
+	Reason    string `json:"termination_reason"`
+	Error     string `json:"error,omitempty"`
+	Attempt   int    `json:"attempt,omitempty"`
+	StartedAt int64  `json:"started_at,omitempty"`
+	EndedAt   int64  `json:"ended_at,omitempty"`
 }
 
 // DiagnosisStage is one point of the job's lifecycle.
