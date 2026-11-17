@@ -260,6 +260,8 @@ roots:
 ```
 
 - `.env`（与 worker.yaml 同目录）：`GOFER_WORKER_TOKEN`（worker 连 server）、`GOFER_SERVER_ADDR`（容器里 CLI / hook 连 server）、`GOFER_HOOK_RUNNER=<worker_id>`（会话登记到本 worker，web 才能送话到容器里的 tmux pane；缺了报 `no_runner`）。会话要在 `tmux new -A -s claude` 里起才有 pane。
+- **预装 ACP 适配器**（可选但强烈建议）：容器里 `npm i -g @agentclientprotocol/claude-agent-acp`。PATH 上有 `claude-agent-acp` 时内置 `claude-acp` 模板直接启动它，不经过 `npx -y` 的首次下载——这是会话「几秒就绪」与「先等一次下载」的区别；没装就照旧回落，不影响可用性。
+- **时区**：容器里设 `TZ=<时区>`（如 `TZ=Asia/Shanghai`），否则 job 日志、会话时间与主机差几小时。
 - 自检：`gofer worker doctor`（`--json` / `--timeout 5s` / `--connect=false`）；本机已有该 worker 在跑时会跳过注册探测（探测会顶掉在跑的连接）。
 - 完整操作手册见 <https://github.com/inhere/gofer/blob/main/docs/runbook/container-worker.md>。
 
@@ -273,6 +275,7 @@ roots:
 | worker_id 没三处对齐 | 注册被拒 / web 看不到 | 见「worker_id 三处对齐」 |
 | Linux worker 的 host_path 写成 Windows 路径 | LEGACY 遗留，job 落到错误目录 | 迁到 roots 顺带修 |
 | 两个进程用了同一个 `worker_id` | 反复互顶，job 时断时续；`worker show` 有 `last_replaced`、worker 日志有 `worker.replaced` | 只留一个进程或给其中一台换 id，见 [operations.md](operations.md)「同一 worker_id 的两个进程互顶」 |
+| worker 版本落后于 server | 需要较新协议的功能（如 `--permission-tier` 需协议 v31）提交时被拒 | 能力是按协议版本逐项开口的，不是全有全无：升 worker 后再提交，见 [operations.md](operations.md)「远程升级 worker」 |
 
 ---
 

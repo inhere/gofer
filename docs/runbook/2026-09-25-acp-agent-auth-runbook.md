@@ -38,6 +38,8 @@ agents:
 
 **不要**把 key 写进 `config.yaml` 的 `agents.<key>.env`：那是明文进配置文件、并会落进 job 的 `request_json`；配置 API 也把 `agents.*.env` 列为不可编辑（写入会被拒）。真要用 agent env，就用 `${ANTHROPIC_API_KEY}` 这类**引用**指向外部环境变量。
 
+**适配器的启动命令**：内置 `claude-acp` 模板优先用 PATH 上的 `claude-agent-acp`（容器镜像预装它即可跳过一次 npx 下载），PATH 上没有才回落 `npx -y @agentclientprotocol/claude-agent-acp`；两者是同一个适配器包，认证与 `acp.modes` 行为一致。容器侧的预装命令见 [`container-worker.md`](container-worker.md)「4.1 在容器里跑 ACP 会话」。
+
 ## 排查
 
 | 症状 | 先看什么 |

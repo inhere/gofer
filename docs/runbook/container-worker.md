@@ -136,6 +136,30 @@ gofer session say <sid> "<文本>" --deliver --takeover   # pane 没了时改走
 
 **每个容器一个自己的 runner**：容器里会话登记的 runner 应当是**这个容器自己的** worker id，几个容器不要共用一个。会话名只在**同一个 runner** 内才唯一：共用一个标签时，两台机器上同名的两个会话在那台 runner 上就成了「同名」，按名字的投递和回复归属都会因为分不清而失败（能救回来的只有上报了会话间地址的 Claude Code 会话，没地址的自研 agent 无从区分）。`GOFER_RUN_MODE=client`（不跑 worker，只用 hook + CLI）的节点**必须**在 `.env` 里设 `GOFER_HOOK_RUNNER`（§2.2）：不设就等于没登记执行机，送话报 `no_runner`，会话间地址也无处归属。
 
+### 4.1 在容器里跑 ACP 会话（claude-acp）
+
+内置 `claude-acp` 模板启动的是 ACP 适配器：**PATH 上有 `claude-agent-acp` 就直接起它**，否则回落 `npx -y @agentclientprotocol/claude-agent-acp`。容器每次重建都是干净文件系统，走 npx 意味着**第一轮先等一次下载**（慢网下很容易撞上首轮超时），所以镜像里预装：
+
+```bash
+npm i -g @agentclientprotocol/claude-agent-acp
+claude-agent-acp --version        # 能打印版本即预装成功
+```
+
+- 只装这一层，**不改** worker.yaml 的 `agents:`：模板自己会挑命令，预装后同一个 `claude-acp` 即秒起。
+- 认证与环境变量（`ANTHROPIC_*` / `~/.claude/settings.json` 的 `env` 块）与主机侧相同，见 [`2026-09-25-acp-agent-auth-runbook.md`](2026-09-25-acp-agent-auth-runbook.md)。
+- 会话落在容器里时，目录锁、并发槽位、让锁都在**容器这台 worker** 上生效；web 新建会话默认就选带 `container` 标签、在线的 worker。
+
+### 4.2 时区：让容器里的时间与主机一致
+
+容器默认是 UTC，job 日志、`job show` / 会话详情里的时间、agent 自己写进汇报的时间都会差几个小时。启动时设时区即可（不需要改 gofer 配置）：
+
+```bash
+docker run … -e TZ=Asia/Shanghai …            # 或 compose 的 environment: ["TZ=Asia/Shanghai"]
+```
+
+- 只影响**显示与日志**：超时、预算、空闲判定都按时长算，与时区无关，时区错了不会把 job 判超时。
+- 容器重建后用 `date` 核对一眼。
+
 ## 5. 验收清单
 
 ```bash
