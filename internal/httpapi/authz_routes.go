@@ -543,8 +543,8 @@ var routeDecls = map[string]routeDecl{
 	//                          行）：run / resume 派发 plan 里的 ready 项，PATCH 开启 leader
 	//                          开关，todo PATCH 改为 ready 或改 assignee 即派发，todo
 	//                          dispatch 显式派发。四处都在写之前查，所以被拒的请求什么都不变。
-	//   plan.manage.others     其余写入口：handoff、挂 job、加 todo、pause，以及把 work item
-	//                          转进他人 plan。
+	//   plan.manage.others     其余写入口：handoff、挂 job、加 todo、pause、plan driver 的开关，
+	//                          以及把 work item 转进他人 plan。
 	//
 	// work item 本身照 design 保持 Public（「work item 没有 owner 模型」）：它的写入口只拒 worker
 	// 与 job 凭据（workNotAWorker，仍在 handler 里），不向 user 类调用方要权限。
@@ -553,6 +553,10 @@ var routeDecls = map[string]routeDecl{
 	// 或根管理员，所以那一条分支留在 handler 里（callerIsRootAdmin，等价于仅根的
 	// plan.supervise.others），路由本身不向调用方要权限。
 	"PATCH /v1/plans/{id}":              {user: InHandler(permDeny, authz.PermPlanManageOthers, authz.PermPlanSuperviseOthers, authz.PermJobSubmit), scope: Resource("plan")},
+	// The driver's switches (design 2026-11-16 §1, R4): on / off are plan writes, so they
+	// are plan.manage.others like pause / attach; the read is Public with the plan itself.
+	"PUT /v1/plans/{id}/driver":         {user: InHandler(permDeny, authz.PermPlanManageOthers), scope: Resource("plan")},
+	"DELETE /v1/plans/{id}/driver":      {user: InHandler(permDeny, authz.PermPlanManageOthers), scope: Resource("plan")},
 	"POST /v1/plans/{id}/jobs":          {user: InHandler(permDeny, authz.PermPlanManageOthers), scope: Resource("plan")},
 	"POST /v1/plans/{id}/pause":         {user: InHandler(permDeny, authz.PermPlanManageOthers), scope: Resource("plan")},
 	"POST /v1/plans/{id}/resume":        {user: InHandler(permDeny, authz.PermPlanManageOthers, authz.PermJobSubmit), scope: Resource("plan")},
@@ -572,6 +576,7 @@ var routeDecls = map[string]routeDecl{
 	"POST /v1/plans":                                       {user: Public(), scope: BodyProject()},
 	"GET /v1/plans":                                        {user: Public(), scope: Filter()},
 	"GET /v1/plans/{id}":                                   {user: Public(), scope: Resource("plan")},
+	"GET /v1/plans/{id}/driver":                            {user: Public(), scope: Resource("plan")},
 	"GET /v1/plans/{id}/events":                            {user: Public(), scope: Resource("plan")},
 	"GET /v1/plans/{id}/comments":                          {user: Public(), scope: Resource("plan")},
 	"GET /v1/plans/{id}/todos/{todo_id}/comments":          {user: Public(), scope: Resource("plan")},

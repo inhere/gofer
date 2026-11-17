@@ -480,6 +480,15 @@ var planAuthzCases = []authzCase{
 	{key: "POST /v1/plans/{id}/run", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodPost, "/v1/plans/" + e.plan() + "/run", nil}
 	}},
+	// The driver's two switches (design 2026-11-16 §1, R4): enabling it at the record level
+	// and turning it off are plan writes like pause. The own half holds plan.manage.others and
+	// really flips the switch; the third entry (GET) is Public and needs no case.
+	{key: "PUT /v1/plans/{id}/driver", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPut, "/v1/plans/" + e.plan() + "/driver", map[string]any{"level": "record"}}
+	}},
+	{key: "DELETE /v1/plans/{id}/driver", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodDelete, "/v1/plans/" + e.plan() + "/driver", nil}
+	}},
 
 	// ---- the checklist ----
 	// A move to ready may DISPATCH the item (job.submit) on top of the item's plan rule
