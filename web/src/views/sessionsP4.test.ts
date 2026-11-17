@@ -21,7 +21,7 @@ describe('sessions page P4', () => {
     expect(page).toContain("relay: t('sessions.tab.relay')")
     // 条数来自接口 counts（与列表同一过滤、不受 source 与分页影响）。
     expect(page).toContain("'': t('sessions.history.all')")
-    expect(page).toContain('counts: true')
+    expect(page).toContain('counts: reset')
   })
 
   it('filters by project through the URL and by agent / runner / status', () => {

@@ -198,8 +198,9 @@ async function loadHistory(reset = true): Promise<void> {
         ...historyQuery(currentFilters(), sourceOf(activeTab.value), {
           limit: PAGE_SIZE,
           cursor: reset ? undefined : cursor.value,
-          // counts 与 source / 分页无关：切页签时也带上，条数才不会掉成 0。
-          counts: true,
+          // counts 与 source / 分页无关：第一页（含切页签、改筛选）都带上，条数才不会掉成 0；
+          // 追加更早的一页时不必重算。
+          counts: reset,
         }),
         live: onlyLive.value || undefined,
       },
