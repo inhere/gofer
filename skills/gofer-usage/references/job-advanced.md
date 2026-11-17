@@ -132,12 +132,14 @@ gofer job diagnose <id> [--json]
 ```bash
 gofer job run -p <project> -a <acp-agent> --session \
   --prompt "第一轮消息" --timeout 90 --idle-timeout 1800 [--max-session 7200] [--lock <子目录> | --worktree]
+gofer job run -p <project> -a <acp-agent> --session --hosted --prompt "第一轮消息"   # 托管：不按空闲结束
 gofer job say <job-id> "下一轮消息"      # 同一个 job 再发一轮，不产生新 job
 gofer job end <job-id>                   # 结束会话并释放目录锁
 ```
 
 - 状态：一轮结束停在 `awaiting_input`，`say` 回到 `running`；`end` 或空闲到期为 `done`，`cancel` 为 `cancelled`，agent 进程异常退出为 `failed`。
 - 超时：`--timeout` 限每一轮；`--idle-timeout` 限等下一条消息（0 = 1800 秒）；`--max-session` 限整个会话（0 = 不限）。`--prompt` 可省，直接等第一条 `say`。
+- **托管（`--hosted`，HTTP / MCP 同名字段 `hosted`）**：要长期挂着的会话（一直开着的终端、监督别的 job 的会话、收结果的会话）加它 —— 不按空闲结束、不限最长时长，只在 `job end`、agent 自己退出或出错时结束。它与 `--idle-timeout` / `--max-session` 同用会被拒（`400`，`--idle-timeout 0` 仍然只是默认 1800 秒）。状态里记 `hosted`，`job show` 多一行 `hosted: true`，web 任务详情显示「托管」；`job resume` 续接时继承托管。web「新建会话」默认勾选托管，取消勾选才按空闲时限结束。
 - 每轮计时会为人工审批让路：一轮里停下等人作答（工具调用审批，job 处于 `pending_interaction`）的时间**不计入**这一轮的 `--timeout`，答完继续计时，所以开了 `approval` 的会话不会因为人回得慢被判 turn timed out。暂停 / 恢复各记一条 job 事件（`job.turn_timeout_paused` / `job.turn_timeout_resumed`，详情带本轮预算 `timeout_sec`、已用 `used_sec`、剩余 `remaining_sec`、欠着的 `interaction_id`）。审批自己的 `timeout_sec` + `on_timeout` 仍然兜底，等待有上限；`--max-session` 与 job 总时限按墙上时间算，不暂停。
 - 占用：整个会话期间（含 `awaiting_input`）都占一个 agent 的**并发名额**；**目录锁只在跑一轮时持有**——等你输入期间默认让出，下一轮开始前重新抢回。仍建议配 `--lock <子目录>` 或 `--worktree`，用完及时 `end`。
 - **等你输入时让出目录锁**：一轮结束进入 `awaiting_input` 就释放工作目录锁，同目录的可写 job 立刻能跑；你发下一条消息时它按普通 job 的方式排队拿锁，拿到才开始这一轮（状态仍是 `awaiting_input`；事件 `job.dir_wait` 记下持有者与目录，web 时间线可见）。
@@ -160,6 +162,7 @@ gofer job end <job-id>                   # 结束会话并释放目录锁
 - 在哪跑：server 本机或较新的 worker；太旧的 worker 提交时被拒并提示升级。`--interactive` 与 `--session` 互斥，非 acp-agent 带 `--session` 被拒。server 重启 / worker 断线后用协议的会话载入恢复，agent 不支持就 `failed`，改开新会话。
 - 内置 `claude-acp` / `codex-acp` 用 `npx -y @agentclientprotocol/claude-agent-acp`、`npx -y @agentclientprotocol/codex-acp` 适配器（在 config 里自定义过的，确认用的是这两个包）；`claude-acp` 额外优先：PATH 上有 `claude-agent-acp` 时直接启动它（镜像 / 容器预装即秒起，不经 npx 首次下载），没有才回落 npx。codex-acp 认证读 `~/.codex/auth.json` 或 `CODEX_API_KEY` / `OPENAI_API_KEY`，`CODEX_PATH` 可指向别的 codex。
 - web 工作台里 ACP 会话的输入直发同一 job；`say` / `end` 与 `cancel` 同一套权限。
+- **把别的 job 的结果送进会话**：`job run --notify-session <会话 job-id>` 在该会话里开下一轮，内容是该 job 的结果摘要（job id、状态、退出码、`gofer job logs` 命令）；会话正在跑一轮时先停放，回到等输入时送达，会话被续接（job id 不变）也照常送达。目标不是持续会话或已经结束会被拒（`400`）。不给 `--notify-session` 时用 `--notify` 通知提交方的 agent 会话（另一条通路，经信使进程）。
 - 偶尔追问又不想占锁和名额：用不带 `--session` 的 job + `job resume`（一轮一个 job）。
 
 ## 中断后续跑（job resume）
