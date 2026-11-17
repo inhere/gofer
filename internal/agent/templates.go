@@ -192,6 +192,27 @@ var builtinTemplates = map[string]config.AgentConfig{
 	},
 }
 
+// claudeAgentACPAdapter is the adapter's own binary. A container image can preinstall
+// it, and launching it directly skips npx's download / first-run cache install — the
+// difference between a session that is ready in seconds and one that is not.
+const claudeAgentACPAdapter = "claude-agent-acp"
+
+// preferClaudeACPAdapter rewrites a copy of the claude-acp template to launch the
+// adapter binary directly when PATH has it, and leaves the npx fallback otherwise.
+// Only Command / Args / Detect change: it is the same adapter package, so its ACP
+// modes and settings passthrough stay exactly as declared above. The returned entry's
+// availability is still decided by a PATH lookup of Command, and the version probe
+// falls back to the default `<command> --version`.
+func preferClaudeACPAdapter(ac config.AgentConfig, look func(string) (string, error)) config.AgentConfig {
+	if _, err := look(claudeAgentACPAdapter); err != nil {
+		return ac
+	}
+	ac.Command = claudeAgentACPAdapter
+	ac.Args = nil
+	ac.Detect = config.DetectConfig{Command: claudeAgentACPAdapter, Args: []string{"--version"}}
+	return ac
+}
+
 // BuiltinAgentConfigs returns a copy of the built-in template map for setup commands
 // that need to explain unavailable template CLIs without materializing them.
 func BuiltinAgentConfigs() map[string]config.AgentConfig {

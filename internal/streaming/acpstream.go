@@ -245,6 +245,14 @@ func (n *acpNormalizer) record(record map[string]any) []map[string]any {
 			n.sawMessage = true
 		} else {
 			n.prompts++
+			// The workspace shows a prompt as the words the caller sent: the rules frame
+			// the server injected is split off into `injected`, the same shape
+			// GET /v1/jobs/{id}/messages uses (R9).
+			body, injected := job.SplitInjectedRules(stringValue(event["text"]))
+			event["text"] = body
+			if injected != "" {
+				event["injected"] = injected
+			}
 			if n.promptAttachments != nil {
 				if atts := n.promptAttachments(n.prompts); atts != nil {
 					event["attachments"] = atts

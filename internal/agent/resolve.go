@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"os/exec"
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/util"
@@ -77,6 +78,11 @@ func Resolve(cfg *config.Config, d Detector) (*config.Config, map[string]DetectR
 	for key, tpl := range builtinTemplates {
 		if _, declared := cfg.Agents[key]; declared {
 			continue // escape hatch wins the whole entry
+		}
+		if key == "claude-acp" {
+			// R15: launch the adapter binary directly when this host has it, so a
+			// preinstalled adapter skips npx; otherwise the npx fallback stands.
+			tpl = preferClaudeACPAdapter(tpl, exec.LookPath)
 		}
 		injectable[key] = tpl
 		candidates[key] = tpl

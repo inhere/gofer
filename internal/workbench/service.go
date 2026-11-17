@@ -213,19 +213,7 @@ func (s *Service) listPage(callerID string, query Query) (Response, error) {
 	pinned = withIncluded(pinned, query)
 	needle := strings.ToLower(strings.TrimSpace(query.Q))
 	match := func(thread *Thread) bool {
-		if !threadPassesSourceLive(*thread, query) {
-			return false
-		}
-		if query.Project != "" && thread.ProjectKey != query.Project {
-			return false
-		}
-		if query.Status != "" && thread.Status != query.Status {
-			return false
-		}
-		if needle != "" && !threadMatches(*thread, needle) {
-			return false
-		}
-		return query.Keep == nil || query.Keep(*thread)
+		return threadPassesSourceLive(*thread, query) && threadPassesFilters(*thread, query, needle)
 	}
 
 	var (
@@ -296,9 +284,56 @@ func (s *Service) listPage(callerID string, query Query) (Response, error) {
 		resp.NextCursor = encodeCursor(since, "")
 	}
 	selected = append(selected, ordinary...)
-	built := s.buildResponse(selected, first, query, query.Cursor == "")
+	// The per-source counts describe the whole window, not the page: a separate pass counts
+	// the threads that pass every filter but the source one, so paging and the source tab
+	// never change a number.
+	var counts *ThreadSourceCounts
+	if query.Counts {
+		tally, err := s.countSources(callerID, query, since, seenBaseline, pinned)
+		if err != nil {
+			return Response{}, err
+		}
+		counts = &tally
+	}
+	buildQuery := query
+	buildQuery.Counts = false
+	built := s.buildResponse(selected, first, buildQuery, query.Cursor == "")
 	built.Since, built.HasMore, built.NextCursor = resp.Since, resp.HasMore, resp.NextCursor
+	built.Counts = counts
 	return built, nil
+}
+
+// countSources counts the threads of the whole window per source, leaving out only the
+// source filter, the cursor and the limit: the same predicate as the listing (see
+// threadPassesFilters), so each tab's number equals the rows that tab returns over all
+// pages. It walks the window with the same storage calls a page walk would make and keeps
+// no threads.
+func (s *Service) countSources(callerID string, query Query, since, seenBaseline int64, pinned []string) (ThreadSourceCounts, error) {
+	var counts ThreadSourceCounts
+	needle := strings.ToLower(strings.TrimSpace(query.Q))
+	var curAt int64
+	var curID string
+	for {
+		page, err := s.store.LoadWorkbenchPage(callerID, jobstore.WorkbenchPageQuery{
+			Since: since, CursorAt: curAt, CursorID: curID, Limit: pageScanBatch,
+			Project: query.Project, PinnedIDs: pinned, IncludeInternal: query.IncludeInternal,
+		})
+		if err != nil {
+			return counts, err
+		}
+		for _, p := range projectThreads(page.Snapshot, seenBaseline, s.relaySupervision()) {
+			if !threadPassesFilters(p.thread, query, needle) {
+				continue
+			}
+			counts.add(p.thread)
+		}
+		// A live listing is a single first page (the live threads ride along as exceptions).
+		if query.Live || !page.HasMore || len(page.Keys) == 0 {
+			return counts, nil
+		}
+		last := page.Keys[len(page.Keys)-1]
+		curAt, curID = last.Activity, last.ID
+	}
 }
 
 // buildResponse groups the selected threads by project and folds in the orphan plan
@@ -309,22 +344,17 @@ func (s *Service) buildResponse(projections []projection, snapshot jobstore.Work
 	groups := make(map[string]*ProjectGroup)
 	attention := make([]AttentionItem, 0)
 	needle := strings.ToLower(strings.TrimSpace(query.Q))
+	var counts ThreadSourceCounts
 	for _, p := range projections {
 		thread := p.thread
 		s.annotateAttachments(query.Lang, &thread)
-		if query.Project != "" && thread.ProjectKey != query.Project {
+		if !threadPassesFilters(thread, query, needle) {
 			continue
 		}
-		if query.Status != "" && thread.Status != query.Status {
-			continue
-		}
-		if needle != "" && !threadMatches(thread, needle) {
-			continue
-		}
-		if !threadPassesSourceLive(thread, query) {
-			continue
-		}
-		if query.Keep != nil && !query.Keep(thread) {
+		// The per-source counts stop here: they ignore the source filter itself, so the
+		// numbers hold while a caller switches tabs (and still respect every other filter).
+		counts.add(thread)
+		if !threadMatchesSource(thread, query.Source) {
 			continue
 		}
 		group := ensureGroup(groups, thread.ProjectKey)
@@ -387,7 +417,7 @@ func (s *Service) buildResponse(projections []projection, snapshot jobstore.Work
 		}
 		return attention[i].ThreadID < attention[j].ThreadID
 	})
-	return Response{Projects: projects, Attention: attention, Total: total}
+	return Response{Projects: projects, Attention: attention, Total: total, Counts: responseCounts(counts, query)}
 }
 
 func projectThreads(snapshot jobstore.WorkbenchSnapshot, seenBaseline int64, sup supervisionFunc) []projection {
@@ -1073,12 +1103,24 @@ func recordWaitAt(rec jobstore.JobRecord) int64 {
 }
 
 func threadMatches(thread Thread, needle string) bool {
-	for _, value := range []string{thread.Title, thread.ID, thread.Agent, thread.Cwd} {
+	values := []string{thread.Title, thread.ID, thread.Agent, thread.Cwd, thread.ProjectKey}
+	if thread.Relay != nil {
+		values = append(values, thread.Relay.LastMessage)
+	}
+	for _, value := range values {
 		if strings.Contains(strings.ToLower(value), needle) {
 			return true
 		}
 	}
 	return false
+}
+
+// responseCounts exposes the per-source counts only when the caller asked for them.
+func responseCounts(counts ThreadSourceCounts, query Query) *ThreadSourceCounts {
+	if !query.Counts {
+		return nil
+	}
+	return &counts
 }
 
 func ensureGroup(groups map[string]*ProjectGroup, projectKey string) *ProjectGroup {

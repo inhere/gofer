@@ -93,6 +93,14 @@ type Query struct {
 	Keep func(Thread) bool
 	// Source narrows to one thread source (SourceACP / SourcePTY / SourceRelay; "" = all).
 	Source string
+	// Agent and Runner narrow to threads whose agent / runner matches exactly ("" = any).
+	Agent  string
+	Runner string
+	// Counts asks for the per-source counts of the threads that pass every filter EXCEPT
+	// Source, so a source tab can show how many threads each other tab holds. The counts
+	// cover the whole time window of the request, not the page: paging and Source leave
+	// them unchanged.
+	Counts bool
 	// Live keeps only threads with something running; in paged mode it is a single first
 	// page (no cursor, HasMore=false).
 	Live bool
@@ -250,11 +258,24 @@ type Response struct {
 	Attention []AttentionItem `json:"attention"`
 	Total     int             `json:"total"`
 	Since     int64           `json:"since"`
+	// Counts is set when the caller asked for it (Query.Counts): the threads per source
+	// under every filter but the source one. See ThreadSourceCounts.
+	Counts *ThreadSourceCounts `json:"counts,omitempty"`
 	// HasMore / NextCursor are set in paged mode: older threads can be fetched by passing
 	// NextCursor back as the cursor. HasMore may be true while the next page comes back
 	// empty (the older threads are all filtered out).
 	HasMore    bool   `json:"has_more,omitempty"`
 	NextCursor string `json:"next_cursor,omitempty"`
+}
+
+// ThreadSourceCounts is how many threads each source holds under the current filters
+// (Query.Counts): the source filter itself is not applied, so the numbers are stable
+// while a caller switches tabs, and All is their sum.
+type ThreadSourceCounts struct {
+	ACP   int `json:"acp"`
+	PTY   int `json:"pty"`
+	Relay int `json:"relay"`
+	All   int `json:"all"`
 }
 
 type TurnResult struct {
