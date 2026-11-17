@@ -35,7 +35,7 @@ const (
 
 // PlanDriverInvalid is the sentinel of a driver request the caller must fix — an unknown
 // level, a level this version does not support, a negative budget. The HTTP layer answers
-// 400 for it (submitStatus's default), and the CLI prints the message as it is.
+// 400 for it (writePlanDriverError), and the CLI prints the message as it is.
 var PlanDriverInvalid = errors.New("invalid plan driver request")
 
 // ErrPlanNotFound is returned by the plan helpers that must tell "no such plan" apart
