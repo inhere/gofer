@@ -211,6 +211,13 @@ export interface Job {
   // （没用过 = 缺省），详情页据此渲染「文件」块。收集到的文件本体落在
   // <result_dir>/artifacts/collected/<name>，故下载/预览走既有产物通道。
   xfer?: JobXfer
+  // 自报终态（gofer_submit_result，R9，后端 omitempty）：agent 自己怎么判断这次运行。
+  // 只记录与展示，不改 status；result_report_json 是提交原文（含 action_required / findings，
+  // 解析见 utils/jobSelfResult.ts），result_attempt 是第几次运行上报的。
+  result_decision?: string
+  result_reason?: string
+  result_report_json?: string
+  result_attempt?: number
 }
 
 // 一次上传（XFER-01 X2）。dest 是提交时给的【job cwd 相对】目标路径（执行机按 cwd
@@ -4169,4 +4176,111 @@ export interface MailAgentsResp {
   agents_max_resident: number
   agents: MailResidentAgent[]
   residents: MailResidentSession[]
+}
+
+// plan 推进记录（设计 2026-11-16 §1，计划 R4 / R7 / R12）：driver 的预算上限。0 = 不限，
+// 三项都是整个 plan 自开启起的上限（不是每天）。
+export interface PlanDriverBudget {
+  max_jobs: number
+  max_rework: number
+  max_hours: number
+}
+
+// GET / PUT / DELETE /v1/plans/{id}/driver 的答复（internal/job/plandriver_state.go）。
+// enabled=false 时 level 为空、enabled_at 为 0，预算三项全 0（即不限）。
+export interface PlanDriverStatus {
+  plan_id: string
+  enabled: boolean
+  level?: string
+  budget: PlanDriverBudget
+  // Unix 秒
+  enabled_at?: number
+  updated_at?: number
+}
+
+// driver 预算的已用量（R8）：plan 内派出 / 续接 / 重试的 job 数、返工轮数、启用至今的小时数。
+export interface PlanDriverSpent {
+  jobs: number
+  rework: number
+  hours: number
+}
+
+// 一致率的一行：按动作（by_action）或按动作 + 规则（by_rule）。
+// match / mismatch / no_followup 是已观察的结果，pending 还没观察满观察窗；
+// rate = match / (match + mismatch + no_followup)，没有已观察动作时为 0。
+export interface PlanDriverReportRow {
+  action: string
+  rule?: string
+  total: number
+  match: number
+  mismatch: number
+  no_followup: number
+  pending: number
+  rate: number
+  recent_n?: number
+  recent_match?: number
+  recent_rate?: number
+  upgrade_suggested?: boolean
+}
+
+// GET /v1/plans/{id}/driver/report（internal/job/plandriver_iface.go）：记录的动作与实际
+// 发生的处理对比。window_hours 是一个动作被观察多久（超时无变化 = no_followup）。
+export interface PlanDriverReport {
+  plan_id: string
+  enabled: boolean
+  level?: string
+  budget: PlanDriverBudget
+  spent: PlanDriverSpent
+  total: number
+  pending: number
+  window_hours: number
+  by_action: PlanDriverReportRow[]
+  by_rule: PlanDriverReportRow[]
+}
+
+// job 自报的终态原文（gofer_submit_result 落库的 result_report_json 解出来的形状）。
+export interface JobSelfResultReport {
+  decision: string
+  reason: string
+  action_required?: string
+  findings?: string[]
+}
+
+// 诊断的续跑链一环（GET /v1/jobs/{id}/diagnosis）：relation 说明这一环是怎么找到的
+// （target / resume / source / failover / retry），status 为 missing 表示那个 job 已不在了。
+export interface JobDiagnosisLink {
+  job_id: string
+  relation: string
+  status: string
+  termination_reason: string
+  error?: string
+  attempt?: number
+  started_at?: number
+  ended_at?: number
+}
+
+// 诊断时间线的一个阶段：present=false 表示 gofer 没有这一段的记录，note 说明原因。
+export interface JobDiagnosisStage {
+  stage: string
+  label: string
+  at?: number
+  present: boolean
+  note?: string
+}
+
+// GET /v1/jobs/{id}/diagnosis（internal/job/diagnose.go）：终止原因、续跑链与该链最早的
+// 失败、阶段时间线、证据 / 未知 / 下一步建议。全部由已有字段推导，不新增列。
+export interface JobDiagnosis {
+  job_id: string
+  status: string
+  finished: boolean
+  termination_reason: string
+  termination_label: string
+  error?: string
+  chain: JobDiagnosisLink[]
+  first_failure?: JobDiagnosisLink
+  timeline: JobDiagnosisStage[]
+  evidence: string[]
+  unknowns: string[]
+  next_steps: string[]
 }

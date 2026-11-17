@@ -38,6 +38,7 @@ import type {
   Job,
   JobDetailResp,
   JobEvent,
+  JobDiagnosis,
   JobEventsResp,
   JobInclude,
   JobsResp,
@@ -52,6 +53,9 @@ import type {
   MetaResp,
   Plan,
   PlanDetail,
+  PlanDriverBudget,
+  PlanDriverReport,
+  PlanDriverStatus,
   PlansResp,
   PlanStatus,
   ProjectDetail,
@@ -2287,4 +2291,41 @@ export function listMailAgents(): Promise<MailAgentsResp> {
 export function endMailAgent(name: string, project = ''): Promise<{ name: string; project?: string; job_id?: string; status: string }> {
   const qs = project ? `?project=${encodeURIComponent(project)}` : ''
   return request(`/v1/mail/agents/${encodeURIComponent(name)}/end${qs}`, { method: 'POST' })
+}
+
+// plan 推进记录（设计 2026-11-16 §1，计划 R4 / R7 / R12）。
+//
+// 开关：PUT 开启（或改预算）、DELETE 关闭、GET 读状态；三个入口答复的是同一份状态。
+// level 只有 'record'（assist / auto 由服务端 400 拒绝并说明「后续版本」），省略 = record。
+// 预算三项 0 = 不限，按整个 plan 自开启起算。写入口要 plan 的 owner 或 plan.manage.others
+// （与 pause / attach 同一条规则），读入口与 GET /v1/plans/{id} 一样是公开的。
+export function getPlanDriver(id: string): Promise<PlanDriverStatus> {
+  return request<PlanDriverStatus>(`/v1/plans/${encodeURIComponent(id)}/driver`)
+}
+
+export function putPlanDriver(
+  id: string,
+  body: { level?: string; budget?: PlanDriverBudget },
+): Promise<PlanDriverStatus> {
+  return request<PlanDriverStatus>(`/v1/plans/${encodeURIComponent(id)}/driver`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export function deletePlanDriver(id: string): Promise<PlanDriverStatus> {
+  return request<PlanDriverStatus>(`/v1/plans/${encodeURIComponent(id)}/driver`, { method: 'DELETE' })
+}
+
+// 一致率：记录的动作与实际发生的处理对比（按动作 / 按规则）。读取会顺带把能观察的动作结掉，
+// 只动 driver 自己的动作日志，不改 plan / todo / job。
+export function getPlanDriverReport(id: string): Promise<PlanDriverReport> {
+  return request<PlanDriverReport>(`/v1/plans/${encodeURIComponent(id)}/driver/report`)
+}
+
+// job 诊断（R10）：终止原因、续跑链与首错、阶段时间线、证据 / 未知 / 下一步。只读推导，
+// 不重跑任何东西；服务端按请求语言给出标签与建议文案。
+export function getJobDiagnosis(id: string): Promise<JobDiagnosis> {
+  return request<JobDiagnosis>(`/v1/jobs/${encodeURIComponent(id)}/diagnosis`)
 }
