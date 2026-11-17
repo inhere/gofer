@@ -246,6 +246,7 @@ job run	flag hold-timeout	seconds to wait for a decision before the job is cance
 job run	flag idle-timeout	seconds to await the next session message (0 = 1800)
 job run	flag interactive	request an interactive pty job
 job run	flag issue	link this job to a repository tracker issue
+job run	flag keep-dir-lock	persistent session (--session): keep the directory lock while the session waits for input (default: give it back and take it again before the next turn)
 job run	flag lock	project-relative directory lock path (repeatable)
 job run	flag lock-wait	directory lock wait cap in seconds (0 = no cap, if server allows)
 job run	flag max-cost	kill the job once its reported cost exceeds this many USD, e.g. 2.5 (only for agents that report a cost; default unlimited)

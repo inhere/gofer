@@ -65,6 +65,8 @@ type stubJobs struct {
 	gotNoRules bool
 	// gotPermissionTier captures the dispatch's permission tier as the worker's local Submit saw it.
 	gotPermissionTier string
+	// gotKeepDirLock captures the request's keep_dir_lock (R8).
+	gotKeepDirLock bool
 
 	// interactions returned by GetInteractions (drives the worker→hub open bridge).
 	interactions []job.Interaction
@@ -86,6 +88,7 @@ func (s *stubJobs) Submit(req job.JobRequest) (job.JobResult, error) {
 	s.gotCols, s.gotRows = req.Cols, req.Rows
 	s.gotEnv, s.gotNoRules = req.Env, req.NoRules
 	s.gotPermissionTier = req.PermissionTier
+	s.gotKeepDirLock = req.KeepDirLock
 	s.mu.Unlock()
 	if s.submitErr != nil {
 		return job.JobResult{}, s.submitErr

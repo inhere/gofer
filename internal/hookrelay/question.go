@@ -140,3 +140,21 @@ type answersError string
 func (e answersError) Error() string { return string(e) }
 
 const errNotAnswers = answersError("not an answers: reply")
+
+// askQuestionPermission is the PermissionRequest side of AskUserQuestion: the same
+// logic as the PreToolUse branch, so a question never becomes a generic permission
+// card with a JSON summary. When the PreToolUse hook of this very call already has a
+// card open (its marker is there) that card is the one — no second card is opened.
+// The web answer is handed back as an allow decision carrying the answered input.
+func (r *runner) askQuestionPermission() Result {
+	fp := PermissionFingerprint(r.p.ToolName, r.p.ToolInput)
+	if _, err := os.Stat(permissionMarker(r.opts.PermissionStateDir, r.p.SessionID, fp)); err == nil {
+		r.log("question card of this call already open (PreToolUse), not opening another")
+		return Result{}
+	}
+	res := r.askUserQuestion()
+	if res.PreTool == nil {
+		return Result{}
+	}
+	return Result{Permission: &PermissionDecision{Behavior: "allow", UpdatedInput: res.PreTool.UpdatedInput}}
+}

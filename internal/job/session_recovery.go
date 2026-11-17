@@ -144,12 +144,13 @@ func (s *Service) resumeLocalSession(rec jobstore.JobRecord) error {
 	// running job, so it keeps running until it ends or a human cancels it. The jobs it submits
 	// go through admission and are refused while its caller is disabled.
 	go s.execute(entry, run, execGates{
-		project:   s.semaphore(rec.ProjectKey, proj.MaxConcurrentJobs),
-		caller:    s.callerSemaphore(rec.CallerID, cfg.Server.CallerConcurrencyLimit(rec.CallerID)),
-		agent:     s.agentSemaphore(rec.Agent, ac.MaxConcurrent),
-		exclusive: rec.DirExclusive,
-		stall:     stall,
-		dirWait:   dirWait,
+		project:     s.semaphore(rec.ProjectKey, proj.MaxConcurrentJobs),
+		caller:      s.callerSemaphore(rec.CallerID, cfg.Server.CallerConcurrencyLimit(rec.CallerID)),
+		agent:       s.agentSemaphore(rec.Agent, ac.MaxConcurrent),
+		exclusive:   rec.DirExclusive,
+		stall:       stall,
+		dirWait:     dirWait,
+		keepDirLock: request.KeepDirLock,
 	}, runReq, time.Duration(rec.TimeoutSec)*time.Second)
 	if rec.Status == StatusAwaitingInput || sessionRecordWasAwaiting(rec.SessionStateJSON) {
 		s.scheduleSessionReply(entry)

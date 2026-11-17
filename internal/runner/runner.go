@@ -7,6 +7,7 @@ package runner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 
 	"github.com/inhere/gofer/internal/config"
@@ -291,6 +292,18 @@ type Request struct {
 	Meter *BudgetMeter
 }
 
+// ErrSessionEndRequested is what a resident ACP session's OnTurnStart returns when the
+// session was ended (not cancelled) while it waited to start the next turn: the runner
+// ends the session as a manual end instead of failing it.
+var ErrSessionEndRequested = errors.New("session end requested before the next turn")
+
+// TurnNotStartedError is what OnTurnStart returns when the turn was NOT started and the
+// session should go back to waiting for input (the prompt is not sent). Reason is the
+// visible explanation written to the session's event stream.
+type TurnNotStartedError struct{ Reason string }
+
+func (e *TurnNotStartedError) Error() string { return "turn not started: " + e.Reason }
+
 // ACPRequest is the acp-agent payload of a runner.Request: everything the acp
 // runner needs beyond the process argv (Command/Args/WorkDir/Env) and the log
 // writers.
@@ -304,8 +317,11 @@ type ACPRequest struct {
 	// OnImageCapability reports whether the agent advertised promptCapabilities.image.
 	// It is called once per session, before OnSessionReady (initialize runs on every
 	// start, including a session/load recovery, so the fact is re-learned each time).
-	OnImageCapability    func(bool)
-	OnTurnStart          func() error
+	OnImageCapability func(bool)
+	OnTurnStart       func() error
+	// TurnNote, when set, is called right after OnTurnStart succeeded and returns text
+	// put in front of that turn's prompt ("" = nothing).
+	TurnNote             func() string
 	OnTurnEnd            func(string) error
 	OnAwaitInput         func() error
 	TurnTimeoutSec       int
@@ -635,6 +651,9 @@ type Forward struct {
 	// the same reason as ExclusiveDir: the lock is taken on that machine, and the
 	// policy the hub resolved is what must apply there.
 	DirWaitMaxSec *int
+	// KeepDirLock rides the dispatch so a persistent session keeps its directory lock on
+	// the executing machine while it waits for input.
+	KeepDirLock bool
 	// EnvDenyExtra is an internal trusted execution policy carried to workers.
 	EnvDenyExtra []string
 	// JobToken (SEC-01) is the job-scoped credential the HUB minted for this job. The

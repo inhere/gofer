@@ -285,6 +285,17 @@ func (s *Service) EndSession(id string) error {
 		entry.mu.Unlock()
 		return fmt.Errorf("%w: job %s has no live ACP session", ErrJobNotRunning, id)
 	}
+	if hold := entry.dirHold.Load(); hold != nil && hold.abortWait() {
+		// R8: the session is queued for its directory lock before the next turn; end it
+		// at once instead of refusing because that turn's input is "queued".
+		s.cancelSessionReplyTimerLocked(entry)
+		entry.sessionEnding = true
+		entry.manualEndRequested = true
+		entry.result.SessionEnding = true
+		_ = s.persist(entry.result)
+		entry.mu.Unlock()
+		return nil
+	}
 	if entry.sessionCommandPending {
 		entry.mu.Unlock()
 		return fmt.Errorf("%w: session input already queued", ErrInvalidRequest)
