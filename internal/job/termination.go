@@ -28,6 +28,10 @@ const (
 	// its stall window. It reads as TRANSIENT for the continuation chain (the error text
 	// starts with "stalled:"), so it is matched BEFORE the class.
 	TerminationStalled = "stalled"
+	// TerminationInterrupted: gofer itself went away under the job (a serve restart
+	// failed it as an orphan). Nothing is known about the work, so it is not an agent
+	// failure: rerun or continue it.
+	TerminationInterrupted = "interrupted"
 	// TerminationTimeout: the job's deadline (or the agent's own wall-clock wrap-up) ran
 	// out.
 	TerminationTimeout = "timeout"
@@ -78,6 +82,9 @@ func TerminationReason(r JobResult) string {
 	}
 	if strings.HasPrefix(strings.TrimSpace(r.Error), "stalled:") {
 		return TerminationStalled
+	}
+	if strings.HasPrefix(strings.TrimSpace(r.Error), orphanedJobErrorPrefix) {
+		return TerminationInterrupted
 	}
 	switch r.Status {
 	case StatusDone:
@@ -150,3 +157,7 @@ func TerminationLabelIn(lang i18n.Lang, reason string) string {
 	}
 	return reason
 }
+
+// orphanedJobErrorPrefix opens the error ReconcileOrphanJobs stamps on a job a serve
+// restart left non-terminal (see interaction.go).
+const orphanedJobErrorPrefix = "orphaned:"

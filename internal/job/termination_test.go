@@ -24,6 +24,7 @@ func TestTerminationReason(t *testing.T) {
 		{"failed transient", JobResult{Status: StatusFailed, FailureClass: FailureClassTransient}, TerminationTransient},
 		{"stalled beats transient class", JobResult{Status: StatusFailed, FailureClass: FailureClassTransient, Error: "stalled: no output for 120s"}, TerminationStalled},
 		{"stalled on cancel", JobResult{Status: StatusCancelled, Error: "stalled: no output for 5s"}, TerminationStalled},
+		{"serve restart orphan", JobResult{Status: StatusFailed, Error: "orphaned: serve restarted while job was non-terminal"}, TerminationInterrupted},
 		{"status timeout", JobResult{Status: StatusTimeout}, TerminationTimeout},
 		{"failed wrap_up timeout", JobResult{Status: StatusFailed, WrapUp: wrapUpTimeout}, TerminationTimeout},
 		{"done wrap_up timeout", JobResult{Status: StatusDone, WrapUp: wrapUpTimeout}, TerminationTimeout},
