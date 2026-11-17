@@ -408,7 +408,7 @@ func (s *Service) ReconcileOrphanJobs() (int, error) {
 	// F11: recover the session id of the jobs about to be failed BEFORE the flip, so a
 	// job this restart orphaned is still resumable.
 	s.captureOrphanSessions(runners)
-	orphans, err := s.meta.ReconcileOrphanJobs(s.nowFn().Unix(), "orphaned: serve restarted while job was non-terminal", runners)
+	orphans, err := s.meta.ReconcileOrphanJobs(s.nowFn().Unix(), orphanedJobErrorPrefix+" serve restarted while job was non-terminal", runners)
 	if err != nil {
 		return len(records), err
 	}

@@ -1054,6 +1054,13 @@ type JobResult struct {
 	CheckJSON        string `json:"check_json,omitempty"`
 	CheckResumeCount int    `json:"check_resume_count,omitempty"`
 	CheckError       string `json:"check_error,omitempty"`
+	// ResultDecision / ResultReason / ResultReportJSON / ResultAttempt are the outcome the
+	// job's agent reported about itself (gofer_submit_result, see selfresult.go). Recorded
+	// and shown only; they never change the job's status. Empty = no report.
+	ResultDecision   string `json:"result_decision,omitempty"`
+	ResultReason     string `json:"result_reason,omitempty"`
+	ResultReportJSON string `json:"result_report_json,omitempty"`
+	ResultAttempt    int    `json:"result_attempt,omitempty"`
 	// Verify is the outcome of the job's verification step (SUP-01 B), nil when the
 	// job had none. It is persisted as jobs.verify_json.
 	Verify *VerifyResult `json:"verify,omitempty"`

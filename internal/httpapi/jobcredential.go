@@ -141,7 +141,7 @@ var jobRouteWords = map[string]bool{
 	"precheck": true, "events": true, "deliveries": true, "artifacts": true, "diff": true,
 	"request": true, "stream": true, "logs": true, "stdout": true, "stderr": true,
 	"workbench": true, "threads": true, "turn": true, "review": true, "seen-all": true, "layout": true,
-	"say": true, "end": true, "ws-ticket": true,
+	"say": true, "end": true, "ws-ticket": true, "result": true,
 	"work-items": true, "delete": true, "journal": true, "merge": true, "split": true, "report": true, "report-request": true,
 	"links": true, "capture": true, "dispatch-targets": true, "digest": true, "requests": true, "summarize": true, "suggestions": true, "summarizer": true,
 	// W2b: the steward surface, the session tail and the merge suggestions.
@@ -212,6 +212,7 @@ var jobWriteAllowlist = map[string]bool{
 	// are enforced in the handler); answering and punting stay default-denied.
 	"POST /v1/jobs/*/interactions": true,
 	"POST /v1/jobs/*/end":          true,
+	"POST /v1/jobs/*/result":       true, // the job's own outcome report; "own" is enforced in the handler
 	"POST /v1/sessions/*/watches":  true,
 	// W1: a job's agent may report its work item's progress (an append-only report line plus
 	// the descriptive fields; the status is still subject to the human-priority rule).

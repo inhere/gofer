@@ -137,6 +137,8 @@ var registry = []Tool{
 	// gofer_ask: a session's own question to the person watching it. Asking is the whole
 	// point of the call, so the approval gate does not ask permission to ask.
 	{Name: "gofer_ask", Class: Write, Advisory: true},
+	// Advisory: a job's own report of how it ended is recorded and shown, never acted on.
+	{Name: "gofer_submit_result", Class: Write, Advisory: true},
 
 	// Plan / todo writes.
 	{Name: "gofer_create_plan", Class: Write},

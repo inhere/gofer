@@ -266,6 +266,11 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	defer close(stopLeader)
 	startLeaderLoop(c, cr, stopLeader)
 
+	// Plan progress catch-up (plan R2): replay the plan_events rows a previous process left
+	// and nudge every open plan once at startup and then every 60s. The goroutine is owned
+	// by the job service, so Shutdown stops it and waits for it.
+	cr.Jobs.StartPlanSweeper(0)
+
 	// E25 crash-recovery backstop (复审 #4): a process that died mid-job never ran
 	// finish()'s reconciliation, so its pending interactions are stuck. Sweep them
 	// to cancelled once at startup before the answerer begins.

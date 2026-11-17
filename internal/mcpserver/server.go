@@ -135,6 +135,7 @@ func newServer(b Backend, scoped string) *mcp.Server {
 		Name:        "gofer_job_follow_up",
 		Description: "Queue, list, or drop follow-up requests for a running job; queued requests continue its session when it ends.",
 	}, jobFollowUpHandler(b))
+	registerSubmitResultTool(s, b)
 
 	// GATE-01 S3: an agent may REFUSE a delivery it judges unacceptable (with a reason,
 	// and optionally hand the work back for another attempt), but it can never ACCEPT
@@ -1958,6 +1959,8 @@ func registerLeaderTools(s *mcp.Server, b Backend) {
 		Name:        "gofer_ask_human",
 		Description: "Block and ask a HUMAN when the plan needs a decision you should not make alone (gate approval, product choice, spending money). Returns {state:\"answered\", answer} or {state:\"expired\"}; never block forever.",
 	}, askHumanHandler(b))
+
+	registerSubmitResultTool(s, b)
 }
 
 // leaderTodoStatuses are the only statuses a leader may write: queue the next piece of

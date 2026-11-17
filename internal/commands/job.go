@@ -276,6 +276,17 @@ func NewJobCmd() *gcli.Command {
 				Func: runJobShow,
 			},
 			{
+				Name: "diagnose",
+				Desc: cliText("cli.job.desc.diagnose"),
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.BoolOpt(&jobDiagnoseOpts.jsonOut, "json", "", false, cliText("cli.job.flag.diagnose_json"))
+					c.AddArg("id", "job id", true)
+				},
+				Func: runJobDiagnose,
+			},
+			{
 				Name: "set",
 				Desc: "Set or clear a job title",
 				Config: func(c *gcli.Command) {
@@ -3044,6 +3055,7 @@ func runJobShow(c *gcli.Command, _ []string) error {
 		c.Printf("verify:     %s\n", formatVerify(v))
 	}
 	printDeliveryCheck(c, res)
+	printSelfResult(c, res)
 	// SUP-01 E：该 job 的 token/成本结算（agent 自报，来源在行尾）。没采集到（agent 不报 /
 	// 采集失败）就不打印——不伪造 0 用量。
 	if line := job.FormatUsage(res.Usage); line != "" {
@@ -3463,6 +3475,7 @@ func runJobReview(c *gcli.Command, _ []string) error {
 		c.Printf("verify:     %s\n", formatVerify(v))
 	}
 	printDeliveryCheck(c, res)
+	printSelfResult(c, res)
 	if line := job.FormatUsage(res.Usage); line != "" {
 		c.Printf("usage:      %s\n", line)
 	}

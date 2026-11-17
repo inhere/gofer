@@ -162,6 +162,14 @@ func (b *localBackend) SetJobTitle(id, title string) (job.JobResult, error) {
 	return b.jobs.SetTitle(id, title, callerJobID)
 }
 
+func (b *localBackend) SubmitJobResult(id string, in job.SelfResultInput) (job.JobResult, error) {
+	callerJobID := os.Getenv(envJobID)
+	if callerJobID != "" && callerJobID != id {
+		return job.JobResult{}, fmt.Errorf("job credential may only report its own job's result")
+	}
+	return b.jobs.SubmitSelfResult(id, in, callerJobID)
+}
+
 func (b *localBackend) TailLog(id, stream string, maxBytes int64) (string, error) {
 	data, err := b.jobs.TailLog(id, store.Stream(stream), maxBytes)
 	if err != nil {

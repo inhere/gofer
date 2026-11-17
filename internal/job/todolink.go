@@ -144,7 +144,14 @@ func (s *Service) linkTodoOutcome(snap JobResult, resumePending bool) {
 		// The job's caller was authenticated at submit. Preserve that identity when
 		// advancing a bound plan so its next automatic dispatch inherits the same
 		// supervisor session instead of becoming an unauthenticated internal write.
-		s.advancePlan(todo.PlanID, snap.CallerID)
+		s.advancePlanFor(todo.PlanID, snap.TodoID, snap.ID, snap.CallerID)
+		return
+	}
+	// A terminal state that neither advances nor blocks (needs_review, or a done job whose
+	// item stays open — e.g. the uncommitted-work guard is resuming it) is still something
+	// the plan driver must see. Failures reach it through the block event.
+	if snap.Status == StatusNeedsReview || snap.Status == StatusDone {
+		s.observePlanJob(todo.PlanID, snap.TodoID, snap.ID, snap.CallerID)
 	}
 }
 

@@ -64,6 +64,10 @@ func (b *clientBackend) SetJobTitle(id, title string) (job.JobResult, error) {
 	return b.cli.SetJobTitle(id, title)
 }
 
+func (b *clientBackend) SubmitJobResult(id string, in job.SelfResultInput) (job.JobResult, error) {
+	return b.cli.SubmitJobResult(id, in)
+}
+
 func (b *clientBackend) CancelJob(id string) (job.JobResult, error) {
 	return b.cli.CancelJob(id)
 }

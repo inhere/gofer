@@ -422,20 +422,39 @@ func (s *Store) CountPlans(f PlanFilter) (int, error) {
 
 // SetPlanStatus moves a plan to status and optionally updates progress.
 // progress < 0 keeps the current progress value.
+//
+// Archiving a plan also ends its driver (plan_drivers, plan R4): the row is deleted in
+// the SAME transaction, so an archived plan never keeps spending budget or comes back
+// with a stale driver. Nothing else about the status is special-cased.
 func (s *Store) SetPlanStatus(id, status string, progress int) error {
 	defer s.emit(Change{Kind: ChangePlan})
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	var err error
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("jobstore: set plan %q status %s: begin: %w", id, status, err)
+	}
+	defer func() { _ = tx.Rollback() }()
 	if progress < 0 {
-		_, err = s.db.Exec(`UPDATE plans SET status=?, updated_at=? WHERE plan_id=?`,
+		_, err = tx.Exec(`UPDATE plans SET status=?, updated_at=? WHERE plan_id=?`,
 			status, s.unixNow(), id)
 	} else {
-		_, err = s.db.Exec(`UPDATE plans SET status=?, progress=?, updated_at=? WHERE plan_id=?`,
+		_, err = tx.Exec(`UPDATE plans SET status=?, progress=?, updated_at=? WHERE plan_id=?`,
 			status, progress, s.unixNow(), id)
 	}
 	if err != nil {
 		return fmt.Errorf("jobstore: set plan %q status %s: %w", id, status, err)
+	}
+	if status == PlanArchived {
+		if _, err := tx.Exec(`DELETE FROM plan_drivers WHERE plan_id=?`, id); err != nil {
+			return fmt.Errorf("jobstore: archive plan %q: delete driver: %w", id, err)
+		}
+		if _, err := tx.Exec(`DELETE FROM plan_driver_actions WHERE plan_id=?`, id); err != nil {
+			return fmt.Errorf("jobstore: archive plan %q: delete driver actions: %w", id, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("jobstore: set plan %q status %s: commit: %w", id, status, err)
 	}
 	return nil
 }

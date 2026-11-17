@@ -22,6 +22,9 @@
 - **ACP 会话里的提问工具 `gofer_ask`**：持续会话（`--session`）的 ACP job 会拿到一个只含 `gofer_ask` 的工具面（单轮 / 批处理 job 不注入——没人看着时提问只会把它挂到超时；管家会话与收件会话的工具面也带它）。参数 `question` / `options[{label, description}]` / `multi` / `allow_other` / `recommended` / `timeout_sec`（默认 1800，上限 86400）：不带 options 就是自由文本提问，多选、选项外自由填写、标出推荐项分别由 `multi` / `allow_other` / `recommended` 表达。问题以可点选卡片出现在工作台对话、「等我」与手机宽度下，点选后答案作为工具返回值交给 agent；到点没人答就返回 `expired` 并带上推荐项（工具说明要求 agent 按推荐项继续），提问被撤回返回 `cancelled`。它走的是 job 自己的交互，job 凭据只能对**本 job** 开 / 读交互，且不能开 `permission` 类型。
 - **交互支持多选、自由填写与推荐项**：job 交互新增可选字段 `multi` / `allow_other` / `recommended`，选项可带 `description`（都是 JSON 加字段，存进现有交互记录，不改表）；多选答案是选中 label 的 JSON 数组字符串；非 `permission` 交互的 `timeout_sec`（上限 86400）到点由服务端取消该交互，提问方不会一直被挂着。web 的交互卡片统一展示选项说明、推荐标注、多选与「其他」自由填写，过期 / 已答留只读态。
 - **会话权限档位 `--permission-tier auto|ask|strict`**（HTTP / MCP 同名字段 `permission_tier`，`gofer_run_job` 也收）：只对 ACP agent 有效，且**只会比项目审批策略更严**——`ask` 让项目没自动放行的工具调用出审批卡，`strict` 每个权限请求都出卡，`auto`（默认）就是按项目策略；`ask` / `strict` 还会把支持的 agent 切到它自己的「问我」模式（内置 `claude-acp` 映射 `default`），agent 没配 `acp.modes.ask` 时只收紧 gofer 这道闸门并在时间线记一条 `job.permission_tier`。直接传 `session_approval` 仍被拒。跑在 worker 上需要协议 v31，旧 worker 在提交时被拒并提示升级（不会静默按它自己更宽的闸门跑）。web 新建会话表单有「权限」三档。
+- **plan 自主推进（本版只有「只记录」）**：`gofer plan drive on|off|status|report <plan>` 给一条计划打开推进引擎——`--level record`（本版唯一等级，`assist` / `auto` 被拒并说明后续版本），`--max-jobs` / `--max-rework` / `--max-hours` 三项预算按整条计划自开启起累计（0 = 不限）。record 只算出「本来会做什么」并记录（派发待办 / 完成待办 / 带意见续接 / 重试 / 交给人工 / 预算熔断，每条带命中的规则与风险），**不派发、不续接、不重试、不暂停**，超预算只标「本会暂停」；`report` 按动作与按规则给出一致率（每条记录观察 24 小时内同一待办的下一步：一致 / 不一致 / 无后续 / 未观察），并显示「最近 20 个已观察动作 ≥ 90%」这条升级建议（只显示，不自动升级）。入口：CLI、web 计划详情新页签「推进记录」、`GET/PUT/DELETE /v1/plans/{id}/driver` 与 `GET /v1/plans/{id}/driver/report`。
+- **job 自报终态**：job 里的 agent 用 MCP 工具 `gofer_submit_result {decision: pass|rework|fail|human, reason, action_required?, findings?}` 说明本次跑得怎么样，每个 job 一次（重复提交 409；只有本 job 的凭据能写，人的 token 与别的 job 的凭据都拒）。它只记录与展示，**不改变 job 状态**。`gofer job show` 多一行 `reported:`，web 任务详情概览多「自报终态」块（决策、理由、需人处理、发现）；job 注入的规则段开头多一行提示，让它结束前报一次。接口 `POST /v1/jobs/{id}/result`，job 视图新增 `result_decision` / `result_reason` / `result_report_json` / `result_attempt`。
+- **`gofer job diagnose <id> [--json]`**：一句话回答「这个 job 为什么结束」——终止原因（`ok` / `agent_error` / `transient` / `stalled` / `interrupted`（serve 重启中断）/ `timeout` / `budget` / `cancelled` / `worktree_gone` / `caller_disabled` / `session_ended` / `unknown`，由 job 行已有的字段推导，所以重启后、CLI 与网页看到的一致）、续跑链与链上最早出错的那个 job、排队 / 开始 / 首输出 / 末输出 / 结束的时间线（gofer 没记录的段写「未知」）、证据 / 未知 / 下一步。接口 `GET /v1/jobs/{id}/diagnosis`，web 任务详情底部的「诊断」按钮点开就是同一份。
 
 ### 变更
 
@@ -33,6 +36,7 @@
 - **web 统一对话显示与会话历史页**：工作台、job 详情「消息」、会话抽屉共用一条时间线——人与 agent 的消息都按 markdown 渲染、工具调用默认折叠成一组、服务端注入的 gofer 规则折成一行「gofer 规则 · 展开」、交互卡片内嵌在对话里。Sessions 页改为三类会话（ACP / 终端 / 中继）合一的历史页：默认含已结束，搜索框搜标题、项目、最后一条消息，可按项目 / agent / runner / 状态与「只看进行中」筛选，页签条数由服务端统一返回（与分页无关、任一筛选下与列表一致）；已结束会话在工作台线程、历史行与 job 详情都能「接着聊」（新开持续会话、上下文保留、停在等待输入）。工作台侧栏顶部「＋新建会话」默认 ACP 持续会话 + `claude-acp` + 在线且带 `container` 标签的 worker（没有则本机），新增「权限」「保持目录锁」两项，其余收进「更多」。
 - **`claude-acp` 优先用 PATH 上的适配器**：执行机上装了 `claude-agent-acp` 时模板直接启动它、不带参数，不再经 `npx -y` 的首次下载（容器镜像预装即秒起）；PATH 上没有才回落 npx。同一模板新增 `acp.modes.ask: default`，供权限档位「问我」切入。
 - **ACP 流拆出注入规则，并新增「未发送」事件**：`GET /v1/jobs/{id}/acp/stream` 的 `prompt` 事件把注入的规则放进 `injected`（`text` 只剩人发的话，与 `messages` 接口同口径），等目录锁超时没发出去的那一轮回 `turn_unsent`（带原消息供重发）。工作台线程接口新增 `agent` / `runner` 筛选与 `counts=1` 分来源计数（各来源计数与分页无关），`q` 覆盖标题、项目与终端会话的最后一条消息。
+- **交付核验的每日限额改为落库计数**（`server.delivery_check.daily_limit`）：按 UTC 天计入 server 数据库，**serve 重启不再清零**。
 
 ### 修复
 
@@ -41,6 +45,7 @@
 - 一行安装只接受纯 http(s) 的 server 地址写进脚本（别的前缀直接拒绝，不拼进 `curl` 命令），脚本在 macOS 上不强求服务登记（只装二进制并接入）。
 - 开发构建（版本号不是发布版）请求 `/install/manifest` 时明确说明「本机不是发布版本，无法给出一行安装」，不再当成 404 一样含糊。
 - web 上从「调用方 token 即将到期」卡片点「轮换」，以前会丢掉刚生成的 token，现在正确打开轮换面板并显示新 token。
+- **plan 不再因为 server 重启而停在原地**：推进改为先落库再执行，serve 启动后与之后每 60 秒扫描一次，重放残留事件并推进每个 open 且未暂停的 plan——中断在「已就绪、job 还没派出去」的待办也会补派（以前会一直卡着，要人工重新 `plan run`）。补推进是幂等的，已派发 / 已完成 / 已 blocked 的项不会被重复处理；同一事件连续失败 5 次即丢弃并记审计 `plan.event_dropped`，不再无休止重试。
 
 ## [0.214.1] - 2026-11-15
 

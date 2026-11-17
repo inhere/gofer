@@ -30,6 +30,9 @@ import CommentThread from '../components/CommentThread.vue'
 import FilePreview from '../components/FilePreview.vue'
 import ReviewPanel from '../components/ReviewPanel.vue'
 import ApprovalPanel from '../components/ApprovalPanel.vue'
+// 自报终态与诊断（计划 R9 / R10 / R12）：两个子组件各自拿去数据，详情页只接线。
+import JobSelfResult from '../components/JobSelfResult.vue'
+import JobDiagnosis from '../components/JobDiagnosis.vue'
 import JobPreviews from '../components/JobPreviews.vue'
 import MergeDialog from '../components/MergeDialog.vue'
 import RefsPanel from '../components/RefsPanel.vue'
@@ -2080,6 +2083,8 @@ onUnmounted(() => {
         >
           {{ t('jobs.detail.cancel') }}
         </button>
+        <!-- 诊断（计划 R10 / R12）：按钮 + 右侧抽屉全在子组件里，点开才请求。 -->
+        <JobDiagnosis v-if="job" :job-id="job.id" />
         <button
           v-if="job && isTerminalView && can('job.delete', job.caller_id) && !readOnly"
           class="cancel mono"
@@ -2140,6 +2145,10 @@ onUnmounted(() => {
       :blocked-reason="reviewBlockedReason"
       @decided="onHoldDecided"
     />
+
+    <!-- 自报终态（gofer_submit_result，计划 R9 / R12）：徽标 + 理由 + 需人处理 + findings。
+         agent 没自报过时子组件不渲染，概览里也不会多出一个空盒子。 -->
+    <JobSelfResult v-if="active === 'overview' && job" :job="job" />
 
     <div v-if="active === 'overview' && job" class="meta">
       <div class="meta-item">
