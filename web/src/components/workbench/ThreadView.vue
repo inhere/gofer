@@ -558,6 +558,7 @@ onUnmounted(() => {
           @error="actionError = $event"
           @open-diff="openDiff"
           @files-changed="filesChanged"
+          @resend="draft = $event"
         />
         <div v-else-if="latestJobID" class="log-wrap">
           <p v-if="streamError" class="stream-error mono">SSE：{{ streamError }}</p>

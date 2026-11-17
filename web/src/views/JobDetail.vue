@@ -24,6 +24,7 @@ import { queryWithTab, type TabItem } from '../ui/tabs'
 import { JOB_TAB, jobTabForStatus } from '../utils/jobsLayout'
 import { t } from '../i18n'
 import InteractionCard from '../components/InteractionCard.vue'
+import ConversationTimeline from '../components/ConversationTimeline.vue'
 import CommentThread from '../components/CommentThread.vue'
 import FilePreview from '../components/FilePreview.vue'
 import ReviewPanel from '../components/ReviewPanel.vue'
@@ -73,6 +74,7 @@ import { eventDetailText, eventIcon, eventLabel } from '../utils/eventMeta'
 import { fanNameForJob, jobWorkflowLabel } from '../utils/workflowResult'
 import { fmtJobTimeout, jobTimeoutClampNote, jobTimeoutTitle } from '../utils/jobTimeout'
 import { wrapUpText } from '../utils/wrapUpDisplay'
+import { jobMessageEntries, type ConversationEntry } from '../utils/conversationTimeline'
 import { normalizeJobTitle } from '../utils/jobTitle'
 import { stripAnsi } from '../utils/logRender'
 import { agentBudgetExhausted, agentBudgetLine, budgetLine, shortSha, usageLine, verifyClass, verifyLabel } from '../utils/jobOutcome'
@@ -793,6 +795,17 @@ const messages = ref<JobMessage[]>([])
 function messageRoleLabel(role: JobMessage['role']): string {
   return role === 'agent' ? t('jobs.detail.msg.agent') : t('jobs.detail.msg.toAgent')
 }
+
+// 「消息」区改用统一的对话时间线（R12）：人的消息也走 markdown，注入规则折成一行。
+// 别的轮次的消息才给可点 id（本 job 的不重复显示）。
+const messageEntries = computed<ConversationEntry[]>(() => jobMessageEntries(
+  messages.value.map((message) => ({
+    ...message,
+    job_id: message.job_id === job.value?.id ? undefined : message.job_id,
+  })),
+  { user: messageRoleLabel('user'), agent: messageRoleLabel('agent') },
+  (at) => fmtTime(at),
+))
 
 async function loadSessionJobs(): Promise<void> {
   const sid = job.value?.session_id
@@ -2533,31 +2546,7 @@ onUnmounted(() => {
          回复摘要，按时间升序。首条消息可展开看被剥掉的完整注入内容（rules 段）。 -->
     <section v-if="active === 'messages' && showJobMessages(job) && messages.length > 0" class="job-messages" data-test="job-messages">
       <h2 class="outcomes-title mono">{{ t('jobs.detail.messages') }}</h2>
-      <ol class="job-messages-list">
-        <li
-          v-for="(m, i) in messages"
-          :key="`${m.role}-${m.job_id ?? '-'}-${i}`"
-          class="job-message"
-          :class="`job-message--${m.role}`"
-        >
-          <div class="job-message-head mono">
-            <span class="job-message-role">{{ messageRoleLabel(m.role) }}</span>
-            <span v-if="m.omitted" class="job-message-gap">{{ t('jobs.detail.earlierOmitted') }}</span>
-            <span class="job-message-at">{{ fmtTime(m.at) }}</span>
-            <RouterLink
-              v-if="m.job_id && m.job_id !== job?.id"
-              class="job-message-job"
-              :to="`/jobs/${encodeURIComponent(m.job_id)}`"
-            >{{ shortId(m.job_id) }}</RouterLink>
-          </div>
-          <pre class="job-message-text msg-body">{{ m.text }}</pre>
-          <span v-if="m.truncated" class="job-message-truncated mono">{{ t('jobs.detail.truncated') }}</span>
-          <details v-if="m.injected" class="job-message-injected">
-            <summary class="mono">{{ t('jobs.detail.viewInjected') }}</summary>
-            <pre>{{ m.injected }}</pre>
-          </details>
-        </li>
-      </ol>
+      <ConversationTimeline :entries="messageEntries" data-test="job-message-timeline" />
     </section>
 
     <section v-if="active === 'messages' && job?.session" class="session-composer-card">
@@ -3469,78 +3458,6 @@ onUnmounted(() => {
 }
 .job-messages .outcomes-title {
   margin: 0 0 8px;
-}
-.job-messages-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.job-message {
-  border: 1px solid var(--line);
-  border-left-width: 2px;
-  border-radius: var(--r-chip);
-  padding: 7px 10px;
-  background: var(--bg);
-}
-.job-message--user {
-  border-left-color: var(--accent);
-}
-.job-message--agent {
-  border-left-color: var(--ink-3);
-}
-.job-message-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 10px;
-  color: var(--ink-3);
-  font-size: 10px;
-}
-.job-message--user .job-message-role {
-  color: var(--accent);
-}
-.job-message-gap {
-  color: var(--run);
-}
-.job-message-job {
-  color: var(--accent);
-}
-.job-message-job:hover {
-  text-decoration: underline;
-}
-.job-message-text {
-  margin: 6px 0 0;
-  white-space: pre-wrap;
-  color: var(--ink);
-  font-family: inherit;
-}
-.job-message--agent .job-message-text {
-  color: var(--ink-3);
-}
-.job-message-truncated {
-  display: inline-block;
-  margin-top: 5px;
-  color: var(--run);
-  font-size: 10px;
-}
-.job-message-injected {
-  margin-top: 6px;
-}
-.job-message-injected summary {
-  cursor: pointer;
-  color: var(--ink-3);
-  font-size: 10px;
-}
-.job-message-injected pre {
-  margin: 6px 0 0;
-  max-height: 320px;
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-  color: var(--ink-3);
 }
 @media (max-width: 760px) {
   .session-composer-row {

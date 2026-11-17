@@ -91,7 +91,7 @@ function attachmentsOf(entry: ConversationMessageEntry): AttachmentRef[] {
             v-if="entry.jobId"
             class="who-job mono"
             :to="`/jobs/${encodeURIComponent(entry.jobId)}`"
-          >{{ entry.jobId.slice(0, 8) }}</RouterLink>
+          >{{ entry.jobId.slice(-8) }}</RouterLink>
         </div>
         <div v-if="entry.kind === 'user'" class="bubble bubble--user msg-body">
           <div class="clamp" :class="{ clamped: isClamped(entry) }">

@@ -1,27 +1,28 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { streamACPJob } from '../../api/sse'
-import type { AttachmentRef, Interaction, SSEEvent, WorkbenchJobTurn } from '../../api/types'
+import type { Interaction, SSEEvent, WorkbenchJobTurn } from '../../api/types'
 import { shouldFollowBottom } from '../../utils/sessionPagination'
 import { formatTime } from '../../utils/format'
 import { t } from '../../i18n'
-import MarkdownBlock from '../MarkdownBlock.vue'
-import AttachmentThumbs from '../AttachmentThumbs.vue'
-import InteractionCard from '../InteractionCard.vue'
+import ConversationTimeline from '../ConversationTimeline.vue'
 import StatusGlyph from '../../ui/StatusGlyph.vue'
-import Icon from '../../ui/Icon.vue'
-import { ChevronDown, ChevronRight } from '@lucide/vue'
 import {
   acpNoticeText,
   isACPEvent,
   isACPNotice,
-  permissionOutcome,
-  timelineBlocks,
   visibleRoundIDs,
   type ACPEvent,
-  type ACPTextEvent,
-  type ACPToolEvent,
 } from './acpEvents'
+import {
+  acpEventEntries,
+  interactionEntries,
+  isTurnUnsent,
+  turnUnsentEntry,
+  type ConversationEntry,
+  type ConversationInteractionEntry,
+  type ConversationUnsentEntry,
+} from '../../utils/conversationTimeline'
 
 const props = defineProps<{
   threadId: string
@@ -42,6 +43,7 @@ const emit = defineEmits<{
   (event: 'error', message: string): void
   (event: 'open-diff', path: string): void
   (event: 'files-changed'): void
+  (event: 'resend', text: string): void
 }>()
 
 const visibleCount = ref(3)
@@ -57,8 +59,8 @@ const loadedJobs = new Set<string>()
 const controllers = new Map<string, AbortController>()
 const toolKinds = new Map<string, string>()
 const conversationEl = ref<HTMLElement | null>(null)
-// 工具调用默认折叠（设计稿 §7）：展开状态按轮次记，默认空 = 全部折叠。
-const openToolGroups = ref<Set<string>>(new Set())
+// 没发出去的那一轮（等目录锁超时）：服务端回 turn_unsent，排在那一轮的最后。
+const unsentByJob = ref<Record<string, ConversationUnsentEntry[]>>({})
 let firstRender = true
 let loadedThreadId = ''
 
@@ -68,11 +70,38 @@ const hiddenRounds = computed(() => Math.max(0, props.jobIds.length - visibleIds
 const statusSignature = computed(() => props.jobs.map((job) => `${job.job_id}:${job.status}`).join('|'))
 const runningStatuses = new Set(['queued', 'running', 'awaiting_input', 'waiting_dir', 'recovering', 'pending_interaction'])
 const editingToolKinds = new Set(['edit', 'delete', 'move'])
+// 条目抬头措辞由工作台给（「你」/「助手」），时间取该轮的开始时间。
+const conversationLabels = computed(() => ({ user: t('workbench.conv.you'), agent: t('workbench.conv.assistant') }))
+
 // 内嵌的审批卡片只挂在最后一轮（当前这一轮）下面：历史轮次的待办交互没有处理入口。
-const inlineInteractions = computed(() => {
-  const latest = visibleIds.value[visibleIds.value.length - 1]
-  return latest ? props.pendingInteractions : []
-})
+function isLatestRound(jobId: string): boolean {
+  return jobId === visibleIds.value[visibleIds.value.length - 1]
+}
+
+// 一轮的结构化记录 → 时间线条目（工作台、job 详情、会话抽屉共用同一套渲染）。
+function roundEntries(round: { jobId: string; events: ACPEvent[] }): ConversationEntry[] {
+  const job = props.jobs.find((item) => item.job_id === round.jobId)
+  const entries = acpEventEntries(round.events, conversationLabels.value, (event) =>
+    job?.started_at && event.seq === 0 ? formatTime(job.started_at) : '')
+  entries.push(...(unsentByJob.value[round.jobId] ?? []))
+  if (isLatestRound(round.jobId) && props.pendingInteractions.length > 0) {
+    entries.push(...interactionEntries(props.pendingInteractions, props.submittingInteraction))
+  }
+  return entries
+}
+
+function onAnswer(entry: ConversationInteractionEntry, value: string): void {
+  emit('answer', entry.interaction, value)
+}
+
+function onPunt(entry: ConversationInteractionEntry): void {
+  emit('punt', entry.interaction)
+}
+
+// 「重发」只把原消息交回去，填进输入框由线程视图负责（它持有 Composer 的草稿）。
+function onResend(entry: ConversationUnsentEntry): void {
+  emit('resend', entry.prompt)
+}
 
 function abortAll(): void {
   for (const controller of controllers.values()) controller.abort()
@@ -88,7 +117,7 @@ function resetThread(): void {
   noticesByJob.value = {}
   loadingJobs.value = new Set()
   openJobs.value = new Set()
-  openToolGroups.value = new Set()
+  unsentByJob.value = {}
   visibleCount.value = 3
   firstRender = true
 }
@@ -120,6 +149,17 @@ function jobStatus(jobId: string): string {
 function appendEvent(jobId: string, frame: SSEEvent): void {
   if (frame.type === 'acp' && isACPNotice(frame.data)) {
     noticesByJob.value = { ...noticesByJob.value, [jobId]: acpNoticeText(frame.data) }
+    return
+  }
+  // 这一轮没发出去（等目录锁超时）：acp 流里回一条 kind=turn_unsent，带原消息供重发。
+  if (isTurnUnsent(frame.data)) {
+    const queued = unsentByJob.value[jobId] ?? []
+    unsentByJob.value = {
+      ...unsentByJob.value,
+      [jobId]: [...queued, turnUnsentEntry(frame.data as { text?: string; prompt?: string }, `${jobId}-unsent-${queued.length + 1}`)],
+    }
+    const unsentEl = conversationEl.value
+    if (firstRender || !unsentEl || shouldFollowBottom(unsentEl)) scrollToLatest()
     return
   }
   if (frame.type !== 'acp' || !isACPEvent(frame.data)) return
@@ -214,44 +254,6 @@ function roundNumber(jobId: string): number {
   return props.jobIds.indexOf(jobId) + 1
 }
 
-function toolsKey(jobId: string, index: number): string {
-  return `${jobId}:${index}`
-}
-
-function isToolsOpen(jobId: string, index: number): boolean {
-  return openToolGroups.value.has(toolsKey(jobId, index))
-}
-
-function toggleTools(jobId: string, index: number): void {
-  const key = toolsKey(jobId, index)
-  const next = new Set(openToolGroups.value)
-  if (next.has(key)) next.delete(key)
-  else next.add(key)
-  openToolGroups.value = next
-}
-
-function toolTitle(tool: ACPToolEvent): string {
-  return tool.title || tool.tool_kind || 'tool'
-}
-
-function toolSummary(tool: ACPToolEvent): string {
-  const first = tool.locations?.[0]?.path
-  if (first) return first
-  return tool.raw_input ? tool.raw_input.slice(0, 80) : ''
-}
-
-// 历史气泡的附图缩略图：只取 prompt / message 两类文本事件的附图。
-function eventAttachments(event: ACPTextEvent): AttachmentRef[] {
-  if (event.kind !== 'prompt' && event.kind !== 'message') return []
-  return event.attachments ?? []
-}
-
-function eventTime(event: { seq: number }): string {
-  // 结构化记录没有逐条时间戳：只在该轮有开始时间时给「HH:mm」，否则留空。
-  const job = props.jobs.find((item) => item.job_id === visibleIds.value[0])
-  return job?.started_at && event.seq === 0 ? formatTime(job.started_at) : ''
-}
-
 function emptyNote(status: string, live: boolean): string {
   if (live && status === 'awaiting_input') return t('workbench.conv.emptyReady')
   if (live && status !== '' && !['done', 'failed', 'timeout', 'cancelled'].includes(status)) {
@@ -305,60 +307,12 @@ onUnmounted(abortAll)
         <button class="btn sm" type="button" @click="retry(round.jobId)">{{ t('workbench.conv.retry') }}</button>
       </p>
 
-      <div class="tl">
-        <template v-for="(block, index) in timelineBlocks(round.events)" :key="`${block.kind}-${index}`">
-          <div v-if="block.kind === 'text' && block.event.kind === 'prompt'" class="msg msg--me">
-            <div class="who">{{ t('workbench.conv.you') }}<span class="muted">{{ eventTime(block.event) }}</span></div>
-            <div class="bubble bubble--user msg-body">
-              <div class="plain-text" lang="en">{{ block.event.text }}</div>
-              <AttachmentThumbs v-if="eventAttachments(block.event).length > 0" :items="eventAttachments(block.event)" />
-              <span v-if="block.event.truncated" class="truncated">{{ t('workbench.conv.truncated') }}</span>
-            </div>
-          </div>
-
-          <div v-else-if="block.kind === 'text'" class="msg">
-            <div class="who">{{ t('workbench.conv.assistant') }}<span class="muted">{{ eventTime(block.event) }}</span></div>
-            <div class="txt msg-body">
-              <MarkdownBlock :text="block.event.text" />
-              <AttachmentThumbs v-if="eventAttachments(block.event).length > 0" :items="eventAttachments(block.event)" />
-              <span v-if="block.event.truncated" class="truncated">{{ t('workbench.conv.truncated') }}</span>
-            </div>
-          </div>
-
-          <div v-else-if="block.kind === 'permission'" class="inline-approval" :class="{ done: true }" data-test="inline-permission">
-            <div class="ia-head">
-              <StatusGlyph
-                :family="permissionOutcome(block.event) === 'denied' ? 'fail' : 'done'"
-                :size="13"
-              />
-              <span>{{ t(`workbench.conv.permission.${permissionOutcome(block.event)}`) }}</span>
-              <span v-if="block.event.title" class="ia-title">{{ block.event.title }}</span>
-            </div>
-            <div v-if="block.event.reason" class="ia-reason">{{ block.event.reason }}</div>
-          </div>
-
-          <div v-else class="tools" :data-open="isToolsOpen(round.jobId, index)">
-            <button
-              class="tools-sum"
-              type="button"
-              :aria-expanded="isToolsOpen(round.jobId, index)"
-              data-test="tools-toggle"
-              @click="toggleTools(round.jobId, index)"
-            >
-              <Icon class="caret" :icon="isToolsOpen(round.jobId, index) ? ChevronDown : ChevronRight" size="sm" />
-              <span>{{ t('workbench.conv.tools', { n: block.events.length }) }}</span>
-              <span v-if="block.failed > 0" class="tools-fail">{{ t('workbench.conv.toolsFail', { n: block.failed }) }}</span>
-            </button>
-            <div v-if="isToolsOpen(round.jobId, index)" class="tool-list">
-              <div v-for="tool in block.events" :key="tool.tool_call_id" class="tool">
-                <StatusGlyph :status="tool.status" :size="12" />
-                <span class="tool-kind">{{ toolTitle(tool) }}</span>
-                <span class="tool-arg" :title="toolSummary(tool)">{{ toolSummary(tool) }}</span>
-              </div>
-            </div>
-          </div>
-        </template>
-      </div>
+      <ConversationTimeline
+        :entries="roundEntries(round)"
+        @answer="onAnswer"
+        @punt="onPunt"
+        @resend="onResend"
+      />
 
       <p
         v-if="!loadingJobs.has(round.jobId) && round.events.length === 0 && !errorsByJob[round.jobId] && !noticesByJob[round.jobId]"
@@ -366,18 +320,6 @@ onUnmounted(abortAll)
       >
         {{ emptyNote(jobStatus(round.jobId), openJobs.has(round.jobId)) }}
       </p>
-
-      <!-- 审批卡片内嵌在对话里，可直接处理（设计稿 §7）。 -->
-      <div v-if="round.jobId === visibleIds[visibleIds.length - 1] && inlineInteractions.length > 0" class="conversation-interactions">
-        <InteractionCard
-          v-for="item in inlineInteractions"
-          :key="item.id"
-          :interaction="item"
-          :submitting="submittingInteraction.has(item.id)"
-          @answer="emit('answer', item, $event)"
-          @punt="emit('punt', item)"
-        />
-      </div>
     </section>
   </div>
 </template>
@@ -421,148 +363,6 @@ onUnmounted(abortAll)
   margin-left: auto;
   color: var(--accent);
 }
-.tl {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s3);
-  padding: var(--s3) 0 0;
-}
-.msg {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s1);
-  max-width: min(88%, 760px);
-  min-width: 0;
-}
-.msg--me {
-  align-self: flex-end;
-  align-items: flex-end;
-}
-.who {
-  display: flex;
-  align-items: center;
-  gap: var(--s2);
-  color: var(--ink-2);
-  font-size: var(--fs-sm);
-  font-weight: 500;
-}
-.muted {
-  color: var(--ink-3);
-  font-size: var(--fs-xs);
-  font-weight: 400;
-}
-/* 气泡只定外观；长内容不撑宽容器（min-width / 断行 / pre 与表格横滚）由 .msg-body 统一处理。 */
-.bubble,
-.txt {
-  border: 1px solid var(--line);
-  border-radius: var(--r-panel);
-  padding: var(--s2) var(--s3);
-  background: var(--surface);
-  color: var(--ink);
-  min-width: 0;
-}
-.bubble--user {
-  background: var(--accent-soft);
-  border-color: var(--line);
-}
-.plain-text {
-  white-space: pre-wrap;
-}
-.truncated {
-  display: inline-block;
-  margin-top: 5px;
-  color: var(--time);
-  font-size: var(--fs-xs);
-}
-.tools {
-  align-self: flex-start;
-  max-width: min(88%, 760px);
-}
-.tools-sum {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s1);
-  padding: var(--s1) var(--s2);
-  background: var(--sunken);
-  border: 1px solid var(--line);
-  border-radius: var(--r-ctl);
-  color: var(--ink-2);
-  font: inherit;
-  font-size: var(--fs-sm);
-  cursor: pointer;
-}
-.tools-sum:hover {
-  color: var(--ink);
-  border-color: var(--line-strong);
-}
-.tools-sum:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 1px;
-}
-.tools-fail {
-  color: var(--fail);
-}
-.tool-list {
-  margin-top: var(--s1);
-  border: 1px solid var(--line);
-  border-radius: var(--r-ctl);
-  background: var(--sunken);
-  overflow: hidden;
-}
-.tool {
-  display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr);
-  gap: var(--s2);
-  align-items: center;
-  padding: 5px var(--s2);
-  color: var(--ink-2);
-  font-size: var(--fs-sm);
-}
-.tool + .tool {
-  border-top: 1px solid var(--line);
-}
-.tool-kind {
-  font-weight: 500;
-  white-space: nowrap;
-}
-.tool-arg {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--ink-3);
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-}
-.inline-approval {
-  align-self: flex-start;
-  max-width: min(88%, 760px);
-  padding: var(--s2) var(--s3);
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--need);
-  border-radius: var(--r-panel);
-}
-.inline-approval.done {
-  border-left-color: var(--done);
-}
-.ia-head {
-  display: flex;
-  align-items: center;
-  gap: var(--s1);
-  color: var(--ink);
-  font-size: var(--fs-sm);
-  font-weight: 500;
-}
-.ia-title {
-  color: var(--ink-3);
-  font-weight: 400;
-}
-.ia-reason {
-  margin-top: var(--s1);
-  color: var(--ink-2);
-  font-size: var(--fs-sm);
-}
 .round-note,
 .round-error {
   margin: 0;
@@ -576,20 +376,9 @@ onUnmounted(abortAll)
 .round-error .btn {
   margin-left: var(--s2);
 }
-.conversation-interactions {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s2);
-  margin-top: var(--s3);
-}
 @media (max-width: 760px) {
   .conversation {
     padding: var(--s2) var(--s2) var(--s6);
-  }
-  .msg,
-  .tools,
-  .inline-approval {
-    max-width: 100%;
   }
 }
 </style>
