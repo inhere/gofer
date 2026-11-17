@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -21,9 +20,12 @@ import (
 	"unicode/utf8"
 
 	"github.com/inhere/gofer/internal/agent"
+	"github.com/inhere/gofer/internal/bgagent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/i18n/prompts"
+	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/oneshot"
 	"github.com/inhere/gofer/internal/store"
 )
 
@@ -54,6 +56,9 @@ type DeliveryCheckRequest struct {
 	Model        string
 	Args         []string
 	Timeout      time.Duration
+	// DailyLimit is server.delivery_check.daily_limit (<= 0 = none): the checker that
+	// owns its run log (the default one) enforces it from background_agent_runs.
+	DailyLimit int
 }
 
 // DeliveryCheckOutput is the raw answer of one checker run.
@@ -261,25 +266,41 @@ func (s *Service) checkResumable(snap JobResult) bool {
 	return ok && resumable(ac)
 }
 
-// allowCheckToday counts one check run against server.delivery_check.daily_limit (a
-// negative value disables the limit, see EffectiveDailyLimit). The count is per UTC
-// day and per process.
-func (s *Service) allowCheckToday(dc config.DeliveryCheckConfig) bool {
+// allowCheckToday gates one check run against server.delivery_check.daily_limit (a
+// negative value disables the limit, see EffectiveDailyLimit). The count is per UTC day
+// and lives in background_agent_runs (kind job_check), so it survives a restart. The
+// default checker enforces the limit itself (oneshot.Invoker: guard and run log in one
+// place); a checker injected with SetDeliveryChecker is gated here, and its run is
+// recorded by recordInjectedCheckRun.
+func (s *Service) allowCheckToday(dc config.DeliveryCheckConfig, project string) bool {
 	limit := dc.EffectiveDailyLimit()
-	if limit <= 0 {
+	if limit <= 0 || s.deliveryChecker == nil {
 		return true
 	}
-	day := s.nowFn().UTC().Format("2006-01-02")
-	s.checkDayMu.Lock()
-	defer s.checkDayMu.Unlock()
-	if s.checkDay != day {
-		s.checkDay, s.checkDayCount = day, 0
+	err := s.checkRunner().Guard(bgagent.Key{Kind: oneshot.KindJobCheck, Project: project}, bgagent.Limits{DailyRuns: limit})
+	return err == nil
+}
+
+// checkRunner is the background-agent runner over the metadata store (the daily count,
+// the run log and the hard-stop audit of the delivery check).
+func (s *Service) checkRunner() *bgagent.Runner {
+	return bgagent.New(s.meta, bgagent.Options{Now: s.nowFn})
+}
+
+// recordInjectedCheckRun logs one run of an injected checker so the daily count sees it
+// (the default checker records its own runs through bgagent.Run).
+func (s *Service) recordInjectedCheckRun(project, jobID string, started time.Time, runErr error) {
+	status := jobstore.BackgroundRunOK
+	errText := ""
+	if runErr != nil {
+		status, errText = jobstore.BackgroundRunFailed, truncateUTF8(runErr.Error(), checkErrorMaxBytes)
 	}
-	if s.checkDayCount >= limit {
-		return false
+	if _, err := s.meta.InsertBackgroundRun(jobstore.BackgroundRun{
+		Kind: oneshot.KindJobCheck, Project: project, JobID: jobID, StartedAt: started.Unix(), EndedAt: s.nowFn().Unix(),
+		Status: status, Mode: string(bgagent.ModeFresh), Error: errText,
+	}); err != nil {
+		slog.Warn("delivery check run log failed", "job_id", jobID, "err", err)
 	}
-	s.checkDayCount++
-	return true
 }
 
 // deliveryCheck runs the check of a job that ended normally and records its outcome on
@@ -362,7 +383,7 @@ func (s *Service) runCheckAgent(pre JobResult, dc config.DeliveryCheckConfig, re
 	if strings.TrimSpace(dc.Agent) == "" {
 		return StoredCheck{}, errors.New("server.delivery_check.agent is not configured")
 	}
-	if !s.allowCheckToday(dc) {
+	if !s.allowCheckToday(dc, pre.ProjectKey) {
 		return StoredCheck{}, fmt.Errorf("server.delivery_check.daily_limit (%d) reached", dc.EffectiveDailyLimit())
 	}
 	in, truncated := s.buildCheckInput(pre, requirements, dc)
@@ -389,6 +410,7 @@ func (s *Service) runCheckAgent(pre JobResult, dc config.DeliveryCheckConfig, re
 		}
 	}()
 	checker := s.deliveryChecker
+	injected := checker != nil
 	if checker == nil {
 		checker = serviceChecker{s: s}
 	}
@@ -396,10 +418,14 @@ func (s *Service) runCheckAgent(pre JobResult, dc config.DeliveryCheckConfig, re
 	if err != nil {
 		return StoredCheck{}, err
 	}
+	started := s.nowFn()
 	out, err := checker.RunCheck(ctx, DeliveryCheckRequest{
 		SourceJobID: pre.ID, ProjectKey: pre.ProjectKey, OriginCaller: pre.OriginCaller, Prompt: prompt,
-		Agent: dc.Agent, Model: dc.Model, Args: args, Timeout: timeout,
+		Agent: dc.Agent, Model: dc.Model, Args: args, Timeout: timeout, DailyLimit: dc.EffectiveDailyLimit(),
 	})
+	if injected {
+		s.recordInjectedCheckRun(pre.ProjectKey, out.JobID, started, err)
+	}
 	if err != nil {
 		return StoredCheck{}, err
 	}
@@ -414,38 +440,48 @@ func (s *Service) runCheckAgent(pre JobResult, dc config.DeliveryCheckConfig, re
 }
 
 // checkAgentArgs is the operator's server.delivery_check.args followed by the tool-less
-// argv the server forces for the agent type. An agent type without a known no-tools
-// argv is refused, so the checker never runs with tools by omission.
+// argv the server forces for the agent type (the rule lives in oneshot.NoToolsArgs). An
+// agent type without a known no-tools argv is refused, so the checker never runs with
+// tools by omission.
 func (s *Service) checkAgentArgs(dc config.DeliveryCheckConfig) ([]string, error) {
-	names := []string{dc.Agent}
-	if s.agents != nil {
-		if ac, ok := s.agents.Get(dc.Agent); ok {
-			names = append(names, filepath.Base(strings.ReplaceAll(ac.Command, "\\", "/")))
-		}
-	}
-	forced := config.DeliveryCheckNoToolsArgs(names...)
-	if forced == nil {
-		return nil, fmt.Errorf("server.delivery_check.agent %q has no known no-tools argv (supported: claude, codex, suga); the checker would run with tools", dc.Agent)
-	}
-	return append(append([]string(nil), dc.Args...), forced...), nil
+	return oneshot.NoToolsArgs(s.agents, dc.Agent, dc.Args)
 }
 
-// serviceChecker is the default DeliveryChecker: a one-shot, read-only job of the
-// configured cli-agent on the server's own runner, hidden from ordinary lists.
+// serviceChecker is the default DeliveryChecker: a oneshot.Invoker (kind job_check: the
+// persisted daily limit, the run log and the hard-stop audit) over the job service.
 type serviceChecker struct{ s *Service }
 
 func (c serviceChecker) RunCheck(ctx context.Context, r DeliveryCheckRequest) (DeliveryCheckOutput, error) {
+	inv := oneshot.NewInvoker(c.s.checkRunner(), oneShotJobs{s: c.s}, c.s.agents)
+	res, err := inv.Run(ctx, oneshot.Request{
+		Kind: oneshot.KindJobCheck, Project: r.ProjectKey, Agent: r.Agent, Model: r.Model, Prompt: r.Prompt, Args: r.Args,
+		Title: "delivery check of " + r.SourceJobID, SourceJobID: r.SourceJobID, Origin: r.OriginCaller,
+		Limits: bgagent.Limits{DailyRuns: r.DailyLimit},
+	})
+	out := DeliveryCheckOutput{Output: res.Output, JobID: res.JobID, SessionID: res.SessionID}
+	var stop *bgagent.HardStopError
+	if errors.As(err, &stop) && stop.Reason == bgagent.StopDailyLimit {
+		return out, fmt.Errorf("server.delivery_check.daily_limit (%d) reached", r.DailyLimit)
+	}
+	return out, err
+}
+
+// oneShotJobs implements oneshot.JobRunner over the job service: a one-shot, read-only
+// job of the configured cli-agent on the server's own runner, hidden from ordinary lists.
+type oneShotJobs struct{ s *Service }
+
+func (c oneShotJobs) RunReadOnly(ctx context.Context, r oneshot.JobSpec) (oneshot.JobOutput, error) {
 	res, err := c.s.Submit(JobRequest{
-		ProjectKey: r.ProjectKey, Agent: r.Agent, Runner: config.BuiltinLocalRunner, Prompt: r.Prompt,
+		ProjectKey: r.Project, Agent: r.Agent, Runner: config.BuiltinLocalRunner, Prompt: r.Prompt,
 		Model: r.Model, AgentArgs: r.Args, ReadOnly: true, NoRules: true,
-		Title: "delivery check of " + r.SourceJobID, Tags: []string{DeliveryCheckJobTag},
+		Title: r.Title, Tags: []string{DeliveryCheckJobTag},
 		TimeoutSec: int(r.Timeout / time.Second), EnvDenyExtra: []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"},
-		OriginCaller: r.OriginCaller, InternalExec: InternalExecDeliveryCheck,
+		OriginCaller: r.Origin, InternalExec: InternalExecDeliveryCheck,
 	})
 	if err != nil {
-		return DeliveryCheckOutput{}, err
+		return oneshot.JobOutput{}, err
 	}
-	out := DeliveryCheckOutput{JobID: res.ID}
+	out := oneshot.JobOutput{JobID: res.ID}
 	type waited struct {
 		final JobResult
 		ok    bool
@@ -474,6 +510,7 @@ func (c serviceChecker) RunCheck(ctx context.Context, r DeliveryCheckRequest) (D
 		stdout, _ := c.s.TailLog(res.ID, store.StreamStdout, CheckResultMaxBytes+1)
 		out.Output = stdout
 		out.SessionID = w.final.SessionID
+		out.Usage = w.final.Usage
 		return out, nil
 	}
 }

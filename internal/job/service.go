@@ -149,10 +149,6 @@ type Service struct {
 	// deliveryChecker runs the delivery-check agent; nil = the default (a one-shot
 	// read-only job of server.delivery_check.agent). A test installs a fake.
 	deliveryChecker DeliveryChecker
-	// checkDayMu guards the per-day count of delivery-check runs (daily_limit).
-	checkDayMu    sync.Mutex
-	checkDay      string
-	checkDayCount int
 	// gitBase is a nil-in-production test seam for the pre-agent git captures.
 	gitBase *gitBaseline
 	// rebuildTodoRequest assembles the ORDINARY dispatch request of a plan item and is
