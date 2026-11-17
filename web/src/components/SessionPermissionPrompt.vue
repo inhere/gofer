@@ -41,15 +41,17 @@ const cards = computed(() =>
   }),
 )
 
-async function answer(value: string): Promise<void> {
-  if (busy.value) return
+async function answer(value: string): Promise<boolean> {
+  if (busy.value) return false
   busy.value = true
   error.value = ''
   try {
     const d = await answerSessionPermission(props.sid, props.decision.id, value)
     emit('answered', d)
+    return true
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
+    return false
   } finally {
     busy.value = false
   }
@@ -63,14 +65,14 @@ function onPermissionAnswer(value: string): void {
   }
 }
 
-// 选择题：记下这一题的答案，全答完就提交。
-function onQuestionAnswer(i: number, value: string): void {
+// 选择题：记下这一题的答案，全答完就提交（提交失败就把这题退回去，人能重答）。
+async function onQuestionAnswer(i: number, value: string): Promise<void> {
   const q = questions.value[i]
   if (!q) return
   picked[q.question] = questionPickText(value, !!q.multiSelect)
   const reply = questionAnswer(questions.value, {}, picked)
-  if (reply) {
-    void answer(reply)
+  if (reply && !(await answer(reply))) {
+    delete picked[q.question]
   }
 }
 </script>
