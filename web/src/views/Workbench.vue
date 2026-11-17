@@ -19,6 +19,7 @@ import LayoutPane from '../components/workbench/LayoutPane.vue'
 import WorkbenchSidebar from '../components/workbench/WorkbenchSidebar.vue'
 import { orphanWaitingCount } from '../components/workbench/threadGroups'
 import Drawer from '../ui/Drawer.vue'
+import NewSessionSheet from '../ui/NewSessionSheet.vue'
 import { useProjectFilter } from '../ui/projectFilter'
 import {
   activateTab,
@@ -189,6 +190,19 @@ const sidebar = ref<InstanceType<typeof WorkbenchSidebar> | null>(null)
 const composer = ref<InstanceType<typeof WorkbenchComposer> | null>(null)
 const workbenchRoot = ref<HTMLElement | null>(null)
 const paletteOpen = ref(false)
+// 新建会话（R13）：侧栏顶部的唯一入口，表单为 ui/NewSessionSheet（ACP 默认）。
+const newSessionOpen = ref(false)
+function openNewSession(): void {
+  newSessionOpen.value = true
+}
+function onSessionCreated(payload: { jobID: string; sessionID: string; type: 'pty' | 'acp' }): void {
+  // ACP 带上 session_id 就能直接定位到线程；还没建好时按 job 定位，等它出现在列表里再聚焦。
+  if (payload.sessionID) {
+    void router.push({ path: '/workbench', query: { thread: `s:${payload.sessionID}` } })
+    return
+  }
+  submitted(payload.jobID)
+}
 const mobilePane = ref<'sidebar' | 'main'>('sidebar')
 const mobileLayout = ref(false)
 const mru = ref<string[]>([])
@@ -861,6 +875,7 @@ onUnmounted(() => {
 <template>
   <div ref="workbenchRoot" class="workbench-page page page--full" tabindex="-1">
     <WorkbenchComposer ref="composer" :session-open="mobilePane === 'main'" @submitted="submitted" />
+    <NewSessionSheet v-model="newSessionOpen" type="acp" :project="projectFilter" @created="onSessionCreated" />
     <p v-if="error" class="page-error mono">{{ error }}</p>
     <p v-if="layoutNotice" class="layout-notice mono">
       {{ layoutNotice }}
@@ -910,7 +925,7 @@ onUnmounted(() => {
         @update:project-filter="setProject"
         @update:status-filter="statusFilter = $event; refreshFilter()"
         @update:show-exec="setShowExec"
-        @new="composer?.focusPrompt()"
+        @new="openNewSession"
         @open-orphans="openOrphanWaiting"
       />
       <!-- 手机：会话列表是左侧抽屉（设计稿 §6.3） -->
@@ -941,7 +956,7 @@ onUnmounted(() => {
           @update:project-filter="setProject"
           @update:status-filter="statusFilter = $event; refreshFilter()"
           @update:show-exec="setShowExec"
-          @new="composer?.focusPrompt()"
+          @new="openNewSession"
           @open-orphans="openOrphanWaiting"
         />
       </Drawer>
@@ -953,7 +968,7 @@ onUnmounted(() => {
           type="button"
           :aria-label="t('workbench.new.launch')"
           data-test="mobile-new-session"
-          @click="composer?.focusPrompt()"
+          @click="openNewSession"
         >＋</button>
         <nav class="layout-tabs" :aria-label="t('workbench.tabs.label')">
           <div

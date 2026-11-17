@@ -1,7 +1,9 @@
 <script setup lang="ts">
-// 新建会话（设计稿 §7.1 / §8）：/sessions 的唯一入口，底部抽屉表单（桌面居中）。
-// 字段与校验沿用原 Sessions 页的内联表单：类型、项目、agent、runner（灰显原因）、模型、
-// 工作目录、锁定目录、标题、第一句话；另给「完整配置」跳到 /new?mode=session。
+// 新建会话（设计稿 §7.1 / §8）：工作台侧栏顶部的唯一入口，底部抽屉表单（桌面居中）。
+// 默认 ACP + `claude-acp`（项目准入里有时）+ 带 container 标签的在线 worker，没有则本机；
+// 记住上次选的项目（R13）。字段与校验沿用原 Sessions 页的内联表单：类型、项目、agent、
+// runner（灰显原因）、权限档位、保持目录锁；模型 / 工作目录 / 锁定目录 / 标题 / 第一句话
+// 收进「更多」。另给「完整配置」跳到 /new?mode=session。
 import { computed, ref, watch } from 'vue'
 import { t } from '../i18n'
 import { runnerLabel } from '../utils/runnerDisplay'
@@ -18,13 +20,23 @@ import { submitJob } from '../api/client'
 import type { MetaAgent, MetaProject, MetaResp, MetaRunner, SubmitJobReq } from '../api/types'
 import { DIR_LOCK_HINT, parseLockPaths } from '../utils/lockPaths'
 import { computeRunnerBlocks, effectiveRunnerBlocks, pickRunner } from '../utils/runnerChoice'
+import {
+  defaultSessionAgent,
+  defaultSessionRunner,
+  permissionTierValue,
+  readRememberedProject,
+  rememberProject,
+  rememberedProject,
+  sessionAgents,
+  type PermissionTier,
+} from '../utils/newSessionDefaults'
 import Sheet from './Sheet.vue'
 import SearchSelect from './SearchSelect.vue'
 import type { SearchOption } from './searchSelect'
 
 export type NewSessionType = 'pty' | 'acp'
 
-const props = withDefaults(defineProps<{ type?: NewSessionType }>(), { type: 'pty' })
+const props = withDefaults(defineProps<{ type?: NewSessionType; project?: string }>(), { type: 'acp', project: '' })
 const open = defineModel<boolean>({ default: false })
 const emit = defineEmits<{ (e: 'created', payload: { jobID: string; sessionID: string; type: NewSessionType }): void }>()
 
@@ -42,6 +54,12 @@ const cwd = ref('.')
 const lockPaths = ref('')
 const creating = ref(false)
 const error = ref('')
+// 权限档位（R7，仅 ACP 会话）：自动 = 按项目 / agent 现有策略；问我 / 严格只会更严。
+const tier = ref<PermissionTier>('auto')
+// 保持目录锁（R8）：默认不勾，等待输入时让出目录，别的任务能用同一目录。
+const keepDirLock = ref(false)
+// 「更多」：模型 / 工作目录 / 锁定目录 / 标题收起来（最常用的只有类型、项目、agent、runner）。
+const moreOpen = ref(false)
 
 const selectedProject = computed<MetaProject | undefined>(() =>
   meta.value.projects.find((p) => p.key === projectKey.value),
@@ -56,9 +74,9 @@ const projectItems = computed<SearchOption[]>(() =>
   projects.value.map((p) => ({ value: p.key, label: p.key })),
 )
 const agents = computed<MetaAgent[]>(() => {
-  const allowed = new Set(selectedProject.value?.allowed_agents ?? [])
-  return meta.value.agents
-    .filter((a) => allowed.size === 0 || allowed.has(a.key))
+  const allowed = type.value === 'acp' ? sessionAgents(meta.value, selectedProject.value) : []
+  const pool = type.value === 'acp' ? allowed : meta.value.agents
+  return pool
     .filter((a) => (type.value === 'acp' ? a.type === 'acp-agent' : !!a.interactive))
     // 调用方上限：范围外的 agent 不出现。
     .filter((a) => ceilingAllowsAgent(ceil.value, a.key))
@@ -97,14 +115,24 @@ const fullConfigURL = computed(() => {
 })
 
 function chooseDefaults(): void {
-  if (!projectKey.value) projectKey.value = projects.value[0]?.key ?? ''
+  if (!projectKey.value) {
+    // 记住上次的项目（本次入口带来的 project 优先，其次本地记忆，最后第一个候选）。
+    const keys = projects.value.map((p) => p.key)
+    projectKey.value = (props.project && keys.includes(props.project) ? props.project : '') ||
+      rememberedProject(keys, readRememberedProject()) ||
+      keys[0] || ''
+  }
   if (!agentKey.value || !agents.value.some((a) => a.key === agentKey.value)) {
-    agentKey.value = agents.value[0]?.key ?? ''
+    agentKey.value = type.value === 'acp' ? defaultSessionAgent(agents.value) : agents.value[0]?.key ?? ''
   }
   runnerName.value =
     pickRunner(runnerName.value, selectedProject.value, runners.value, runnerBlocks.value) ||
-    runners.value[0]?.name ||
-    'local'
+    (type.value === 'acp'
+      ? defaultSessionRunner(runners.value, meta.value.workers, agentKey.value)
+      : runners.value[0]?.name ?? 'local')
+  if (type.value === 'acp' && !runners.value.some((r) => r.name === runnerName.value)) {
+    runnerName.value = defaultSessionRunner(runners.value, meta.value.workers, agentKey.value)
+  }
 }
 
 async function loadMeta(): Promise<void> {
@@ -133,8 +161,13 @@ async function create(): Promise<void> {
   }
   const lockList = parseLockPaths(lockPaths.value)
   if (lockList.length > 0) req.lock_paths = lockList
+  // 两个新选项（R7 / R8）：auto 是后端默认，不发；保持目录锁默认关。
+  const tierValue = type.value === 'acp' ? permissionTierValue(tier.value) : undefined
+  if (tierValue) req.permission_tier = tierValue
+  if (type.value === 'acp' && keepDirLock.value) req.keep_dir_lock = true
   try {
     const result = await submitJob(req)
+    rememberProject(projectKey.value)
     emit('created', { jobID: result.job.id, sessionID: result.job.session_id ?? '', type: type.value })
     open.value = false
   } catch (e) {
@@ -147,13 +180,18 @@ async function create(): Promise<void> {
 watch(projectKey, chooseDefaults)
 watch(type, () => {
   agentKey.value = ''
-  if (type.value === 'acp') runnerName.value = 'local'
+  // 换类型时重选默认 runner（ACP 优先容器 worker，终端沿用候选顺序）。
+  runnerName.value = ''
   chooseDefaults()
 })
+
 watch(open, (value) => {
   if (!value) return
   type.value = props.type
   error.value = ''
+  tier.value = 'auto'
+  keepDirLock.value = false
+  moreOpen.value = false
   void loadMeta()
 })
 if (open.value) void loadMeta()
@@ -203,6 +241,25 @@ if (open.value) void loadMeta()
         </select>
         <span v-if="runnerBlocks[runnerName]" class="ns-hint">{{ runnerBlocks[runnerName].full }}</span>
       </label>
+      <label v-if="type === 'acp'" class="ns-field">
+        <span>{{ t('sessions.new.permission') }}</span>
+        <select v-model="tier" data-test="session-permission-tier">
+          <option value="auto">{{ t('sessions.new.permissionAuto') }}</option>
+          <option value="ask">{{ t('sessions.new.permissionAsk') }}</option>
+          <option value="strict">{{ t('sessions.new.permissionStrict') }}</option>
+        </select>
+      </label>
+      <label v-if="type === 'acp'" class="ns-field ns-field--check" data-test="session-keep-lock-field">
+        <span class="ns-check">
+          <input v-model="keepDirLock" type="checkbox" data-test="session-keep-dir-lock" />
+          {{ t('sessions.new.keepDirLock') }}
+        </span>
+        <span class="ns-hint ns-hint--note">{{ t('sessions.new.keepDirLockHint') }}</span>
+      </label>
+      <button class="ns-more" type="button" :aria-expanded="moreOpen" data-test="session-more" @click="moreOpen = !moreOpen">
+        {{ moreOpen ? t('sessions.new.less') : t('sessions.new.more') }}
+      </button>
+      <template v-if="moreOpen">
       <label class="ns-field">
         <span>{{ t('sessions.new.model') }}</span>
         <input v-model="model" type="text" :placeholder="t('sessions.new.modelPlaceholder')" />
@@ -223,6 +280,7 @@ if (open.value) void loadMeta()
         <span>{{ t('sessions.new.prompt') }}</span>
         <textarea v-model="prompt" rows="2" :placeholder="t('sessions.new.promptPlaceholder')"></textarea>
       </label>
+      </template>
       <p v-if="error" class="ns-error" role="alert">{{ error }}</p>
       <div class="ns-actions">
         <RouterLink class="ns-link" :to="fullConfigURL">{{ t('sessions.new.fullConfig') }}</RouterLink>
@@ -288,6 +346,34 @@ if (open.value) void loadMeta()
   font-size: var(--fs-xs);
   line-height: 1.3;
 }
+.ns-hint--note {
+  color: var(--ink-3);
+}
+.ns-field--check {
+  justify-content: flex-start;
+}
+.ns-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+}
+.ns-check input {
+  accent-color: var(--accent);
+  margin: 0;
+}
+.ns-more {
+  grid-column: span 2;
+  justify-self: start;
+  padding: 2px 0;
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
 .ns-error {
   grid-column: span 2;
   margin: 0;
@@ -346,7 +432,8 @@ if (open.value) void loadMeta()
   }
   .ns-field--wide,
   .ns-error,
-  .ns-actions {
+  .ns-actions,
+  .ns-more {
     grid-column: span 1;
   }
   .ns-field select,
