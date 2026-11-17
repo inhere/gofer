@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.1.0 -->
 # 第 5 批：web 会话体验 P1 + P2 实施计划
 
-> 状态：Draft 0.1（待用户审）
+> 状态：Draft 0.1 已批准（2026-11-16，用户：「5 批计划批准」）
 > 设计：`docs/design/2026-11-16-web-session-experience-design.md`（已批准，Q1–Q7 = A；Q6 调整：等待输入让出目录锁提前到本批 P1，常驻与自动接回仍下一批）
 > issue：gofer-59vu（让锁）；关联 gofer-xmit、gofer-geyu、gofer-byvi（P3，下一批）、gofer-ds7i（卡片绑定轮次，第 4 批 P3）
 
