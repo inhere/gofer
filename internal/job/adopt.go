@@ -326,6 +326,7 @@ func (a *AdoptedJob) Offsets() (stdoutOff, stderrOff int64) {
 // events the host row must record (detail already carries the worker origin).
 func (a *AdoptedJob) OnJobEvent(eventType string, detail map[string]any) {
 	a.s.recordEvent(a.jobID, eventType, detail)
+	a.s.noteRemoteWaitingDir(a.jobID, eventType, detail)
 }
 
 // OnWorkerJobEvent is OnJobEvent for a numbered event (protocol v30): recorded only when
@@ -333,6 +334,7 @@ func (a *AdoptedJob) OnJobEvent(eventType string, detail map[string]any) {
 // restart adds no row and fires no notification.
 func (a *AdoptedJob) OnWorkerJobEvent(eventType string, detail map[string]any, seq int64) {
 	a.s.recordWorkerEvent(a.jobID, eventType, detail, seq)
+	a.s.noteRemoteWaitingDir(a.jobID, eventType, detail)
 }
 
 // OnOutcome stashes the worker-captured产出 (P4) so the terminal path applies it

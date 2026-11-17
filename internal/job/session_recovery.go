@@ -204,6 +204,9 @@ func (s *Service) applyRemoteSessionState(entry *jobEntry, state WorkerInflightJ
 		entry.result.Status = StatusAwaitingInput
 	case StatusRunning, "started", "turn_started":
 		entry.result.Status = StatusRunning
+	case StatusWaitingDir:
+		// The session's own job on the worker is parked on the directory lock.
+		entry.result.Status = StatusWaitingDir
 	case "session_ending":
 		entry.result.SessionEnding = true
 	}
