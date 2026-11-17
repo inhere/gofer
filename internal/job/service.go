@@ -326,6 +326,8 @@ type Service struct {
 	// bg counts the background work that may still write after a job looks finished
 	// (finish, terminal hooks, advances, timers); Shutdown waits for it (shutdown.go).
 	bg bgGroup
+	// planEvents serialises plan progression per plan (see emitPlanEvent).
+	planEvents planEventHub
 
 	// xfer is the XFER-01 X2 file-transfer seam (see XferBridge): uploads placed
 	// before the agent starts and collected files published after the job. Injected
