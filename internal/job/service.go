@@ -325,6 +325,9 @@ type Service struct {
 	// planEvents serialises plan progression per plan (see emitPlanEvent).
 	planEvents planEventHub
 
+	// planDriver observes processed plan events (see plandriver_iface.go); nil = unwired.
+	planDriver PlanDriver
+
 	// xfer is the XFER-01 X2 file-transfer seam (see XferBridge): uploads placed
 	// before the agent starts and collected files published after the job. Injected
 	// at assemble time (core.Build on a hub, the worker command on a worker); nil

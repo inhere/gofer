@@ -144,7 +144,7 @@ func (s *Service) linkTodoOutcome(snap JobResult, resumePending bool) {
 		// The job's caller was authenticated at submit. Preserve that identity when
 		// advancing a bound plan so its next automatic dispatch inherits the same
 		// supervisor session instead of becoming an unauthenticated internal write.
-		s.advancePlan(todo.PlanID, snap.CallerID)
+		s.advancePlanFor(todo.PlanID, snap.TodoID, snap.ID, snap.CallerID)
 	}
 }
 

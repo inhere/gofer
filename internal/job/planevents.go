@@ -156,6 +156,7 @@ func (s *Service) enqueuePlanEvent(q queuedPlanEvent) {
 
 // runPlanEvent executes one queued event and deletes its row on success.
 func (s *Service) runPlanEvent(q queuedPlanEvent) {
+	ticket := s.planDriverBefore(q)
 	err := s.processPlanEvent(q)
 	h := &s.planEvents
 	h.mu.Lock()
@@ -170,6 +171,7 @@ func (s *Service) runPlanEvent(q queuedPlanEvent) {
 			slog.Warn("plan event: delete", "id", q.id, "err", derr)
 		}
 	}
+	s.planDriverAfter(q, ticket)
 }
 
 // planEventFailed counts a failed run of a persisted event; the row stays for replay until

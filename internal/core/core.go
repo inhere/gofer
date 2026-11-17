@@ -17,6 +17,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/job/driver"
 	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/mail"
@@ -391,6 +392,9 @@ func Build(cfg *config.Config, opts ...BuildOption) (*Core, error) {
 	// WorkflowAdvancer so finish() can advance a chain when a step-job reaches terminal.
 	eng := workflow.NewEngine(jobs)
 	jobs.SetWorkflow(eng)
+	// The plan driver observes the job service's plan events (record level: it only
+	// writes its own tables) and is injected back as the job.PlanDriver seam.
+	jobs.SetPlanDriver(driver.NewEngine(jobs))
 	c.Projects = projects
 	c.Agents = agents
 	c.Runners = runners
