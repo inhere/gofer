@@ -253,6 +253,7 @@ job run	flag hold-timeout	seconds to wait for a decision before the job is cance
 job run	flag idle-timeout	seconds to await the next session message (0 = 1800)
 job run	flag interactive	request an interactive pty job
 job run	flag issue	link this job to a repository tracker issue
+job run	flag keep-dir-lock	persistent session (--session): keep the directory lock while the session waits for input (default: give it back and take it again before the next turn)
 job run	flag lock	project-relative directory lock path (repeatable)
 job run	flag lock-wait	directory lock wait cap in seconds (0 = no cap, if server allows)
 job run	flag max-cost	kill the job once its reported cost exceeds this many USD, e.g. 2.5 (only for agents that report a cost; default unlimited)
@@ -275,6 +276,7 @@ job run	flag no-verify	do not run the project's default verify step for this job
 job run	flag notify	tell the submitting session through the gofer messenger when this job ends (a system notice; off by default because each notice starts a messenger process)
 job run	flag notify-session	session id to notify when this job ends (implies --notify); default: the source session, else the agent session this command runs in ($GOFER_SESSION_ID / $CLAUDE_CODE_SESSION_ID)
 job run	flag parent-wake-events	with a resident parent: which child events wake it, comma-separated (job.terminal,job.needs_review,job.awaiting_approval,interaction.created; job.terminal is always included)
+job run	flag permission-tier	acp-agent approval tier: auto (as configured, default) | ask | strict; it only tightens the project's approval gate and switches the agent to its acp.modes.ask mode when it has one
 job run	flag plan	attach the job to a plan (grouping key)
 job run	flag prime-keywords	comma-separated subsystems / languages / modules this task touches: the injected tracker-prime matches them (with the title and the prompt head) against the memories' keywords, keys, tags and summaries, injecting the matching ones in full and first (default: $GOFER_PRIME_KEYWORDS)
 job run	flag project	project key (required)

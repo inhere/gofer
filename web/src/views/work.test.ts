@@ -145,12 +145,12 @@ describe('Work drawer', () => {
 })
 
 describe('session cards <-> work items', () => {
-  it('Sessions shows the linked work item on ACP and pty cards and can link one', () => {
+  it('Sessions shows the linked work item on the history rows and can link one', () => {
     const sessions = read(import.meta.glob('./Sessions.vue', { eager: true, query: '?raw', import: 'default' }))
-    for (const hook of ['data-test="acp-work-link"', 'data-test="pty-work-link"', 'data-test="acp-link-btn"', 'data-test="pty-link-btn"', 'data-test="work-link"']) {
+    for (const hook of ['data-test="history-work-link"', 'data-test="history-link-pick"', 'data-test="history-link-btn"']) {
       expect(sessions).toContain(hook)
     }
-    expect(sessions).toContain('attachWorkSession(wid, jobId)')
+    expect(sessions).toContain('attachWorkSession(workID, jobID)')
   })
 
   it('job-kind sessions open the job page, not the relay drawer', () => {

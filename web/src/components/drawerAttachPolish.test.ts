@@ -8,13 +8,14 @@ const app = Object.values(import.meta.glob('../App.vue', { eager: true, query: '
 
 describe('one bubble per relay message', () => {
   it('hides the turn answer bubble when an outbox message carries the same decision', () => {
-    expect(drawer).toContain(`v-if="entry.turn.state === 'ANSWERED' && !entry.relayed"`)
-    expect(drawer).toContain(`v-else-if="entry.turn.state !== 'ANSWERED'"`)
+    // R12：终端轮次仍在抽屉里画（走时间线的 #custom 插槽），只是按 id 取回原始行。
+    expect(drawer).toContain(`v-if="turnRow(entry.id).turn.state === 'ANSWERED' && !turnRow(entry.id).relayed"`)
+    expect(drawer).toContain(`v-else-if="turnRow(entry.id).turn.state !== 'ANSWERED'"`)
   })
 
   it('still shows the outbox bubble with its delivery status', () => {
     expect(drawer).toContain('relay-message-status')
-    expect(drawer).toContain('messageStatusLabel(entry.message)')
+    expect(drawer).toContain('messageStatusLabel(relayMessage(entry.id)!)')
   })
 })
 
@@ -32,13 +33,15 @@ describe('no success receipt above the composer', () => {
 
 describe('attachment paths become thumbnails', () => {
   it('cleans the bubble text only for messages that carry attachments', () => {
+    // 人发的消息在适配成时间线条目时清理附图痕迹；终端轮次的答复仍在 #custom 插槽里。
     expect(drawer).toContain('attachmentBubbleText(entry.message.text, entry.message.attachments)')
-    expect(drawer).toContain('attachmentBubbleText(entry.turn.answer, entry.turn.attachments)')
+    expect(drawer).toContain('attachmentBubbleText(turnRow(entry.id).turn.answer, turnRow(entry.id).turn.attachments)')
   })
 
   it('renders the shared thumbnail grid under the bubbles', () => {
-    expect(drawer).toContain(`<AttachmentThumbs v-if="entry.message.attachments?.length" :items="entry.message.attachments" />`)
-    expect(drawer).toContain(`<AttachmentThumbs v-if="entry.turn.attachments?.length" :items="entry.turn.attachments" />`)
+    expect(drawer).toContain(`<AttachmentThumbs v-if="turnRow(entry.id).turn.attachments?.length" :items="turnRow(entry.id).turn.attachments ?? []" />`)
+    // 人发的消息 / 回复的缩略图由统一时间线渲染（ConversationTimeline 里的 attachmentsOf）。
+    expect(drawer).toContain('attachments: entry.message.attachments')
   })
 })
 

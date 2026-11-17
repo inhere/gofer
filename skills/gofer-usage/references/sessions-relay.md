@@ -107,7 +107,7 @@ gofer session find <关键词|路径>                    # 找哪个会话在做
 - **进行中预览**：PostToolUse hook 读会话最新的 assistant 文字，以「进行中」更新会话列表、抽屉和工作台；`session.progress_interval_sec` 默认 30 秒，0 关闭。
 - **会话用量**：hook 在 Stop / SubagentStop / SessionEnd 增量读会话记录，上报 token（主会话与子 agent 分开、按模型）；Sessions 详情、会话抽屉、工作项卡、首页用量卡可见。只有 token，来源无费用就不显示费用。jcode 不采集。
 - **终端授权上 web**（claude）：终端弹工具授权时，会话最后消息显示「需要授权：Bash `…`」；会话正在等 web（同 on / auto 判据）时，「今天」页与会话抽屉出「需要授权」卡，可允许 / 总是允许 / 拒绝 / 附原因拒绝，与终端对话框先答者生效。会话 owner（首次登记的 caller，换 token 后就是 hook 的身份）或持有 `session.permission.answer` 的 caller 能答，worker / job 凭据一律 403；`session say` 不会答它。
-- **终端选择题上 web**（claude）：agent 调 AskUserQuestion 时，会话最后消息显示「等你回答：<问题>」；会话正在等 web（同上判据）时，选择题不在终端弹框，而是变成「等你回答」卡（会话抽屉按题选择 / 多选 / 自由填写；「今天」页单个单选题可直接点选项），提交后 agent 直接拿到答案继续；超时、人回到终端或 server 不可达时交回终端弹框。人在终端前时照常在终端问。需要 hooks 里有 `AskUserQuestion` 的 PreToolUse 条目：升级后重跑 `gofer init hooks`。
+- **终端选择题上 web**（claude）：agent 调 AskUserQuestion 时，会话最后消息显示「等你回答：<问题>」（不再是一段输入 JSON 的摘要）；会话正在等 web（同上判据）时，选择题不在终端弹框，而是变成选项卡片（会话抽屉按题选择 / 多选 / 自由填写；「今天」页单个单选题可直接点选项），提交后 agent 直接拿到答案继续，与 PermissionRequest 那条路回填的是同一份答案；超时、人回到终端或 server 不可达时交回终端弹框。人在终端前时照常在终端问。**同一次提问只有一张卡**：PreToolUse 与 PermissionRequest 都会看到它，后到的那一头认已经开着的那张（按调用指纹去重），不会开第二张。想让它走 PreToolUse 那条路（人不在时也能出卡）仍需 hooks 里有 `AskUserQuestion` 的 PreToolUse 条目，升级后重跑 `gofer init hooks`；没配也能出卡，只是走 PermissionRequest。
 - **会话名**：claude hook 上报 Claude Code 自己的会话名，web 与 `session ls` 的 NAME 列、`session show` 的 `name:` 行显示，可一键复制。
 - **离线**：Claude Code 进程被直接杀掉时没有结束事件；会话超过 `session.offline_after_sec`（默认 1800，0 关闭）无心跳就标 `offline`（灰色徽标），收到新心跳恢复。`offline` 与 `ended` 一样可以唤醒。
 

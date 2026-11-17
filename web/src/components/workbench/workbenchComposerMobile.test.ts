@@ -8,6 +8,8 @@ describe('mobile session launcher placement', () => {
     expect(composer).toContain('v-if="!open && !sessionOpen"')
     expect(composer).toContain('defineProps<{ sessionOpen: boolean }>()')
     expect(workbench).toContain('class="session-new"')
-    expect(workbench).toContain('v-if="mobilePane === \'main\'"')
+    // R13：手机顶栏的「＋」现在开新建会话表单（ACP 默认）；只读上限下不给。
+    expect(workbench).toContain("v-if=\"mobilePane === 'main' && !readOnly\"")
+    expect(workbench).toContain('@click="openNewSession"')
   })
 })

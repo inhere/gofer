@@ -115,6 +115,14 @@ func (b *clientBackend) GetInteractions(id string) ([]job.Interaction, error) {
 	return b.cli.GetInteractions(id)
 }
 
+func (b *clientBackend) CreateInteraction(id string, in job.InteractionInput, timeoutSec int) (job.Interaction, error) {
+	return b.cli.CreateInteraction(id, client.CreateInteractionRequest{
+		Type: in.Type, Prompt: in.Prompt, Options: in.Options,
+		Multi: in.Multi, AllowOther: in.AllowOther, Recommended: in.Recommended,
+		TimeoutSec: timeoutSec,
+	})
+}
+
 func (b *clientBackend) AnswerInteraction(id, iid, answer string) (job.Interaction, error) {
 	return b.cli.AnswerInteraction(id, iid, answer)
 }

@@ -245,6 +245,14 @@ func (n *acpNormalizer) record(record map[string]any) []map[string]any {
 			n.sawMessage = true
 		} else {
 			n.prompts++
+			// The workspace shows a prompt as the words the caller sent: the rules frame
+			// the server injected is split off into `injected`, the same shape
+			// GET /v1/jobs/{id}/messages uses (R9).
+			body, injected := job.SplitInjectedRules(stringValue(event["text"]))
+			event["text"] = body
+			if injected != "" {
+				event["injected"] = injected
+			}
 			if n.promptAttachments != nil {
 				if atts := n.promptAttachments(n.prompts); atts != nil {
 					event["attachments"] = atts
@@ -258,6 +266,10 @@ func (n *acpNormalizer) record(record map[string]any) []map[string]any {
 		return append(events, permissionEvent(record))
 	case "plan":
 		return append(events, selectEvent("plan", record, "entries"))
+	case "turn_unsent":
+		// A session turn that never ran (the directory stayed busy past the wait cap):
+		// the workspace shows the note and offers the original message back to resend.
+		return append(events, selectEvent("turn_unsent", record, "text", "prompt"))
 	case "usage_update", "usage":
 		return append(events, usageEvent(record))
 	case "stop":

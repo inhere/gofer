@@ -84,17 +84,25 @@ describe('workbench P3 layout', () => {
   })
 
   it('shows tool calls collapsed by default and approvals inline in the timeline', () => {
-    expect(conversation).toContain("import InteractionCard from '../InteractionCard.vue'")
-    expect(conversation).toContain('timelineBlocks(round.events)')
-    expect(conversation).toContain('data-test="tools-toggle"')
-    expect(conversation).toContain("t('workbench.conv.tools', { n: block.events.length })")
-    expect(conversation).toContain('data-test="inline-permission"')
-    expect(conversation).toContain('inlineInteractions')
+    // R12：时间线渲染搬到共用的 ConversationTimeline（工作台 / job 消息 / 抽屉同一套）。
+    const timeline = raw(import.meta.glob('../components/ConversationTimeline.vue', { eager: true, query: '?raw', import: 'default' }))
+    expect(conversation).toContain('<ConversationTimeline')
+    expect(conversation).toContain('acpEventEntries(round.events')
+    expect(conversation).toContain('pendingInteractions')
+    expect(timeline).toContain("import InteractionCard from './InteractionCard.vue'")
+    expect(timeline).toContain('data-test="tools-toggle"')
+    expect(timeline).toContain("t('conversation.tools', { n: entry.calls.length })")
+    expect(timeline).toContain('data-test="inline-permission"')
   })
 
   it('keeps the page copy in the workbench dictionary', () => {
-    for (const key of ['workbench.list.title', 'workbench.group.need', 'workbench.ctx.title', 'workbench.conv.tools']) {
+    for (const key of ['workbench.list.title', 'workbench.group.need', 'workbench.ctx.title', 'workbench.conv.emptyReady']) {
       expect(dict).toContain(`'${key}'`)
+    }
+    // R12：时间线（工具调用 / 注入规则 / 未发送）的文案在共用的 conversation 字典里。
+    const convDict = raw(import.meta.glob('../i18n/pages/conversation.ts', { eager: true, query: '?raw', import: 'default' }))
+    for (const key of ['conversation.tools', 'conversation.injectedShow', 'conversation.unsent']) {
+      expect(convDict).toContain(`'${key}'`)
     }
     // 页面与专属组件里不再写死这些中文标签。
     for (const source of [workbench, sidebar, threadView, context]) {

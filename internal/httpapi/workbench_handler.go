@@ -148,6 +148,15 @@ func (s *Server) handleListWorkbenchThreads(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid source", "source must be acp|pty|relay")
 		return
 	}
+	var counts bool
+	switch strings.TrimSpace(c.Query("counts")) {
+	case "":
+	case "1", "true":
+		counts = true
+	default:
+		writeError(c, http.StatusBadRequest, "invalid counts", "counts must be 1|true")
+		return
+	}
 	var live bool
 	switch strings.TrimSpace(c.Query("live")) {
 	case "":
@@ -177,6 +186,9 @@ func (s *Server) handleListWorkbenchThreads(c *rux.Context) {
 	}
 	result, err := s.workbench.List(callerFromCtx(c), workbench.Query{
 		Source:  source,
+		Agent:   strings.TrimSpace(c.Query("agent")),
+		Runner:  strings.TrimSpace(c.Query("runner")),
+		Counts:  counts,
 		Live:    live,
 		Include: include,
 		Lang:    s.requestLang(c),

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/inhere/gofer/internal/jobstore"
 )
@@ -58,6 +59,8 @@ type InteractionOption struct {
 	// Kind is the ACP option kind (allow_once|allow_always|reject_once|reject_always)
 	// the approval card groups its buttons by. "" for non-permission interactions.
 	Kind string `json:"kind,omitempty"`
+	// Description is an optional one-line explanation shown under the option (gofer_ask).
+	Description string `json:"description,omitempty"`
 }
 
 // InteractionToolCall is the tool call a permission interaction is about: the agent's
@@ -102,6 +105,13 @@ type Interaction struct {
 	// NeedsHuman 标记该 interaction 已被通用 sup 判为高危/拿不准、显式留给人处理（事件驱动按需
 	// 派发 y5wt）：1=留给人。0=未标记。interaction 仍 pending（待人应答）。
 	NeedsHuman int64 `json:"needs_human,omitempty"`
+	// Multi / AllowOther / Recommended extend a choice interaction (gofer_ask): several
+	// options may be picked (the answer is then a JSON array of the picked labels), free
+	// text outside the options is accepted, and one option is the asker's recommendation.
+	// Optional and additive; persisted inside the options column (see interaction_ext.go).
+	Multi       bool   `json:"multi,omitempty"`
+	AllowOther  bool   `json:"allow_other,omitempty"`
+	Recommended string `json:"recommended,omitempty"`
 }
 
 // Interaction status values.
@@ -130,6 +140,9 @@ type interactionRec struct {
 	// answered is closed exactly once when the interaction leaves pending; closing
 	// (not sending) lets any number of WaitAnswer callers observe it.
 	answered chan struct{}
+	// expiry fires cancelInteraction at the deadline of an interaction raised with one
+	// (gofer_ask); stopped as soon as the interaction leaves pending. nil otherwise.
+	expiry *time.Timer
 }
 
 // InteractionInput is the create-interaction payload (Type/Prompt/Options, plus the
@@ -145,6 +158,10 @@ type InteractionInput struct {
 	// ExpiresAt is the permission interaction's answer deadline (unix seconds, 0 =
 	// none) — the callers' own deadline, carried through so answerers can show it.
 	ExpiresAt int64
+	// Multi / AllowOther / Recommended: see Interaction.
+	Multi       bool
+	AllowOther  bool
+	Recommended string
 }
 
 // CreateInteraction raises a new interaction on a LIVE job: it records a pending
@@ -167,6 +184,10 @@ func (s *Service) CreateInteraction(jobID string, in InteractionInput) (Interact
 	}
 	if strings.TrimSpace(in.Prompt) == "" {
 		return Interaction{}, fmt.Errorf("%w: prompt must not be empty", ErrInvalidInteraction)
+	}
+
+	if err := validateInteractionExt(in); err != nil {
+		return Interaction{}, err
 	}
 
 	entry := s.entry(jobID)
@@ -195,10 +216,15 @@ func (s *Service) CreateInteraction(jobID string, in InteractionInput) (Interact
 			ToolCall:   in.ToolCall,
 			PolicyHint: in.PolicyHint,
 			ExpiresAt:  in.ExpiresAt,
+
+			Multi:       in.Multi,
+			AllowOther:  in.AllowOther,
+			Recommended: in.Recommended,
 		},
 		answered: make(chan struct{}),
 	}
 	entry.interactions = append(entry.interactions, rec)
+	s.armInteractionExpiry(rec, jobID)
 	// A pending interaction blocks the agent; surface that in the job status so
 	// the UI/poller can prompt the user. The terminal guard above plus the lock
 	// shared with finish() guarantee we never override a terminal status here.
@@ -234,12 +260,7 @@ func (s *Service) CreateInteraction(jobID string, in InteractionInput) (Interact
 // jobstore.InteractionRecord written to SQLite. Options are marshalled to
 // OptionsJSON (empty options -> empty string, so the column stays NULL/empty).
 func toInteractionRecord(it Interaction) jobstore.InteractionRecord {
-	var optsJSON string
-	if len(it.Options) > 0 {
-		if b, err := json.Marshal(it.Options); err == nil {
-			optsJSON = string(b)
-		}
-	}
+	optsJSON := encodeInteractionOptions(it)
 	var tcJSON string
 	if it.ToolCall != nil {
 		if b, err := json.Marshal(it.ToolCall); err == nil {
@@ -269,10 +290,7 @@ func toInteractionRecord(it Interaction) jobstore.InteractionRecord {
 // empty string yields nil Options); an unparseable blob leaves Options nil rather
 // than failing the read.
 func fromInteractionRecord(rec jobstore.InteractionRecord) Interaction {
-	var opts []InteractionOption
-	if rec.OptionsJSON != "" {
-		_ = json.Unmarshal([]byte(rec.OptionsJSON), &opts)
-	}
+	opts, ext := DecodeInteractionOptions(rec.OptionsJSON)
 	var tc *InteractionToolCall
 	if rec.ToolCallJSON != "" {
 		var got InteractionToolCall
@@ -297,6 +315,10 @@ func fromInteractionRecord(rec jobstore.InteractionRecord) Interaction {
 		ToolCall:   tc,
 		PolicyHint: rec.PolicyHint,
 		ExpiresAt:  rec.ExpiresAt,
+
+		Multi:       ext.Multi,
+		AllowOther:  ext.AllowOther,
+		Recommended: ext.Recommended,
 	}
 }
 
@@ -576,6 +598,12 @@ func (s *Service) answerInteraction(jobID, interactionID, answer, answeredBy str
 		return Interaction{}, fmt.Errorf("%w: interaction %q (%s)", ErrInteractionState, interactionID, st)
 	}
 
+	if verr := validateInteractionAnswer(rec.data, answer); verr != nil {
+		entry.mu.Unlock()
+		return Interaction{}, verr
+	}
+
+	stopInteractionExpiry(rec)
 	rec.data.Status = InteractionAnswered
 	rec.data.Answer = answer
 	rec.data.AnsweredAt = s.nowFn().Unix()
@@ -687,6 +715,7 @@ func (s *Service) cancelInteraction(jobID, interactionID string) error {
 		entry.mu.Unlock()
 		return nil
 	}
+	stopInteractionExpiry(rec)
 	rec.data.Status = InteractionCancelled
 	rec.data.AnsweredAt = s.nowFn().Unix()
 	out := rec.data

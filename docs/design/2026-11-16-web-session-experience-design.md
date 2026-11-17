@@ -157,3 +157,24 @@ suga 一律 `opencode-go/deepseek-v4.1-flash`、`--notify`。
 ## 结论与人工计划 Gate
 
 把「web 里起容器 claude ACP 会话」补成可以替代终端的第二条路：先补交互（提问 / 选择 / 权限都是卡片，卡片组件与第 4 批共用），再统一显示与入口，最后补运行底座。等用户答复 Q1–Q7 并批准后写 P1 + P2 的计划。
+
+## 实施记录（P1 + P2）
+
+本批按 [`../plans/2026-11-16-web-session-experience-plan.md`](../plans/2026-11-16-web-session-experience-plan.md) 实施，已交付：
+
+- **交互**：`gofer_ask` 工具（持续会话的收窄 MCP，交互落在本 job）；交互字段 `multi` / `allow_other` / `recommended` 与选项 `description`；job 凭据对本 job 开 / 读交互（`permission` 类型拒绝）；权限档位 `permission_tier` 三档映射；终端 `AskUserQuestion` 的 `PermissionRequest` 分支；web 统一交互卡片。
+- **让锁**：会话进入 `awaiting_input` 释放目录锁、下一轮前重新获取，`keep_dir_lock` 保持旧行为；等锁超时不发送并在对话里标「未发送」；下一轮带「目录变化」注入说明。
+- **显示与入口**：`ConversationTimeline` 统一工作台 / job 详情消息 / 会话抽屉；ACP 流 `prompt` 拆出 `injected`、新增 `turn_unsent`；线程接口加 `agent` / `runner` 与 `counts=1`；Sessions 页改为历史页；工作台「＋新建会话」默认 ACP + `claude-acp` + `container` worker；已结束会话「接着聊」；`claude-acp` 模板 PATH 优先。
+
+与设计 / 计划的偏离（实施时定下的，已写进代码与计划）：
+
+| # | 设计写法 | 实际 |
+|---|---|---|
+| 1 | §1A「所有 ACP 会话 job 注入 `gofer_ask`」 | 只注入持续会话（`--session`）：单轮 / 批处理 job 无人值守，提问只会把它挂到超时（计划 R1）。管家、收件会话在自己的收窄面里同样注册；leader 轮次**不**注册（无人值守，计划决策有自己的 `gofer_ask_human`） |
+| 2 | 过期由工具按截止时间判定并取消 | 两层：交互带 `expires_at`，**服务端到点 cancel**（job 不会一直被挂着）；工具端只留 10 秒宽限兜底，判到期即返回 `expired` |
+| 3 | 档位「设置 `SessionApproval`」 | **不写** `SessionApproval`：档位存入 `JobRequest.permission_tier`，在取有效审批策略时与项目 / agent 策略取更严者（入口仍不能直接传 `session_approval`） |
+| 4 | — | 新增两个 wire 字段：`dispatch.permission_tier`（需协议 **v31**，旧 worker 被拒而不是降级）与 `dispatch.keep_dir_lock`（**不抬版本**：旧 worker 忽略即默认让锁，正好是新默认） |
+| 5 | §4「获取不到时这一轮排队」 | 排到等锁上限就**不发送**：会话回 `awaiting_input`，记 `job.dir_wait_timeout {unsent:true}` 并在 ACP 流回 `turn_unsent`，对话里可重发；不判失败 |
+| 6 | §3「Sessions 页是历史页，入口只在工作台」 | 终端会话的回复 / 送入终端 / 接管等操作保留在**详情抽屉**；历史页只做「打开 / 详情 / 接着聊」 |
+
+遗留（P3，下一批）：常驻会话（不按空闲结束、不计入升级排空的 in_flight）、worker 会话自动接回与升级挂起、job 完成通知送达到 ACP 会话的下一批（`job:<id>` 可投递地址）。

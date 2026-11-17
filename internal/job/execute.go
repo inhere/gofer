@@ -32,6 +32,8 @@ type execGates struct {
 	exclusive bool // hold the same-directory lock for this job's WorkDir
 	stall     int  // AUTO-05: kill a job silent for this many seconds (0 = off)
 	dirWait   int  // JOB-11: fail a job queued on the directory lock this many seconds (0 = no cap)
+	// keepDirLock keeps a persistent session's directory lock across awaiting_input (R8).
+	keepDirLock bool
 	// recheckOwners are the caller ids execute re-judges for a DISABLE once the job has passed
 	// its last queue (see disabledRecheckOwners). Empty means "not re-judged": a system job, a
 	// released internal exec, and a resumed resident session — which is already running (D2).
@@ -154,6 +156,10 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 		}
 		// One Acquire for the whole set: it is granted atomically, so a job never holds
 		// some paths while waiting for the rest (no hold-and-wait between jobs).
+		if entry.hubJobID != "" {
+			s.dirLock.setLabel(req.JobID, entry.hubJobID)
+			defer s.dirLock.clearLabel(req.JobID)
+		}
 		release, holder, waited, derr := s.dirLock.Acquire(waitCtx, lockDirs, req.JobID, func(blocker, blockedDir string) {
 			s.enterWaitingDir(entry, req.JobID, blocker, blockedDir, lockDirs)
 		})
@@ -182,6 +188,9 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 			return
 		}
 		releaseDir = release
+		if hold := s.attachSessionDirHold(entry, ctx, gates, req, lockDirs, release); hold != nil {
+			releaseDir = hold.releaseAll
+		}
 		defer func() { releaseDir() }()
 		if waited {
 			slog.Info("job.dir_wait", "job_id", req.JobID, "holder", holder, "dir", req.WorkDir)
@@ -806,6 +815,7 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	var toWake []chan struct{}
 	for _, rec := range entry.interactions {
 		if rec.data.Status == InteractionPending {
+			stopInteractionExpiry(rec)
 			rec.data.Status = InteractionCancelled
 			rec.data.AnsweredAt = snap.EndedAt
 			cancelled = append(cancelled, rec.data)

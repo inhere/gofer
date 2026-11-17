@@ -25,6 +25,8 @@ import { useWhoami } from '../store/whoami'
 import { badgeTitle, canGrantSession, sessionGrantBadge } from '../utils/sessionGrant'
 import { badgeRenewIds, canRenewBadge, grantRemainingText } from '../utils/grantRenew'
 import SessionPermissionPrompt from './SessionPermissionPrompt.vue'
+import ConversationTimeline from './ConversationTimeline.vue'
+import MarkdownBlock from './MarkdownBlock.vue'
 import { computed, nextTick, onMounted, onUnmounted, onUpdated, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { marked } from 'marked'
@@ -59,7 +61,8 @@ import { topicDisplay } from '../utils/sessionTopic'
 import { t } from '../i18n'
 import { mobileHeaderFallback, sessionHeaderSummary } from '../utils/mobileLayout'
 import { fmtAgo, fmtDateTime } from '../api/time'
-import { canRetrySessionMessage, copyText, isSessionReply, mergeSessionTimeline, peerNameLabel, sessionMessageAuthorLabel, sessionMessageStatusText, sessionReplyLabel, shouldShowLastMessage, upsertSessionMessage } from '../utils/sessionMessaging'
+import { canRetrySessionMessage, copyText, isSessionReply, mergeSessionTimeline, peerNameLabel, sessionMessageAuthorLabel, sessionMessageStatusText, sessionReplyLabel, shouldShowLastMessage, upsertSessionMessage, type SessionTimelineEntry } from '../utils/sessionMessaging'
+import type { ConversationEntry } from '../utils/conversationTimeline'
 import { resumeConfirmText, resumeFailText, resumeLabel, resumeTitle } from '../utils/sessionResume'
 import { refusedOwnerHelp, refusedOwnerNotice, transferFailText, transferOwnerLabel, transferSessionOwner } from '../utils/sessionOwner'
 import { fromSessionChoice, fromSessionQuery, type FromSessionSource } from '../utils/fromSession'
@@ -182,7 +185,6 @@ const copiedLast = ref(false)
 const copiedName = ref(false)
 const lastMessageOpen = ref(props.expandLastMessage)
 const progressOpen = ref(false)
-const expanded = ref<Set<string>>(new Set())
 // 手机档（≤900px）的头部折叠与输入框说明折叠：桌面完全不受影响（折叠条 / 「?」默认不显示）。
 // 默认都收回：手机上一整块头部（主题 / 范围 / 接管 / 中继说明）能占掉半屏。
 const headerOpen = ref(false)
@@ -521,18 +523,39 @@ function relaySummary(s: AgentSession | null): string {
   }
 }
 
-function isLong(text: string): boolean {
-  return text.length > COLLAPSE_CHARS
+// 对话时间线改用统一组件（R12）：agent 回复与人发的消息都走 markdown，终端轮次由本组件的
+// #custom 插槽自己画（权限卡、问答、过期 / 已读状态都在那里）。
+type SessionTurnRow = Extract<SessionTimelineEntry, { kind: 'turn' }>
+
+function sessionEntry(entry: SessionTimelineEntry): ConversationEntry {
+  if (entry.kind === 'turn') {
+    return { kind: 'custom', id: entry.turn.id }
+  }
+  const isReply = isSessionReply(entry.message)
+  return {
+    kind: isReply ? 'agent' : 'user',
+    id: entry.message.id,
+    text: isReply ? entry.message.text : attachmentBubbleText(entry.message.text, entry.message.attachments),
+    label: isReply ? sessionReplyLabel(entry.message, session.value) : sessionMessageAuthorLabel(entry.message),
+    time: fmtAgo(entry.message.created_at, nowSec.value),
+    timeTitle: fmtDateTime(entry.message.created_at),
+    attachments: entry.message.attachments,
+  }
 }
 
-function toggleExpand(id: string): void {
-  const next = new Set(expanded.value)
-  if (next.has(id)) {
-    next.delete(id)
-  } else {
-    next.add(id)
-  }
-  expanded.value = next
+const timelineEntries = computed<ConversationEntry[]>(() => conversationTimeline.value.map(sessionEntry))
+
+// 插槽里按 id 取回原始行（#custom 画终端轮次，#extra 画送达状态）。
+function turnRow(id: string): SessionTurnRow {
+  return conversationTimeline.value.find(
+    (entry): entry is SessionTurnRow => entry.kind === 'turn' && entry.turn.id === id,
+  ) as SessionTurnRow
+}
+
+// relayMessage 只对人发的（outbox）消息返回：它的送达状态与「重试」跟着气泡走。
+function relayMessage(id: string): SessionMessage | undefined {
+  const message = messages.value.find((item) => item.id === id)
+  return message && !isSessionReply(message) ? message : undefined
 }
 
 function errorMessage(e: unknown): string {
@@ -985,7 +1008,6 @@ watch(
     error.value = ''
     actionError.value = ''
     actionInfo.value = ''
-    expanded.value = new Set()
     hasMore.value = false
     nextBefore.value = ''
     messagesHasMore.value = false
@@ -1316,106 +1338,69 @@ defineExpose({ load, loadMore, setRelayMode, remove })
         <div v-if="!loading && conversationTimeline.length === 0" class="empty mono">
           {{ t('sessions.drawer.noTurns') }}
         </div>
-        <template v-for="entry in conversationTimeline" :key="entry.kind === 'turn' ? entry.turn.id : entry.message.id">
-          <div v-if="entry.kind === 'message' && isSessionReply(entry.message)" class="turn">
-            <div class="bubble bubble--agent session-reply msg-body" data-test="session-reply">
-              <div class="bubble-meta mono">
-                <span>{{ sessionReplyLabel(entry.message, session) }}</span>
-                <span :title="fmtDateTime(entry.message.created_at)">{{ fmtAgo(entry.message.created_at, nowSec) }}</span>
-              </div>
-              <div
-                class="bubble-md msg-body"
-                :class="{ clamped: isLong(entry.message.text) && !expanded.has(entry.message.id) }"
-                v-html="renderMd(entry.message.text)"
-              ></div>
+        <ConversationTimeline :entries="timelineEntries" :clamp-chars="COLLAPSE_CHARS">
+          <template #extra="{ entry }">
+            <div
+              v-if="relayMessage(entry.id)"
+              class="relay-message-status mono"
+              :class="`outbox-status--${relayMessage(entry.id)!.status}`"
+            >
+              <span>{{ messageStatusLabel(relayMessage(entry.id)!) }}</span>
               <button
-                v-if="isLong(entry.message.text)"
+                v-if="canRetrySessionMessage(relayMessage(entry.id)!.status)"
                 class="link-btn mono"
                 type="button"
-                @click="toggleExpand(entry.message.id)"
-              >
-                {{ expanded.has(entry.message.id) ? t('util.action.collapse') : t('sessions.drawer.expandFull', { n: entry.message.text.length }) }}
-              </button>
+                :disabled="retryingMessage === entry.id"
+                @click="retryMessage(relayMessage(entry.id)!)"
+              >{{ retryingMessage === entry.id ? t('sessions.drawer.retrying') : t('sessions.drawer.retry') }}</button>
             </div>
-          </div>
-          <div v-else-if="entry.kind === 'message'" class="turn">
-            <div class="bubble bubble--human relay-message msg-body">
-              <div class="bubble-meta mono">
-                <span>{{ sessionMessageAuthorLabel(entry.message) }}</span>
-                <span :title="fmtDateTime(entry.message.created_at)">{{ fmtAgo(entry.message.created_at, nowSec) }}</span>
-              </div>
-              <pre
-                v-if="attachmentBubbleText(entry.message.text, entry.message.attachments)"
-                class="bubble-text msg-body"
-              >{{ attachmentBubbleText(entry.message.text, entry.message.attachments) }}</pre>
-              <AttachmentThumbs v-if="entry.message.attachments?.length" :items="entry.message.attachments" />
-              <div class="relay-message-status mono" :class="`outbox-status--${entry.message.status}`">
-                <span>{{ messageStatusLabel(entry.message) }}</span>
-                <button
-                  v-if="canRetrySessionMessage(entry.message.status)"
-                  class="link-btn mono"
-                  type="button"
-                  :disabled="retryingMessage === entry.message.id"
-                  @click="retryMessage(entry.message)"
-                >{{ retryingMessage === entry.message.id ? t('sessions.drawer.retrying') : t('sessions.drawer.retry') }}</button>
-              </div>
+          </template>
+          <template #custom="{ entry }">
+            <div v-if="turnRow(entry.id).turn.kind === 'permission'" class="turn">
+              <SessionPermissionPrompt :sid="sid" :decision="turnRow(entry.id).turn" :now-sec="nowSec" @answered="onPermissionAnswered" />
             </div>
-          </div>
-          <div v-else-if="entry.turn.kind === 'permission'" class="turn">
-            <SessionPermissionPrompt :sid="sid" :decision="entry.turn" :now-sec="nowSec" @answered="onPermissionAnswered" />
-          </div>
-          <div v-else class="turn">
-            <div class="bubble bubble--agent msg-body">
-              <div class="bubble-meta mono">
-                <span>{{ session?.agent || 'agent' }}</span>
-                <span :title="fmtDateTime(entry.turn.asked_at)">{{ fmtAgo(entry.turn.asked_at, nowSec) }}</span>
+            <div v-else class="turn">
+              <div class="bubble bubble--agent msg-body">
+                <div class="bubble-meta mono">
+                  <span>{{ session?.agent || 'agent' }}</span>
+                  <span :title="fmtDateTime(turnRow(entry.id).turn.asked_at)">{{ fmtAgo(turnRow(entry.id).turn.asked_at, nowSec) }}</span>
+                </div>
+                <div v-if="turnRow(entry.id).turn.question" class="bubble-md msg-body">
+                  <MarkdownBlock :text="turnRow(entry.id).turn.question || ''" />
+                </div>
+                <pre v-else class="bubble-text msg-body">{{ t('sessions.drawer.noMessage') }}</pre>
               </div>
-              <div
-                v-if="entry.turn.question"
-                class="bubble-md msg-body"
-                :class="{ clamped: isLong(entry.turn.question) && !expanded.has(entry.turn.id) }"
-                v-html="renderMd(entry.turn.question)"
-              ></div>
-              <pre v-else class="bubble-text msg-body">{{ t('sessions.drawer.noMessage') }}</pre>
-              <button
-                v-if="isLong(entry.turn.question)"
-                class="link-btn mono"
-                type="button"
-                @click="toggleExpand(entry.turn.id)"
-              >
-                {{ expanded.has(entry.turn.id) ? t('util.action.collapse') : t('sessions.drawer.expandFull', { n: entry.turn.question.length }) }}
-              </button>
+              <div v-if="turnRow(entry.id).turn.state === 'ANSWERED' && !turnRow(entry.id).relayed" class="bubble bubble--human msg-body">
+                <div class="bubble-meta mono">
+                  <span>{{ turnRow(entry.id).turn.answered_by || 'web' }}</span>
+                  <span :title="fmtDateTime(turnRow(entry.id).turn.answered_at)">{{ fmtAgo(turnRow(entry.id).turn.answered_at, nowSec) }}</span>
+                </div>
+                <pre
+                  v-if="attachmentBubbleText(turnRow(entry.id).turn.answer, turnRow(entry.id).turn.attachments)"
+                  class="bubble-text msg-body"
+                >{{ attachmentBubbleText(turnRow(entry.id).turn.answer, turnRow(entry.id).turn.attachments) }}</pre>
+                <AttachmentThumbs v-if="turnRow(entry.id).turn.attachments?.length" :items="turnRow(entry.id).turn.attachments ?? []" />
+              </div>
+              <template v-else-if="turnRow(entry.id).turn.state !== 'ANSWERED'">
+                <div v-if="turnRow(entry.id).turn.state === 'EXPIRED'" class="bubble bubble--expired mono">
+                  {{ turnRow(entry.id).turn.released_by === 'user_returned' ? t('sessions.drawer.turn.releasedUser') : t('sessions.drawer.turn.releasedExpired') }}
+                </div>
+                <div v-else-if="turnRow(entry.id).turn.acked_at" class="bubble bubble--acked mono">
+                  <span>{{ t('sessions.drawer.turn.acked') }}</span>
+                  <button class="link-btn ack-btn mono" type="button" :disabled="ackBusy === entry.id" @click="toggleAck(turnRow(entry.id).turn)">
+                    {{ ackBusy === entry.id ? t('sessions.drawer.working') : t('sessions.drawer.undo') }}
+                  </button>
+                </div>
+                <div v-else class="bubble bubble--pending mono">
+                  <span>{{ t('sessions.drawer.turn.waiting') }}</span>
+                  <button class="link-btn ack-btn mono" type="button" :disabled="ackBusy === entry.id" @click="toggleAck(turnRow(entry.id).turn)">
+                    {{ ackBusy === entry.id ? t('sessions.drawer.working') : t('sessions.drawer.turn.noReplyNeeded') }}
+                  </button>
+                </div>
+              </template>
             </div>
-            <div v-if="entry.turn.state === 'ANSWERED' && !entry.relayed" class="bubble bubble--human msg-body">
-              <div class="bubble-meta mono">
-                <span>{{ entry.turn.answered_by || 'web' }}</span>
-                <span :title="fmtDateTime(entry.turn.answered_at)">{{ fmtAgo(entry.turn.answered_at, nowSec) }}</span>
-              </div>
-              <pre
-                v-if="attachmentBubbleText(entry.turn.answer, entry.turn.attachments)"
-                class="bubble-text msg-body"
-              >{{ attachmentBubbleText(entry.turn.answer, entry.turn.attachments) }}</pre>
-              <AttachmentThumbs v-if="entry.turn.attachments?.length" :items="entry.turn.attachments" />
-            </div>
-            <template v-else-if="entry.turn.state !== 'ANSWERED'">
-              <div v-if="entry.turn.state === 'EXPIRED'" class="bubble bubble--expired mono">
-                {{ entry.turn.released_by === 'user_returned' ? t('sessions.drawer.turn.releasedUser') : t('sessions.drawer.turn.releasedExpired') }}
-              </div>
-              <div v-else-if="entry.turn.acked_at" class="bubble bubble--acked mono">
-                <span>{{ t('sessions.drawer.turn.acked') }}</span>
-                <button class="link-btn ack-btn mono" type="button" :disabled="ackBusy === entry.turn.id" @click="toggleAck(entry.turn)">
-                  {{ ackBusy === entry.turn.id ? t('sessions.drawer.working') : t('sessions.drawer.undo') }}
-                </button>
-              </div>
-              <div v-else class="bubble bubble--pending mono">
-                <span>{{ t('sessions.drawer.turn.waiting') }}</span>
-                <button class="link-btn ack-btn mono" type="button" :disabled="ackBusy === entry.turn.id" @click="toggleAck(entry.turn)">
-                  {{ ackBusy === entry.turn.id ? t('sessions.drawer.working') : t('sessions.drawer.turn.noReplyNeeded') }}
-                </button>
-              </div>
-            </template>
-          </div>
-        </template>
+          </template>
+        </ConversationTimeline>
         <section v-if="session?.last_message && showLastMessage" class="last-message-fixed">
           <div class="last-message-head mono">
             <strong>{{ t('sessions.drawer.lastMessage') }}</strong>

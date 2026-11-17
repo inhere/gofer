@@ -19,6 +19,10 @@ const gate = raw(import.meta.glob('../utils/permissionGate.ts', { eager: true, q
 const composer = raw(
   import.meta.glob('../components/workbench/WorkbenchComposer.vue', { eager: true, query: '?raw', import: 'default' }),
 )
+const workbench = raw(import.meta.glob('./Workbench.vue', { eager: true, query: '?raw', import: 'default' }))
+const sidebar = raw(
+  import.meta.glob('../components/workbench/WorkbenchSidebar.vue', { eager: true, query: '?raw', import: 'default' }),
+)
 
 describe('whoami 的上限进入共享 store', () => {
   it('store 暴露 ceiling 与 readOnly', () => {
@@ -85,8 +89,10 @@ describe('只读上限：写入口消失 + 顶栏标记 + 权限页摘要', () =
     expect(plans).toContain('v-if="!readOnly" class="create-row mono"')
     expect(workflows).toContain('v-if="!readOnly" to="/workflows/new" class="btn btn--primary"')
     expect(schedules).toContain('v-if="!readOnly" to="/schedules/new"')
-    expect(sessions).toContain('v-if="!readOnly"')
-    expect(sessions).toContain('@click="openSheet(\'pty\')"')
+    // R13：会话的创建入口只在工作台侧栏（只读时与另一个写入口一起收起）。
+    expect(sessions).not.toContain('openSheet(')
+    expect(workbench).toContain(':read-only="readOnly"')
+    expect(sidebar).toContain('v-if="!readOnly"')
   })
   it('设置 → 权限显示上限摘要', () => {
     expect(permissions).toContain('data-test="perm-ceiling"')

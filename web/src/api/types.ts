@@ -1655,6 +1655,8 @@ export interface InteractionOption {
   // （allow_once|allow_always|reject_once|reject_always），用于分组/徽标。
   id?: string
   kind?: string
+  // 选项的一行说明（gofer_ask 的 options[].description），显示在选项下方。
+  description?: string
 }
 
 // permission 交互的工具调用详情（GATE-01 §1）
@@ -1685,6 +1687,12 @@ export interface Interaction {
   tool_call?: InteractionToolCall
   policy_hint?: string
   expires_at?: number
+  // choice 交互的扩展（gofer_ask）：multi=可多选（答案是选中 label 的 JSON 数组）、
+  // allow_other=接受选项之外的自由文本、recommended=提问方的推荐项（label 或 value）。
+  // 都是加法字段，老交互没有它们。
+  multi?: boolean
+  allow_other?: boolean
+  recommended?: string
 }
 
 // plan 决策通道（decision channel，T4）：agent 经 MCP gofer_ask_human 提问，
@@ -2284,6 +2292,12 @@ export interface SubmitJobReq {
   // 后（无论成败、verify 之后）按 cwd 匹配的 glob，命中项落到本 job 产物的 collected/ 下。
   uploads?: JobUpload[]
   collect?: string[]
+  // 权限档位（R7，仅 acp-agent 有效）：auto（默认，按项目 / agent 现有策略）| ask（项目
+  // 自动放行的种类之外都问人）| strict（每次权限请求都问人）。只能收紧，不能放宽。
+  permission_tier?: 'auto' | 'ask' | 'strict'
+  // 保持目录锁（R8，仅 --session 持续会话）：默认在等待输入时让出同目录锁，勾选则整段
+  // 会话期间都持有（老行为）。
+  keep_dir_lock?: boolean
   // 可选 plan/todo 归组。todo_id 必须属于 plan_id；后端仍做最终校验。
   plan_id?: string
   todo_id?: string
@@ -2387,11 +2401,21 @@ export interface WorkbenchAttentionItem {
   decision_id?: string
 }
 
+// 分来源条数（线程接口 counts=1，R10）：与列表同一过滤（source 与分页除外），切换页签不变。
+// 老服务端没有这个字段 = 不计条数。
+export interface WorkbenchSourceCounts {
+  acp: number
+  pty: number
+  relay: number
+  all: number
+}
+
 export interface WorkbenchThreadsResp {
   projects: WorkbenchProjectGroup[]
   attention: WorkbenchAttentionItem[]
   total: number
   since: number
+  counts?: WorkbenchSourceCounts
   // 分页模式（带 limit / cursor）才有：还有更早的会话可拉，next_cursor 原样传回 cursor。
   // 老服务端没有这两个字段 = 没有更多。
   has_more?: boolean

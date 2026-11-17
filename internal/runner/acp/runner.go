@@ -203,9 +203,17 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	// bd h-aii-0ql3: a read-only job switches the session's agent mode before the turn.
 	// The agent's mode list is authoritative: an id it does not offer must not be
 	// guessed past, because the alternative is running a "read-only" job writable.
-	if mode := req.ACP.ReadOnlyModeID; mode != "" {
+	mode := req.ACP.ReadOnlyModeID
+	if mode == "" {
+		mode = req.ACP.SessionModeID
+	}
+	if mode != "" {
 		if !modeOffered(sess.Modes, mode) {
-			err := fmt.Errorf("acp: read-only mode %q not offered by agent (available: %s)", mode, modeIDs(sess.Modes))
+			kind := "session"
+			if req.ACP.ReadOnlyModeID != "" {
+				kind = "read-only"
+			}
+			err := fmt.Errorf("acp: %s mode %q not offered by agent (available: %s)", kind, mode, modeIDs(sess.Modes))
 			writeStderrLine(req.Stderr, err.Error())
 			return runner.Result{ExitCode: -1, Err: err}
 		}
@@ -304,6 +312,7 @@ func runResident(ctx context.Context, req runner.Request, client *acp.Client, h 
 	prompt := req.ACP.Prompt
 	var images []runner.ImageInput
 	turn := req.ACP.InitialTurnNo
+	skipAwait := false // a turn that was not started: the session is still awaiting input
 	for {
 		if prompt != "" || len(images) > 0 {
 			if len(images) > 0 && !imageCapable {
@@ -314,7 +323,24 @@ func runResident(ctx context.Context, req runner.Request, client *acp.Client, h 
 			}
 			if req.ACP.OnTurnStart != nil {
 				if err := req.ACP.OnTurnStart(); err != nil {
+					if errors.Is(err, runner.ErrSessionEndRequested) {
+						events.write(map[string]any{"t": "stop", "stop_reason": "manual_end"})
+						return runner.Result{SessionID: sessionID, ExitCode: 0, SessionEndReason: "manual_end"}
+					}
+					var unsent *runner.TurnNotStartedError
+					if errors.As(err, &unsent) {
+						// The prompt is NOT sent: say so in the stream (with the message,
+						// so it stays visible and can be sent again) and keep waiting.
+						events.write(map[string]any{"t": "turn_unsent", "text": unsent.Reason, "prompt": prompt})
+						prompt, images, skipAwait = "", nil, true
+						continue
+					}
 					return runner.Result{SessionID: sessionID, ExitCode: -1, Err: err}
+				}
+			}
+			if req.ACP.TurnNote != nil {
+				if note := req.ACP.TurnNote(); note != "" {
+					prompt = note + prompt
 				}
 			}
 			turn++
@@ -385,12 +411,13 @@ func runResident(ctx context.Context, req runner.Request, client *acp.Client, h 
 				}
 			}
 		}
-		if req.ACP.OnAwaitInput != nil {
+		if req.ACP.OnAwaitInput != nil && !skipAwait {
 			if err := req.ACP.OnAwaitInput(); err != nil {
 				result.ExitCode, result.Err = -1, err
 				return result
 			}
 		}
+		skipAwait = false
 		events.write(map[string]any{"t": "awaiting_input", "turn": turn})
 		var idleTimer *time.Timer
 		var idleC <-chan time.Time

@@ -168,6 +168,11 @@ type JobRequest struct {
 	// persisted (jobs.read_only) and inherited by a resume — a continuation cannot be
 	// upgraded to writable, only a new job can.
 	ReadOnly bool `json:"read_only,omitempty" yaml:"read_only,omitempty"`
+	// PermissionTier (auto|ask|strict; "" = auto) tightens an acp-agent job's approval gate
+	// and switches the agent to its acp.modes.ask mode when it has one. It only ever
+	// TIGHTENS what the project / agent policy already imposes (see permission_tier.go).
+	// Persisted in request_json, so a continuation keeps it.
+	PermissionTier string `json:"permission_tier,omitempty" yaml:"permission_tier,omitempty"`
 	// Review (GATE-01 S3) asks for人工验收: when the agent finishes NORMALLY (done),
 	// the job parks in `needs_review` instead of done until a HUMAN accepts (→done)
 	// or rejects (→rejected) it — an agent never signs off its own work. Set by
@@ -367,6 +372,13 @@ type JobRequest struct {
 	// same job would be one nobody can revoke. Empty JobToken + this flag is the
 	// pre-v11 worker case: the job simply runs without a credential.
 	CredentialExternal bool `json:"-" yaml:"-"`
+	// CredentialJobID is the id of the job the credential in JobToken belongs to: the HUB's
+	// job id on a worker re-entry, where this process's own job has a different (local) id.
+	// The job's GOFER_JOB_ID, and with it the gofer MCP's job id, must be that id — a job
+	// credential only reaches its OWN job, so naming the local id gets every own-job request
+	// (gofer_ask, comments, wakeups) refused. Empty = this machine's own job id. Never on
+	// the wire of a submit: set by the worker's dispatch handler only.
+	CredentialJobID string `json:"-" yaml:"-"`
 	// ExclusiveDir overrides the same-directory lock rule for this job (JOB-11): nil
 	// (the default) applies the rule — a WRITABLE agent job (cli/acp, not read-only,
 	// not interactive) takes the exclusive lock of its working directory, while exec
@@ -376,6 +388,10 @@ type JobRequest struct {
 	// what an already-submitted job does — and a remote executor applies the hub's
 	// decision instead of re-deriving one from its own config.
 	ExclusiveDir *bool `json:"exclusive_dir,omitempty" yaml:"exclusive_dir,omitempty"`
+	// KeepDirLock keeps the same-directory lock of a persistent session (--session) for
+	// the whole session. false (the default) lets the session give the lock back while
+	// it waits for input and take it again before the next turn starts (R8).
+	KeepDirLock bool `json:"keep_dir_lock,omitempty" yaml:"keep_dir_lock,omitempty"`
 	// StallTimeoutSec is the AUTO-05 output-stall window in seconds for THIS job: a
 	// non-interactive job that produces no stdout/stderr (and no acp update) for that
 	// long is killed and failed as stalled. nil = resolve the default (agent override
@@ -1383,6 +1399,10 @@ const (
 	// wait_sec}. The job is FAILED by that wait (it never ran at all), and this row is
 	// what tells its timeline that the queue — not the work — is what ended it.
 	EventJobDirWaitTimeout = "job.dir_wait_timeout"
+	// EventJobDirWait is a persistent session that gave its directory lock back while it
+	// waited for input and now has to queue for it before the next turn: {holder_job,
+	// dir, turn_no}. The job stays `awaiting_input` meanwhile.
+	EventJobDirWait = "job.dir_wait"
 	// SEC-01 job-scoped credentials, recorded on the job they describe:
 	//   - job.env_allowed  {keys:[...]}  a project's job_env_allow re-admitted
 	//     inherited variables the denylist would otherwise strip. It is recorded per

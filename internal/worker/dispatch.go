@@ -125,6 +125,8 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		// ITS agent config, so a worker whose agent has no read-only mode fails the job
 		// with an error the hub can show instead of running it writable.
 		ReadOnly: d.ReadOnly,
+		// The worker's own Submit applies the tier to ITS approval gate (effectiveApproval).
+		PermissionTier: d.PermissionTier,
 		// CFG-16: the caller's --no-rules. RulesResolved below already keeps this
 		// machine from injecting rules; NoRules is what keeps it from listing its own
 		// declared tools, the one section the worker renders itself.
@@ -175,6 +177,7 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		// JOB-11 (F12): the directory-lock wait cap the hub resolved travels with the
 		// dispatch, so the worker fails a too-long queue with the hub's policy.
 		DirWaitMaxSec: d.DirWaitMaxSec,
+		KeepDirLock:   d.KeepDirLock,
 		LockWaitSec:   d.DirWaitMaxSec,
 		// GATE-01 S3: 人工验收 is decided by the HUB (the design's "验收判定只在 hub
 		// 做"), so a dispatched job's LOCAL row must finish normally — its status is
@@ -190,6 +193,9 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		// so both fields are empty and the job simply runs without one.
 		JobToken:           d.JobToken,
 		CredentialExternal: true,
+		// The credential is the HUB job's: GOFER_JOB_ID (and the gofer MCP's job id) must be
+		// the hub's id, not this worker's local one.
+		CredentialJobID: d.JobID,
 		// SEC-01: which hub to call back on. The dispatch arrived on this connection, so
 		// its URL is the only address guaranteed to be reachable from here; the worker's
 		// own config server.addr would point at itself.

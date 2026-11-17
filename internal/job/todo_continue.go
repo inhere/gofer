@@ -357,6 +357,9 @@ func (s *Service) assembleContinuation(lang i18n.Lang, cfg *config.Config, pred 
 	// gofer-81b4: the item continues the predecessor's session, so it is approved the way
 	// that session was (a resident 收件会话's own gate, not the project policy).
 	req.SessionApproval = requestOfJob(predJob).SessionApproval
+	// A permission tier only tightens, and a continuation must not run looser than the
+	// session it continues.
+	req.PermissionTier = requestOfJob(predJob).PermissionTier
 	// The text language of the predecessor's job: the item continues that job, and the
 	// time-limit line this machine appends later must speak the same language.
 	req.Language = requestOfJob(predJob).Language

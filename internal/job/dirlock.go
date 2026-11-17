@@ -27,6 +27,14 @@ type dirLocks struct {
 	// waiters is the FIFO queue of jobs parked on a conflict. Each has its own ready
 	// channel because the wait must be select-able against ctx (sync.Cond cannot be).
 	waiters []*dirWaiter
+	// grants is a bounded, passive log of who was granted what (never read by the
+	// conflict rules): a session that gave its lock back asks it who used the
+	// directory meanwhile.
+	grants []dirGrant
+	seq    uint64
+	// labels maps a job id to the id people know it by (a worker's local job -> the
+	// hub's id) while the job is live; copied into the grant log when it is granted.
+	labels map[string]string
 }
 
 // dirWaiter is one queued exclusive job: ALL the directories it wants (already
@@ -129,6 +137,7 @@ func (d *dirLocks) holdLocked(keys []string, jobID string) {
 	for _, k := range keys {
 		d.held[k] = jobID
 	}
+	d.recordGrantLocked(keys, jobID)
 }
 
 // abandon removes a cancelled waiter from the queue, reporting whether it was still

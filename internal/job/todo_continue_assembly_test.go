@@ -59,7 +59,7 @@ const (
 var continuationFieldClasses = map[string]string{
 	// from the predecessor
 	"SessionID": fieldPred, "ResumedFrom": fieldPred, "SourceJobID": fieldPred, "Cwd": fieldPred,
-	"Runner": fieldPred, "MCP": fieldPred, "SessionApproval": fieldPred,
+	"Runner": fieldPred, "MCP": fieldPred, "SessionApproval": fieldPred, "PermissionTier": fieldPred, "CredentialJobID": fieldInternal,
 	"Language": fieldPred,
 	// set by the assembler
 	"Agent": fieldAssembled, "Cmd": fieldAssembled, "Prompt": fieldAssembled, "Model": fieldAssembled,
@@ -72,7 +72,7 @@ var continuationFieldClasses = map[string]string{
 	"LockPaths": fieldCleared, "LockSource": fieldCleared, "Secrets": fieldCleared, "EnvFiles": fieldCleared, "ReviewFixed": fieldCleared,
 	"Template": fieldCleared, "TemplateVars": fieldCleared, "Worktree": fieldCleared, "WorktreeBase": fieldCleared,
 	"WorktreeName": fieldCleared, "WorktreeBranch": fieldCleared, "Ref": fieldCleared,
-	"ExclusiveDir": fieldCleared, "Env": fieldCleared,
+	"ExclusiveDir": fieldCleared, "KeepDirLock": fieldCleared, "Env": fieldCleared,
 	// a continuation of a plan item is nobody's child receipt: the parent id comes from
 	// the credential of the submitting job and the sync marker from the HTTP entry, so
 	// neither is ever inherited from (or set for) the predecessor.
@@ -158,7 +158,7 @@ func TestTodoContinuationFieldClassification(t *testing.T) {
 			`"hold_timeout_sec":60,"lock_paths":["a"],"secrets":["S1"],"env_files":["/x/.env"],` +
 			`"template":"book","vars":{"k":"v"},"worktree":true,"worktree_base":"main","exclusive_dir":false,` +
 			`"env":{"E":"1"},"deliver_draft":true,"deliver_branch":"b",` +
-			`"session_approval":{"Mode":"ask"},"language":"en",` +
+			`"session_approval":{"Mode":"ask"},"permission_tier":"strict","language":"en",` +
 			`"fallback":{"candidates":["cb"],"depth":1}}`
 	})
 	cont, normal := continueRequests(t, s, contSucc)
@@ -167,6 +167,7 @@ func TestTodoContinuationFieldClassification(t *testing.T) {
 		"SessionID": "sess-p", "ResumedFrom": "j-pred", "SourceJobID": "j-pred", "Cwd": "sub",
 		"Runner": "local", "MCP": []string{"mcp-1"},
 		"SessionApproval": &config.ApprovalConfig{Mode: config.ApprovalAsk},
+		"PermissionTier":  "strict",
 		// The text language rides along: a continuation's own time-limit line must
 		// speak the language its predecessor's job was admitted in.
 		"Language": "en",

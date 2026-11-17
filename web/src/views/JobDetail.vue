@@ -19,11 +19,13 @@ import Signal from '../components/Signal.vue'
 import UncommittedBadge from '../components/UncommittedBadge.vue'
 import LogTape from '../components/LogTape.vue'
 import Tabs from '../ui/Tabs.vue'
+import Composer from '../ui/Composer.vue'
 import BackLink from '../ui/BackLink.vue'
 import { queryWithTab, type TabItem } from '../ui/tabs'
 import { JOB_TAB, jobTabForStatus } from '../utils/jobsLayout'
 import { t } from '../i18n'
 import InteractionCard from '../components/InteractionCard.vue'
+import ConversationTimeline from '../components/ConversationTimeline.vue'
 import CommentThread from '../components/CommentThread.vue'
 import FilePreview from '../components/FilePreview.vue'
 import ReviewPanel from '../components/ReviewPanel.vue'
@@ -76,12 +78,15 @@ import { eventDetailText, eventIcon, eventLabel } from '../utils/eventMeta'
 import { fanNameForJob, jobWorkflowLabel } from '../utils/workflowResult'
 import { fmtJobTimeout, jobTimeoutClampNote, jobTimeoutTitle } from '../utils/jobTimeout'
 import { wrapUpText } from '../utils/wrapUpDisplay'
+import { jobMessageEntries, type ConversationEntry } from '../utils/conversationTimeline'
 import { normalizeJobTitle } from '../utils/jobTitle'
 import { stripAnsi } from '../utils/logRender'
 import { agentBudgetExhausted, agentBudgetLine, budgetLine, shortSha, usageLine, verifyClass, verifyLabel } from '../utils/jobOutcome'
 import { createPoller } from '../utils/poller'
 import { attachQuery, resumeChoices, resumePromptNeed, type ResumeChoice, type ResumeMode } from '../utils/resumeChoice'
 import { fromSessionChoice, fromSessionQuery, type FromSessionSource } from '../utils/fromSession'
+import { continueThread } from '../utils/sessionContinue'
+import { acpThreadLink } from '../utils/acpThreads'
 import { sessionRunnerBlock } from '../utils/runnerChoice'
 import { isTerminalStatus, mergeAvailability } from '../utils/compare'
 import { decisionText } from '../utils/approval'
@@ -684,6 +689,29 @@ const offMetaInvalidated = onMetaInvalidated(() => {
   if (agentsMetaLoaded) loadAgentsMeta()
 })
 const resumeIsAcp = computed(() => !!job.value && agentTypes.value[job.value.agent] === 'acp-agent')
+// 「接着聊」（R14）：已结束的 ACP 会话一键续接（与工作台 / 历史页同一个 helper：新开持续
+// 会话、session/load 后停在等待输入）。
+const continuing = ref(false)
+const canContinue = computed(
+  () => !!job.value && resumeIsAcp.value && isTerminalView.value && !!job.value.session_id && canResume.value,
+)
+async function continueEndedJob(): Promise<void> {
+  if (continuing.value || !job.value) return
+  continuing.value = true
+  resumeError.value = ''
+  try {
+    const next = await continueThread({ latest_job_id: job.value.id })
+    if (next.session_id) {
+      void router.push(acpThreadLink(`s:${next.session_id}`))
+    } else {
+      void router.push(`/jobs/${encodeURIComponent(next.id)}`)
+    }
+  } catch (e) {
+    resumeError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    continuing.value = false
+  }
+}
 // 续接方式（按原样 / 持续交互 ACP / PTY 终端 / 批处理续投）：能力来自 /v1/agents，
 // 不可用的方式灰显并写原因；选中的方式决定 mode 与（同族）目标 agent。
 const resumeMode = ref<ResumeMode>('')
@@ -796,6 +824,17 @@ const messages = ref<JobMessage[]>([])
 function messageRoleLabel(role: JobMessage['role']): string {
   return role === 'agent' ? t('jobs.detail.msg.agent') : t('jobs.detail.msg.toAgent')
 }
+
+// 「消息」区改用统一的对话时间线（R12）：人的消息也走 markdown，注入规则折成一行。
+// 别的轮次的消息才给可点 id（本 job 的不重复显示）。
+const messageEntries = computed<ConversationEntry[]>(() => jobMessageEntries(
+  messages.value.map((message) => ({
+    ...message,
+    job_id: message.job_id === job.value?.id ? undefined : message.job_id,
+  })),
+  { user: messageRoleLabel('user'), agent: messageRoleLabel('agent') },
+  (at) => fmtTime(at),
+))
 
 async function loadSessionJobs(): Promise<void> {
   const sid = job.value?.session_id
@@ -2194,6 +2233,15 @@ onUnmounted(() => {
           {{ showResumeForm ? t('jobs.detail.expand') : t('jobs.detail.resumeSession') }}
         </button>
         <button
+          v-if="isTerminalView && canContinue"
+          class="resume-btn mono"
+          type="button"
+          data-test="job-continue"
+          :disabled="continuing"
+          :title="t('jobs.detail.continueTitle')"
+          @click="continueEndedJob"
+        >{{ continuing ? t('jobs.detail.continuing') : t('jobs.detail.continue') }}</button>
+        <button
           v-if="isTerminalView && fromSessionPick.visible && canResume"
           class="resume-btn mono"
           type="button"
@@ -2207,10 +2255,23 @@ onUnmounted(() => {
         <span v-if="isTerminalView && fromSessionPick.visible && fromSessionPick.note" class="meta-v resume-mode-note" data-test="from-session-note">{{ fromSessionPick.note }}</span>
       </div>
       <div v-if="job.session_id && !isTerminalView && canResume" class="resume-form follow-up-form">
-        <textarea v-model="followUpPrompt" class="resume-input mono" rows="2" :placeholder="t('jobs.detail.followUpPh')"></textarea>
+        <!-- ACP 会话用与工作台一致的输入框（ui/Composer）；非 ACP 的 job 保持原表单。 -->
+        <Composer
+          v-if="resumeIsAcp"
+          v-model="followUpPrompt"
+          :placeholder="t('jobs.detail.followUpPh')"
+          :sending="followUpBusy"
+          :can-send="!!followUpPrompt.trim()"
+          :modes="['send']"
+          :send-label="followUpBusy ? t('jobs.detail.followUpSubmitting') : t('jobs.detail.followUpSubmit')"
+          submit-on-enter
+          data-test="job-followup-composer"
+          @send="submitFollowUp"
+        />
+        <textarea v-else v-model="followUpPrompt" class="resume-input mono" rows="2" :placeholder="t('jobs.detail.followUpPh')"></textarea>
         <label class="mono"><input v-model="followUpReviewEach" type="checkbox" /> {{ t('jobs.detail.followUpEach') }}</label>
         <div class="resume-actions">
-          <button class="resume-go mono" type="button" :disabled="followUpBusy || !followUpPrompt.trim()" @click="submitFollowUp">{{ followUpBusy ? t('jobs.detail.followUpSubmitting') : t('jobs.detail.followUpSubmit') }}</button>
+          <button v-if="!resumeIsAcp" class="resume-go mono" type="button" :disabled="followUpBusy || !followUpPrompt.trim()" @click="submitFollowUp">{{ followUpBusy ? t('jobs.detail.followUpSubmitting') : t('jobs.detail.followUpSubmit') }}</button>
           <span v-if="followUpError" class="resume-err mono">{{ followUpError }}</span>
         </div>
         <ul v-if="followUps.length" class="chain-list"><li v-for="item in followUps" :key="item.id" class="mono">[{{ item.status }}] {{ item.prompt }}</li></ul>
@@ -2542,31 +2603,7 @@ onUnmounted(() => {
          回复摘要，按时间升序。首条消息可展开看被剥掉的完整注入内容（rules 段）。 -->
     <section v-if="active === 'messages' && showJobMessages(job) && messages.length > 0" class="job-messages" data-test="job-messages">
       <h2 class="outcomes-title mono">{{ t('jobs.detail.messages') }}</h2>
-      <ol class="job-messages-list">
-        <li
-          v-for="(m, i) in messages"
-          :key="`${m.role}-${m.job_id ?? '-'}-${i}`"
-          class="job-message"
-          :class="`job-message--${m.role}`"
-        >
-          <div class="job-message-head mono">
-            <span class="job-message-role">{{ messageRoleLabel(m.role) }}</span>
-            <span v-if="m.omitted" class="job-message-gap">{{ t('jobs.detail.earlierOmitted') }}</span>
-            <span class="job-message-at">{{ fmtTime(m.at) }}</span>
-            <RouterLink
-              v-if="m.job_id && m.job_id !== job?.id"
-              class="job-message-job"
-              :to="`/jobs/${encodeURIComponent(m.job_id)}`"
-            >{{ shortId(m.job_id) }}</RouterLink>
-          </div>
-          <pre class="job-message-text msg-body">{{ m.text }}</pre>
-          <span v-if="m.truncated" class="job-message-truncated mono">{{ t('jobs.detail.truncated') }}</span>
-          <details v-if="m.injected" class="job-message-injected">
-            <summary class="mono">{{ t('jobs.detail.viewInjected') }}</summary>
-            <pre>{{ m.injected }}</pre>
-          </details>
-        </li>
-      </ol>
+      <ConversationTimeline :entries="messageEntries" data-test="job-message-timeline" />
     </section>
 
     <section v-if="active === 'messages' && job?.session" class="session-composer-card">
@@ -3478,78 +3515,6 @@ onUnmounted(() => {
 }
 .job-messages .outcomes-title {
   margin: 0 0 8px;
-}
-.job-messages-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.job-message {
-  border: 1px solid var(--line);
-  border-left-width: 2px;
-  border-radius: var(--r-chip);
-  padding: 7px 10px;
-  background: var(--bg);
-}
-.job-message--user {
-  border-left-color: var(--accent);
-}
-.job-message--agent {
-  border-left-color: var(--ink-3);
-}
-.job-message-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 10px;
-  color: var(--ink-3);
-  font-size: 10px;
-}
-.job-message--user .job-message-role {
-  color: var(--accent);
-}
-.job-message-gap {
-  color: var(--run);
-}
-.job-message-job {
-  color: var(--accent);
-}
-.job-message-job:hover {
-  text-decoration: underline;
-}
-.job-message-text {
-  margin: 6px 0 0;
-  white-space: pre-wrap;
-  color: var(--ink);
-  font-family: inherit;
-}
-.job-message--agent .job-message-text {
-  color: var(--ink-3);
-}
-.job-message-truncated {
-  display: inline-block;
-  margin-top: 5px;
-  color: var(--run);
-  font-size: 10px;
-}
-.job-message-injected {
-  margin-top: 6px;
-}
-.job-message-injected summary {
-  cursor: pointer;
-  color: var(--ink-3);
-  font-size: 10px;
-}
-.job-message-injected pre {
-  margin: 6px 0 0;
-  max-height: 320px;
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-  color: var(--ink-3);
 }
 @media (max-width: 760px) {
   .session-composer-row {

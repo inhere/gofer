@@ -84,8 +84,13 @@ describe('composer wiring', () => {
 
 describe('history thumbnails', () => {
   it('shows the thumbs under both bubbles and opens the original', () => {
-    expect(conversation).toContain('<AttachmentThumbs')
-    expect(conversation).toContain('function eventAttachments(event: ACPTextEvent)')
+    // R12：气泡统一由 ConversationTimeline 渲染，附图缩略图也在那里（工作台 / job 消息 / 抽屉共用）。
+    const timeline = raw(import.meta.glob('./ConversationTimeline.vue', { eager: true, query: '?raw', import: 'default' }))
+    // 工作台的对话气泡走统一时间线，附图随之过去（不再自己渲染缩略图）。
+    expect(conversation).toContain('<ConversationTimeline')
+    expect(conversation).not.toContain('<AttachmentThumbs')
+    expect(timeline).toContain('<AttachmentThumbs')
+    expect(timeline).toContain('function attachmentsOf(entry: ConversationMessageEntry)')
     expect(thumbs).toContain('attachmentBlobURL(item.id, true)')
     expect(thumbs).toContain('attachmentBlobURL(item.id, false)')
     expect(thumbs).toContain("t('common.attachments.expired')")

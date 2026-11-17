@@ -206,11 +206,14 @@ var jobWriteAllowlist = map[string]bool{
 	"POST /v1/decisions": true,
 	// A wakeup on the job ITSELF: "continue me when this fires". "Own" is enforced in
 	// the handler.
-	"POST /v1/jobs/*/wakeups":     true,
-	"POST /v1/jobs/*/say":         true,
-	"POST /v1/jobs/*/end":         true,
-	"POST /v1/jobs/*/result":      true, // the job's own outcome report; "own" is enforced in the handler
-	"POST /v1/sessions/*/watches": true,
+	"POST /v1/jobs/*/wakeups": true,
+	"POST /v1/jobs/*/say":     true,
+	// gofer_ask: a session job opens an interaction on ITSELF (own + non-permission type
+	// are enforced in the handler); answering and punting stay default-denied.
+	"POST /v1/jobs/*/interactions": true,
+	"POST /v1/jobs/*/end":          true,
+	"POST /v1/jobs/*/result":       true, // the job's own outcome report; "own" is enforced in the handler
+	"POST /v1/sessions/*/watches":  true,
 	// W1: a job's agent may report its work item's progress (an append-only report line plus
 	// the descriptive fields; the status is still subject to the human-priority rule).
 	"POST /v1/work-items/*/report": true,
@@ -254,7 +257,6 @@ var jobCallerActions = map[string]string{
 	"DELETE /v1/jobs/*/worktree":                      "manage a worktree",
 	"POST /v1/jobs/*/attach-ticket":                   "attach to a job",
 	"POST /v1/ws-ticket":                              "open the browser push channel",
-	"POST /v1/jobs/*/interactions":                    "open an interaction",
 	"POST /v1/jobs/*/interactions/*/answer":           "answer an interaction",
 	"POST /v1/jobs/*/interactions/*/punt":             "punt an interaction",
 	"PATCH /v1/workbench/threads/*":                   "change workbench thread preferences",
@@ -428,6 +430,22 @@ func (s *Server) jobMayWakeJob(c *rux.Context, jobID string) bool {
 	}
 	writeError(c, http.StatusForbidden, "job credential may not wake another job",
 		"a "+jc.describe()+" may only register wakeups on itself (job "+jc.JobID+")")
+	return false
+}
+
+// jobMayUseInteractions reports whether the caller may open / read interactions on jobID:
+// a job's credential only reaches its OWN job (gofer_ask raises and polls its own
+// interactions). Answering and punting stay a person's.
+func (s *Server) jobMayUseInteractions(c *rux.Context, jobID string) bool {
+	jc, ok := jobCallerFromCtx(c)
+	if !ok {
+		return true // not a job caller: the ordinary rules apply
+	}
+	if jc.JobID == jobID {
+		return true
+	}
+	writeError(c, http.StatusForbidden, "job credential may not use another job's interactions",
+		"a "+jc.describe()+" may only open and read interactions on itself (job "+jc.JobID+")")
 	return false
 }
 

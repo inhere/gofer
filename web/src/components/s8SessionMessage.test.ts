@@ -21,8 +21,9 @@ describe('session last-message placement', () => {
     const timelineClose = drawer.indexOf('</template>', drawer.indexOf('class="timeline"'))
     expect(timelineClose).toBeLessThan(drawer.indexOf('class="last-message-fixed"'))
     expect(drawer).toMatch(/\.last-message-head \{[^}]*flex-wrap: nowrap/)
-    expect(sessions).toContain("t('sessions.card.viewFull')")
-    expect(sessions).toContain('openDrawer(s.session_id, true)')
+    // R13：整条消息的「查看完整」入口在会话行；行上「详情」打开抽屉（抽屉里也有同一入口）。
+    expect(sessions).toContain('data-test="history-detail"')
+    expect(drawer).toContain('lastMessageOpen')
   })
 
   it('anchors to the latest turn when a hidden timeline becomes visible', () => {
@@ -44,10 +45,9 @@ describe('session last-message placement', () => {
 })
 
 describe('claude session name display (Y4)', () => {
-  it('shows a copyable name on the session card, work drawer row and session detail', () => {
-    expect(sessions).toContain('data-test="peer-name"')
-    expect(sessions).toContain('data-test="peer-name-detail"')
-    expect(sessions).toContain('copySessionID(`name:${s.session_id}`, s.peer_name!)')
+  it('shows a copyable name in the work drawer row and session detail', () => {
+    // R13：历史行只给入口，名字与其复制按钮在会话详情（抽屉）里。
+    expect(sessions).toContain('<SessionDrawer')
     expect(workDrawer).toContain('data-test="session-peer-name"')
     expect(workDrawer).toContain('copyPeerName(s.session_id, s.peer_name!)')
     expect(drawer).toContain('data-test="peer-name-detail"')

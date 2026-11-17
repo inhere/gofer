@@ -46,16 +46,15 @@ describe('RunnerDirs', () => {
 })
 
 describe('session wake-up entry points', () => {
-  it('Sessions rows carry a wake-up button that greys out with the reason, ended rows included', () => {
+  it('Sessions rows lead to the session detail, which carries the wake-up button', () => {
     const sessions = src('views/Sessions.vue')
-    expect(sessions).toContain('data-test="row-wake"')
-    expect(sessions).toContain(':disabled="!s.can_resume')
-    expect(sessions).toContain(':title="wakeErrors.get(s.session_id)')
-    expect(sessions).toContain('resumeSession(s.session_id)')
-    expect(sessions).toContain('?attach=1')
-    // an ended / offline card is dimmed as a whole, but the dimming must not apply to the
-    // wake-up button (the shared card CSS only dims head / meta / details — see infoCard.test.ts)
-    expect(sessions).toContain(':dim="agentStateDim(s.state)"')
+    const drawer = src('SessionDrawer.vue')
+    expect(sessions).toContain('data-test="history-detail"')
+    expect(sessions).toContain('<SessionDrawer')
+    // 已结束 / 离线的会话也能唤醒；不能唤醒时灰显并在 title 里写原因。
+    expect(drawer).toContain(':disabled="!session?.can_resume || waking || wakePlanLoading"')
+    expect(drawer).toContain('resumeSession(props.sid, draft.value.trim())')
+    expect(drawer).toContain('?attach=1')
   })
 
   it('SessionDrawer shows the wake-up control regardless of a failed send, also when embedded', () => {

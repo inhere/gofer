@@ -26,10 +26,13 @@ describe('session reply to a web message', () => {
   })
 
   it('renders a reply as an agent-side markdown bubble, before the web-message branch', () => {
-    expect(drawer).toContain(`v-if="entry.kind === 'message' && isSessionReply(entry.message)"`)
-    expect(drawer).toContain('class="bubble bubble--agent session-reply msg-body" data-test="session-reply"')
-    expect(drawer).toContain('v-html="renderMd(entry.message.text)"')
-    expect(drawer.indexOf('data-test="session-reply"')).toBeLessThan(drawer.indexOf('sessionMessageAuthorLabel(entry.message)'))
+    // R12：回复与 web 发的消息都走统一时间线；回复在抽屉的适配里被标成 agent 条目，
+    // 渲染成 markdown 气泡（ConversationTimeline 的两类消息都用 MarkdownBlock）。
+    expect(drawer).toContain(`kind: isReply ? 'agent' : 'user'`)
+    expect(drawer).toContain('label: isReply ? sessionReplyLabel(entry.message, session.value) : sessionMessageAuthorLabel(entry.message)')
+    const timeline = Object.values(import.meta.glob('../components/ConversationTimeline.vue', { eager: true, query: '?raw', import: 'default' }))[0] as string
+    expect(timeline).toContain('class="bubble bubble--agent msg-body"')
+    expect(timeline).toContain('<MarkdownBlock :text="entry.text" />')
   })
 
   it('names reply entries in the messenger delivery history', () => {

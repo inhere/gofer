@@ -157,6 +157,11 @@ func unsupportedDispatchFields(proto int, f *runner.Forward) []string {
 			lacks = append(lacks, "read_only")
 		}
 	}
+	// A tier an old worker would drop runs the job under that worker's own, possibly
+	// looser, approval gate: refuse and name the capability, never downgrade.
+	if f.PermissionTier != "" && !wsproto.SupportsPermissionTier(proto) {
+		lacks = append(lacks, "permission_tier")
+	}
 	if f.InitialInput != "" && !wsproto.SupportsInitialInput(proto) {
 		lacks = append(lacks, "initial_input")
 	}
@@ -519,6 +524,8 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		// bd h-aii-0ql3: the worker applies the read-only mode with its own agent config
 		// (and its own admission, which refuses the job if that agent has no mode).
 		ReadOnly: f.ReadOnly,
+		// The tier travels so the worker's own Submit tightens its approval gate with it.
+		PermissionTier: f.PermissionTier,
 		// CFG-16: the worker renders its own tools section and skips it on --no-rules.
 		NoRules: f.NoRules,
 		// Session relay §9.1 B: the worker starts the pty, so path B's priming text
@@ -553,6 +560,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		ExclusiveDir:    f.ExclusiveDir,
 		StallTimeoutSec: f.StallTimeoutSec,
 		DirWaitMaxSec:   f.DirWaitMaxSec,
+		KeepDirLock:     f.KeepDirLock,
 		EnvDenyExtra:    f.EnvDenyExtra,
 		// SEC-01: the job's own credential. Only a peer at
 		// wsproto.JobCredentialMinProtocolVersion or above understands the field, so it

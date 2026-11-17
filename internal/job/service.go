@@ -458,9 +458,15 @@ type jobEntry struct {
 	// executing is set by execute together with cancel: an execute goroutine drives
 	// this entry. started is closed at that moment if a Shutdown that found the entry
 	// not yet started asked for it (created lazily under mu). Both guarded by mu.
-	executing             bool
-	started               chan struct{}
-	sessionCommands       chan runner.SessionCommand
+	executing       bool
+	started         chan struct{}
+	sessionCommands chan runner.SessionCommand
+	// dirHold lets a persistent session give its directory lock back while awaiting
+	// input (R8); nil for every other job. Set by execute before the runner starts.
+	dirHold atomic.Pointer[sessionDirHold]
+	// hubJobID is the hub's id of a job a worker runs for it (empty otherwise): what
+	// people see, so the directory-lock notes name the job by it.
+	hubJobID              string
 	sessionCommandPending bool // guarded by mu; rejects concurrent say/end
 	// sessionCommandTurn is the turn a pending REMOTE say was sent after; a worker
 	// report of a later turn proves the worker consumed it. Guarded by mu.

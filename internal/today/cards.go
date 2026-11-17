@@ -177,10 +177,7 @@ func (b *builder) interactions() error {
 }
 
 func interactionActions(lang i18n.Lang, it jobstore.InteractionRecord) []Action {
-	var options []job.InteractionOption
-	if it.OptionsJSON != "" {
-		_ = json.Unmarshal([]byte(it.OptionsJSON), &options)
-	}
+	options, _ := job.DecodeInteractionOptions(it.OptionsJSON)
 	if len(options) == 0 && it.Type == job.InteractionTypeConfirmation {
 		options = []job.InteractionOption{{Value: "yes", Label: i18n.T(lang, "today.action.confirm")}, {Value: "no", Label: i18n.T(lang, "today.action.cancel")}}
 	}

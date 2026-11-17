@@ -85,17 +85,19 @@ func TestSessionJobIdleTimeoutEndsAwaitingInput(t *testing.T) {
 func TestSessionJobHoldsLockAndAgentSlotWhileAwaitingInput(t *testing.T) {
 	t.Run("agent slot", func(t *testing.T) {
 		s := newACPServiceAgent(t, t.TempDir(), acptest.Options{}, nil, func(ac *config.AgentConfig) { ac.MaxConcurrent = 1 })
-		assertSessionBlocksNextJob(t, s, StatusQueued)
+		assertSessionBlocksNextJob(t, s, StatusQueued, false)
 	})
 	t.Run("directory lock", func(t *testing.T) {
+		// R8: only a session that asked to keep its lock holds it while awaiting input
+		// (the default gives it back; see dirlock_session_test.go).
 		s := newACPService(t, t.TempDir(), acptest.Options{})
-		assertSessionBlocksNextJob(t, s, StatusWaitingDir)
+		assertSessionBlocksNextJob(t, s, StatusWaitingDir, true)
 	})
 }
 
-func assertSessionBlocksNextJob(t *testing.T, s *Service, blockedStatus string) {
+func assertSessionBlocksNextJob(t *testing.T, s *Service, blockedStatus string, keepDirLock bool) {
 	t.Helper()
-	first, err := s.Submit(JobRequest{ProjectKey: "self", Agent: "acpbot", Runner: "local", Cwd: ".", Prompt: "first", Session: true, TimeoutSec: 20, IdleTimeoutSec: 10})
+	first, err := s.Submit(JobRequest{ProjectKey: "self", Agent: "acpbot", Runner: "local", Cwd: ".", Prompt: "first", Session: true, TimeoutSec: 20, IdleTimeoutSec: 10, KeepDirLock: keepDirLock})
 	if err != nil {
 		t.Fatal(err)
 	}

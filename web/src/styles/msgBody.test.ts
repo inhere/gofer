@@ -56,10 +56,8 @@ describe('every markdown / message renderer opts into .msg-body', () => {
   })
 
   const sites: [string, string][] = [
-    ['ConversationView user bubble', 'components/workbench/ConversationView.vue:class="bubble bubble--user msg-body"'],
-    ['ConversationView assistant text', 'components/workbench/ConversationView.vue:class="txt msg-body"'],
-    ['SessionDrawer agent reply', 'components/SessionDrawer.vue:class="bubble bubble--agent session-reply msg-body"'],
-    ['SessionDrawer relay message', 'components/SessionDrawer.vue:class="bubble bubble--human relay-message msg-body"'],
+    ['ConversationTimeline user bubble', 'components/ConversationTimeline.vue:class="bubble bubble--user msg-body"'],
+    ['ConversationTimeline agent bubble', 'components/ConversationTimeline.vue:class="bubble bubble--agent msg-body"'],
     ['SessionDrawer markdown body', 'components/SessionDrawer.vue:class="bubble-md msg-body"'],
     ['SessionDrawer plain body', 'components/SessionDrawer.vue:class="bubble-text msg-body"'],
     ['SessionDrawer last message', 'components/SessionDrawer.vue:class="last-message-text bubble-md msg-body"'],
@@ -69,7 +67,6 @@ describe('every markdown / message renderer opts into .msg-body', () => {
     ['Interaction card', 'components/InteractionCard.vue:class="icard msg-body"'],
     ['Comment thread body', 'components/CommentThread.vue:class="cm-body msg-body"'],
     ['Ndjson event body', 'components/NdjsonTimeline.vue:class="event-body msg-body"'],
-    ['Job message text', 'views/JobDetail.vue:class="job-message-text msg-body"'],
     ['Job command markdown', 'views/JobDetail.vue:outcome-md msg-body"'],
     ['Log tape markdown view', 'components/LogTape.vue:class="log-md msg-body"'],
   ]

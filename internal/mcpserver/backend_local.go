@@ -258,6 +258,13 @@ func (b *localBackend) GetInteractions(id string) ([]job.Interaction, error) {
 	return b.jobs.GetInteractions(id)
 }
 
+func (b *localBackend) CreateInteraction(id string, in job.InteractionInput, timeoutSec int) (job.Interaction, error) {
+	if timeoutSec > 0 {
+		in.ExpiresAt = time.Now().Add(time.Duration(timeoutSec) * time.Second).Unix()
+	}
+	return b.jobs.CreateInteraction(id, in)
+}
+
 func (b *localBackend) AnswerInteraction(id, iid, answer string) (job.Interaction, error) {
 	return b.jobs.AnswerInteractionByHuman(id, iid, answer, "")
 }

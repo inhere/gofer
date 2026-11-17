@@ -351,7 +351,9 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		return JobResult{}, fmt.Errorf("%w: --lock declares a directory lock and cannot be combined with --shared-dir", ErrInvalidRequest)
 	}
 	dirExclusive := resolveDirExclusive(cfg, &req)
-	req.ExclusiveDir = &dirExclusive
+	if !dirLockDecisionBelongsToExecutor(cfg, &req) {
+		req.ExclusiveDir = &dirExclusive
+	}
 
 	// AUTO-05: same for the output-stall window — resolved from the SAME snapshot
 	// (request > agent > server, exec jobs off unless asked) and stamped, so the
@@ -451,6 +453,9 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	// decided value; then refuse a budget the target worker's protocol cannot carry.
 	resolveBudget(cfg, &req, remote)
 	if err := s.checkBudgetWorker(cfg, req); err != nil {
+		return JobResult{}, err
+	}
+	if err := s.checkPermissionTierWorker(cfg, req); err != nil {
 		return JobResult{}, err
 	}
 	if err := s.checkWorkflowStepWorker(cfg, req); err != nil {
@@ -884,6 +889,8 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			// bd h-aii-0ql3: read-only rides to the executor, whose own admission +
 			// agent config decide how (or whether) it can be honoured.
 			ReadOnly: req.ReadOnly,
+			// The tier rides to the executor, whose approval gate it tightens.
+			PermissionTier: req.PermissionTier,
 			// CFG-16: `--no-rules` also turns off the tools section the EXECUTING
 			// machine renders, so the switch travels with the job.
 			NoRules: req.NoRules,
@@ -918,6 +925,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			// JOB-11 (F12): and so does the directory-lock wait cap — the lock is held
 			// on that machine, so the policy this hub resolved is what applies there.
 			DirWaitMaxSec: req.DirWaitMaxSec,
+			KeepDirLock:   req.KeepDirLock,
 			EnvDenyExtra:  req.EnvDenyExtra,
 		}
 		// gofer-e2x7: a worker mirrors its acp.jsonl into this host job's result dir.
@@ -1062,7 +1070,13 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		// are resolved here and only enter runReq.Env (resume_env.go).
 		agentEnv := util.MergeEnv(resolved.Env, resumeAgentEnv(cfg, req))
 		inherited := s.resumeInheritedEnv(req)
-		runReq.Env = goferJobEnv(util.MergeEnv(util.MergeEnv(util.MergeEnv(secretMap, agentEnv), inherited), req.Env), jobID, workDir, resultDir, limit)
+		// A worker re-entry names the HUB's job id here (CredentialJobID): the credential the
+		// job carries belongs to that job, not to this machine's local one.
+		envJobID := jobID
+		if req.CredentialJobID != "" {
+			envJobID = req.CredentialJobID
+		}
+		runReq.Env = goferJobEnv(util.MergeEnv(util.MergeEnv(util.MergeEnv(secretMap, agentEnv), inherited), req.Env), envJobID, workDir, resultDir, limit)
 		// MCP-06: secret values for the bound MCP servers live only in the agent
 		// process's environment (never in argv, request_json or a file).
 		if len(mcpInj.Env) > 0 {
@@ -1072,6 +1086,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		if len(secretEnv) > 0 {
 			runReq.Env = util.EnvWith(runReq.Env, secretEnv)
 		}
+		s.recordPermissionTier(jobID, cfg, req)
 		if len(req.MCP) > 0 {
 			s.recordEvent(jobID, EventJobMCPInjected, map[string]any{"servers": req.MCP, "notes": mcpInj.Notes})
 		}
@@ -1109,6 +1124,10 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		// tools are there) and the marker the acp gate auto-allows a letter's answer on.
 		if req.MailResident {
 			applyMailResidentRun(&runReq)
+		}
+		// gofer_ask: a resident ACP session can put a question to the person watching it.
+		if wantsGoferAsk(req) {
+			applyGoferAskRun(&runReq)
 		}
 		// MCP-05 阶段 B: a LEADER job tells its agent process (and the gofer MCP child
 		// that process spawns) which plan it leads, so the MCP surface can narrow itself
@@ -1190,6 +1209,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		baselineSHA:     req.BaselineSHA,
 		secretValues:    secretValues,
 		sessionCommands: sessionCommands,
+		hubJobID:        req.CredentialJobID,
 		result: JobResult{
 			ID:                jobID,
 			ProjectKey:        req.ProjectKey,
@@ -1469,12 +1489,13 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	// agent (a role/template may have filled it above).
 	agentSem := s.agentSemaphore(req.Agent, cfg.Agents[req.Agent].MaxConcurrent)
 	go s.execute(entry, run, execGates{
-		project:   sem,
-		caller:    callerSem,
-		agent:     agentSem,
-		exclusive: req.ExclusiveDir != nil && *req.ExclusiveDir,
-		stall:     stallSec,
-		dirWait:   dirWaitSec,
+		project:     sem,
+		caller:      callerSem,
+		agent:       agentSem,
+		exclusive:   req.ExclusiveDir != nil && *req.ExclusiveDir,
+		stall:       stallSec,
+		dirWait:     dirWaitSec,
+		keepDirLock: req.KeepDirLock,
 		// 配置入库 P1: the owners admission judged are re-judged once the job is through the
 		// queue, so a caller disabled in between never runs (see disabledRecheckOwners).
 		recheckOwners: disabledRecheckOwners(req),
@@ -1530,6 +1551,21 @@ func resolveDirExclusive(cfg *config.Config, req *JobRequest) bool {
 		return false
 	}
 	return ac.Type != agent.TypeExec && !req.ReadOnly && !req.Interactive
+}
+
+// dirLockDecisionBelongsToExecutor reports whether the same-directory lock decision must
+// be left UNSTAMPED (nil) so the machine that runs the job makes it: the request has no
+// explicit choice, no --lock, the lock is not switched off here, and this server cannot
+// resolve the agent (a worker-only agent). Stamping the false that resolveDirExclusive
+// answers for an unknown agent would turn "I do not know" into a DECISION the worker
+// then obeys, and a writable agent job (a worker-hosted ACP session included) would
+// never take its directory lock there.
+func dirLockDecisionBelongsToExecutor(cfg *config.Config, req *JobRequest) bool {
+	if !cfg.EffectiveDirLock() || req.ExclusiveDir != nil || len(req.LockPaths) > 0 {
+		return false
+	}
+	_, ok := agent.ResolveAgent(cfg, req.Agent)
+	return !ok
 }
 
 // TitleMaxRunes caps an explicit job title (submit and later edits). It is
@@ -1652,7 +1688,7 @@ func acpRequest(cfg *config.Config, ac config.AgentConfig, req JobRequest, promp
 	r := &runner.ACPRequest{
 		Prompt:        prompt,
 		ResultDir:     resultDir,
-		Approval:      cfg.EffectiveApprovalWith(req.ProjectKey, req.Agent, req.SessionApproval),
+		Approval:      effectiveApproval(cfg, req),
 		LoadSessionID: resumeLoadSessionID(req),
 		ModelID:       req.Model,
 		LogThoughts:   ac.ACP.LogsThoughts(),
@@ -1671,6 +1707,11 @@ func acpRequest(cfg *config.Config, ac config.AgentConfig, req JobRequest, promp
 		// The id is guaranteed non-empty here: admission refuses a read-only acp job
 		// whose agent maps no read-only mode.
 		r.ReadOnlyModeID = ac.ACP.Modes["read_only"]
+	}
+	// permission_tier: the agent's own "ask" mode, when it maps one (the gofer gate alone
+	// applies otherwise). A read-only job keeps its read-only mode.
+	if !req.ReadOnly {
+		r.SessionModeID = permissionTierModeID(ac, req.PermissionTier)
 	}
 	for _, s := range ac.ACP.MCPServers {
 		r.MCPServers = append(r.MCPServers, runner.ACPMCPServer{

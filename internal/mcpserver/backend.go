@@ -46,6 +46,9 @@ type Backend interface {
 	// never sign off its own work — accepting is a human action (web / CLI / HTTP).
 	RejectJob(id, note string, resume bool) (job.ReviewOutcome, error)
 	GetInteractions(id string) ([]job.Interaction, error)
+	// CreateInteraction raises a question / choice on a live job (gofer_ask); the server
+	// cancels it at timeoutSec when nobody answered.
+	CreateInteraction(id string, in job.InteractionInput, timeoutSec int) (job.Interaction, error)
 	// AnswerInteraction answers a pending interaction (unattributed: stamped as human).
 	AnswerInteraction(id, iid, answer string) (job.Interaction, error)
 	// PuntInteraction marks a pending interaction as needs_human — the通用 sup's "高危/拿不准,
