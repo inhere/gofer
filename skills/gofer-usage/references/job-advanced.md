@@ -97,11 +97,11 @@ gofer job end <job-id>                   # 结束会话并释放目录锁
 - 超时：`--timeout` 限每一轮；`--idle-timeout` 限等下一条消息（0 = 1800 秒）；`--max-session` 限整个会话（0 = 不限）。`--prompt` 可省，直接等第一条 `say`。
 - 每轮计时会为人工审批让路：一轮里停下等人作答（工具调用审批，job 处于 `pending_interaction`）的时间**不计入**这一轮的 `--timeout`，答完继续计时，所以开了 `approval` 的会话不会因为人回得慢被判 turn timed out。暂停 / 恢复各记一条 job 事件（`job.turn_timeout_paused` / `job.turn_timeout_resumed`，详情带本轮预算 `timeout_sec`、已用 `used_sec`、剩余 `remaining_sec`、欠着的 `interaction_id`）。审批自己的 `timeout_sec` + `on_timeout` 仍然兜底，等待有上限；`--max-session` 与 job 总时限按墙上时间算，不暂停。
 - 占用：整个会话期间（含 `awaiting_input`）都占一个 agent 的**并发名额**；**目录锁只在跑一轮时持有**——等你输入期间默认让出，下一轮开始前重新抢回。仍建议配 `--lock <子目录>` 或 `--worktree`，用完及时 `end`。
-- **等你输入时让出目录锁**：一轮结束进入 `awaiting_input` 就释放工作目录锁，同目录的可写 job 立刻能跑；你发下一条消息时它按普通 job 的方式排队拿锁，拿到才开始这一轮（状态仍是 `awaiting_input`，`job show` 的事件里有 `job.dir_wait` 写明持有者与目录）。
+- **等你输入时让出目录锁**：一轮结束进入 `awaiting_input` 就释放工作目录锁，同目录的可写 job 立刻能跑；你发下一条消息时它按普通 job 的方式排队拿锁，拿到才开始这一轮（状态仍是 `awaiting_input`；事件 `job.dir_wait` 记下持有者与目录，web 时间线可见）。
   - 等锁有上限（`--lock-wait` / `server.dir_lock_max_wait_sec`），超时这一轮**不发送**：会话回到 `awaiting_input`，对话里显示「未发送：目录被 <holder> 占用，请稍后再发」（ACP 流里是 `turn_unsent` 事件，带原消息可重发），不会把会话判失败。等锁期间 `job end` / `job cancel` 立即生效。
   - 拿回锁后若等待期间有别的 job 用过该目录，下一轮的 prompt 前会带一段「目录变化」说明（列出 job id 与标题），它在 web 里按注入规则折叠显示。
   - 需要独占整段会话就在提交时加 `--keep-dir-lock`（web 新建会话表单的「保持目录锁」），行为同旧版。
-- **权限档位**（`--permission-tier auto|ask|strict`，HTTP / MCP 同名字段 `permission_tier`；只对 acp-agent 有效，其它 agent 带它就是 400）：`ask` = 项目已自动放行的种类照旧，其余都出审批卡，并把 agent 切到它自己的「问我」模式（`acp.modes.ask`，内置 `claude-acp` 映射到 `default`）；`strict` = 每个权限请求都出卡；`auto`（默认）= 按项目策略。**只收紧不放宽**：项目已是 `strict` 时请求 `ask` 仍按 `strict`，请求方的宽松设置不会盖过项目或 agent 的审批策略。agent 没配 `acp.modes.ask` 时只收紧 gofer 这道闸门（不报错），时间线上记 `job.permission_tier` 写明生效档位与到底切没切 agent 模式。会话的审批策略仍由 server 决定，请求体直接带 `session_approval` 一律 400。跑在 worker 上需要该 worker 协议 **v31** 及以上，旧 worker 在提交时被拒并提示升级（不会静默按它自己的、可能更宽的闸门跑）。
+- **权限档位**（`--permission-tier auto|ask|strict`，HTTP / MCP 同名字段 `permission_tier`；只对 acp-agent 生效，其它 agent 带 `ask` / `strict` 就是 400）：`ask` = 项目已自动放行的种类照旧，其余都出审批卡，并把 agent 切到它自己的「问我」模式（`acp.modes.ask`，内置 `claude-acp` 映射到 `default`）；`strict` = 每个权限请求都出卡；`auto`（默认）= 按项目策略。**只收紧不放宽**：项目已是 `strict` 时请求 `ask` 仍按 `strict`，请求方的宽松设置不会盖过项目或 agent 的审批策略。agent 没配 `acp.modes.ask` 时只收紧 gofer 这道闸门（不报错），时间线上记 `job.permission_tier` 写明生效档位与到底切没切 agent 模式。会话的审批策略仍由 server 决定，请求体直接带 `session_approval` 一律 400。跑在 worker 上需要该 worker 协议 **v31** 及以上，旧 worker 在提交时被拒并提示升级（不会静默按它自己的、可能更宽的闸门跑）。
 - **提问工具 `gofer_ask`**：只有持续会话（`--session`）的 ACP job 会拿到这个工具（单轮 / 批处理 job 不注入——没人看着的时候提问只会把它挂到超时）；管家会话与收件会话的工具面里也有它。它对自己所在的这个 job 开一个交互，问题以可点选卡片出现在工作台对话、「等我」页与手机宽度下，你点选后答案作为工具返回值交给 agent 继续：
 
 ```jsonc
