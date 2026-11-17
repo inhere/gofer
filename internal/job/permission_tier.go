@@ -6,6 +6,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/wsproto"
 )
 
 // Permission tiers (JobRequest.PermissionTier): how closely a person watches an ACP
@@ -37,10 +38,10 @@ func normalizePermissionTier(tier string) string {
 }
 
 // checkPermissionTier is the admission rule for JobRequest.PermissionTier: a known value,
-// only for an acp-agent (the only agent kind with a permission gate to tighten), and never
-// for a job a worker will execute — the worker applies ITS OWN gate and the tier does not
-// travel with the dispatch, so accepting it there would run the job looser than asked.
-func checkPermissionTier(cfg *config.Config, req JobRequest, gateAgent string, ac config.AgentConfig, isWorker bool) error {
+// only for an acp-agent (the only agent kind with a permission gate to tighten). On a worker
+// runner the tier travels with the dispatch; a worker too old to carry it is refused
+// separately (checkPermissionTierWorker).
+func checkPermissionTier(req JobRequest, gateAgent string, ac config.AgentConfig) error {
 	tier := normalizePermissionTier(req.PermissionTier)
 	switch tier {
 	case PermissionTierAuto:
@@ -52,8 +53,31 @@ func checkPermissionTier(cfg *config.Config, req JobRequest, gateAgent string, a
 	if ac.Type != agent.TypeACPAgent {
 		return fmt.Errorf("%w: permission_tier only applies to an acp-agent (agent %q is not one)", ErrInvalidRequest, gateAgent)
 	}
-	if isWorker {
-		return fmt.Errorf("%w: permission_tier %q is not supported on worker runners yet: the worker applies its own approval gate", ErrInvalidRequest, tier)
+	return nil
+}
+
+// checkPermissionTierWorker refuses a tiered job for a worker whose protocol cannot carry
+// the tier: it would drop the field and run the job under its own, possibly looser, gate.
+// Like checkBudgetWorker it is the admission-time courtesy; the dispatch-time check in the
+// worker runner is the backstop for a worker whose version is not known yet.
+func (s *Service) checkPermissionTierWorker(cfg *config.Config, req JobRequest) error {
+	if normalizePermissionTier(req.PermissionTier) == PermissionTierAuto || !isWorkerRunner(cfg, req.Runner) || s.workers == nil {
+		return nil
+	}
+	workerID := req.WorkerID
+	if workerID == "" {
+		workerID = cfg.Runners[req.Runner].WorkerID
+	}
+	if workerID == "" {
+		return nil
+	}
+	caps, online := s.workers.Candidate(workerID)
+	if !online || !caps.ProtocolKnown {
+		return nil
+	}
+	if !wsproto.SupportsPermissionTier(caps.ProtocolVersion) {
+		return fmt.Errorf("%w: worker %s speaks protocol v%d, a permission tier needs v%d; upgrade the worker or drop the permission tier",
+			ErrInvalidRequest, workerID, caps.ProtocolVersion, wsproto.PermissionTierMinProtocolVersion)
 	}
 	return nil
 }

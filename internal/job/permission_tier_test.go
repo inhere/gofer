@@ -9,6 +9,7 @@ import (
 	"github.com/inhere/gofer/internal/acp/acptest"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/store"
+	"github.com/inhere/gofer/internal/wsproto"
 )
 
 // No combination of project policy, agent policy, server-set session policy and requested
@@ -95,7 +96,7 @@ func TestPermissionTierAdmission(t *testing.T) {
 	if err := submit("acpbot", "loose"); !errors.Is(err, ErrInvalidRequest) || !strings.Contains(err.Error(), "permission_tier") {
 		t.Fatalf("unknown tier = %v, want ErrInvalidRequest naming permission_tier", err)
 	}
-	if err := checkPermissionTier(&config.Config{}, JobRequest{PermissionTier: "ask"}, "exec", config.AgentConfig{Type: "exec"}, false); !errors.Is(err, ErrInvalidRequest) ||
+	if err := checkPermissionTier(JobRequest{PermissionTier: "ask"}, "exec", config.AgentConfig{Type: "exec"}); !errors.Is(err, ErrInvalidRequest) ||
 		!strings.Contains(err.Error(), "only applies to an acp-agent") {
 		t.Fatalf("ask on a non-acp agent = %v, want ErrInvalidRequest", err)
 	}
@@ -107,15 +108,50 @@ func TestPermissionTierAdmission(t *testing.T) {
 	s.Wait(res.ID)
 }
 
-func TestPermissionTierRefusedOnWorkerRunners(t *testing.T) {
+// A tier on a worker runner: a worker that speaks the tier's protocol receives it on the
+// forward (its own Submit then tightens ITS gate); an older one is refused, never downgraded;
+// no tier is never refused.
+func TestPermissionTierWorkerProtocolGate(t *testing.T) {
 	t.Parallel()
-	cfg := &config.Config{Runners: map[string]config.RunnerConfig{"w1": {Type: "worker"}}}
-	err := checkPermissionTier(cfg, JobRequest{PermissionTier: "ask", Agent: "a"}, "a", config.AgentConfig{Type: "acp-agent"}, true)
-	if !errors.Is(err, ErrInvalidRequest) || !strings.Contains(err.Error(), "worker") {
-		t.Fatalf("ask on a worker runner = %v, want a refusal naming worker (the tier does not travel with the dispatch)", err)
-	}
-	if err := checkPermissionTier(cfg, JobRequest{PermissionTier: "auto"}, "a", config.AgentConfig{Type: "acp-agent"}, true); err != nil {
-		t.Fatalf("auto on a worker runner must pass: %v", err)
+	for _, tc := range []struct {
+		name    string
+		proto   int
+		tier    string
+		wantErr bool
+	}{
+		{"old worker + ask", wsproto.PermissionTierMinProtocolVersion - 1, "ask", true},
+		{"old worker + strict", wsproto.PermissionTierMinProtocolVersion - 1, "strict", true},
+		{"new worker + ask", wsproto.PermissionTierMinProtocolVersion, "ask", false},
+		{"old worker, no tier", wsproto.PermissionTierMinProtocolVersion - 1, "", false},
+		{"old worker, auto", wsproto.PermissionTierMinProtocolVersion - 1, "auto", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := &stubWorkerRunner{}
+			cand := selfCaps(WorkerCandidate{WorkerID: "w1", ProtocolVersion: tc.proto, ProtocolKnown: true})
+			cand.Agents = append(cand.Agents, "acpw")
+			sel := fakeSelector{cands: []WorkerCandidate{cand}}
+			s := newWorkerTestServiceSel(t, t.TempDir(), stub, map[string]config.WorkerAuthConfig{"w1": {Token: "t"}}, sel)
+			res, err := s.Submit(JobRequest{
+				ProjectKey: "self", Agent: "acpw", Runner: "remote-w1", Prompt: "hi", Cwd: ".", TimeoutSec: 30,
+				PermissionTier: tc.tier,
+			})
+			if tc.wantErr {
+				if !errors.Is(err, ErrInvalidRequest) || !strings.Contains(err.Error(), "permission tier") {
+					t.Fatalf("err = %v, want ErrInvalidRequest naming the permission tier (worker too old)", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Submit: %v", err)
+			}
+			s.Wait(res.ID)
+			if stub.gotForward == nil {
+				t.Fatal("runner never saw the forward")
+			}
+			if stub.gotForward.PermissionTier != tc.tier {
+				t.Fatalf("forward tier = %q, want %q", stub.gotForward.PermissionTier, tc.tier)
+			}
+		})
 	}
 }
 

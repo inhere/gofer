@@ -453,6 +453,9 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	if err := s.checkBudgetWorker(cfg, req); err != nil {
 		return JobResult{}, err
 	}
+	if err := s.checkPermissionTierWorker(cfg, req); err != nil {
+		return JobResult{}, err
+	}
 	if err := s.checkWorkflowStepWorker(cfg, req); err != nil {
 		return JobResult{}, err
 	}
@@ -884,6 +887,8 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			// bd h-aii-0ql3: read-only rides to the executor, whose own admission +
 			// agent config decide how (or whether) it can be honoured.
 			ReadOnly: req.ReadOnly,
+			// The tier rides to the executor, whose approval gate it tightens.
+			PermissionTier: req.PermissionTier,
 			// CFG-16: `--no-rules` also turns off the tools section the EXECUTING
 			// machine renders, so the switch travels with the job.
 			NoRules: req.NoRules,

@@ -66,7 +66,7 @@ func newWorkerTestServiceSel(t *testing.T, root string, stub runner.Runner, work
 		Projects: map[string]config.ProjectConfig{
 			"self": {
 				HostPath:         root,
-				AllowedAgents:    []string{"exec", "term"},
+				AllowedAgents:    []string{"exec", "term", "acpw"},
 				AllowedRunners:   []string{"local", "remote-w1", "pool-w", "peer"},
 				AllowInteractive: boolPtr(true),
 				AllowExec:        true,
@@ -74,6 +74,7 @@ func newWorkerTestServiceSel(t *testing.T, root string, stub runner.Runner, work
 		},
 		Agents: map[string]config.AgentConfig{
 			"term": {Type: agent.TypeCLIAgent, Command: "echo", Args: []string{"{{prompt}}"}, Interactive: true, NoRawCmd: true},
+			"acpw": {Type: agent.TypeACPAgent, Command: "echo"},
 		},
 		// Two shapes of worker runner, and the distinction is load-bearing:
 		//   remote-w1 is PINNED (worker_id) — it names one box, and that pin is an

@@ -576,6 +576,9 @@ type Forward struct {
 	// executor validates it against ITS agent config, so an agent without a read-only
 	// mode fails there with the explanation the host could not have produced.
 	ReadOnly bool
+	// PermissionTier is the job's approval tier (auto|ask|strict), applied by the executor's
+	// own approval gate; "" = as configured.
+	PermissionTier string
 	// NoRules is the caller's `--no-rules`: the executing machine must not add the
 	// sections it renders itself (its declared tools, CFG-16). The rules were already
 	// decided — and skipped — by the submitting machine.

@@ -125,6 +125,8 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		// ITS agent config, so a worker whose agent has no read-only mode fails the job
 		// with an error the hub can show instead of running it writable.
 		ReadOnly: d.ReadOnly,
+		// The worker's own Submit applies the tier to ITS approval gate (effectiveApproval).
+		PermissionTier: d.PermissionTier,
 		// CFG-16: the caller's --no-rules. RulesResolved below already keeps this
 		// machine from injecting rules; NoRules is what keeps it from listing its own
 		// declared tools, the one section the worker renders itself.
