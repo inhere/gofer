@@ -139,3 +139,32 @@ plan 结束后确定性统计事实（各 todo 耗时、返工轮数、决策点
 ## 结论与人工计划 Gate
 
 gofer 加一个确定性的 plan 推进引擎，判断只在四类窄决策点交给一次性 agent，agent 只能从白名单里选动作；放权分三级、红线永远要人、预算统一熔断；先只记录、量化一致率，再逐级放权。第 4 批建议只做 P1 + P2。用户 2026-11-16 批准，Q1–Q6 均取 A；下一步写 P1 + P2 的计划。
+
+## 实施记录（P1 + P2）
+
+批次计划：`docs/plans/2026-11-16-plan-driver-p1p2-plan.md`（R1–R12）。本批落地 P1 与 P2 的 `record` 等级；决策点、决策卡与 `assist` / `auto` 属于 P3。
+
+### 已实现
+
+- **推进事件入口**（R1 / R2，`internal/job/planevents.go`）：预写 + 同步执行（时序与改造前一致，「完成后立即推进」的断言不改），按 plan 加锁串行；serve 启动即扫一次、之后每 60 秒一次，重放残留行并对每个 open、未暂停的 plan 投递一次 `sweep`，同时补派中断在 `ready` 的项——重启后不再停在原地。失败事件最多 5 次后丢弃并写 `plan.event_dropped` 审计。
+- **自报终态**（R9）：MCP `gofer_submit_result`（完整面 + leader 面，管家面不注册）、`POST /v1/jobs/{id}/result`（仅本 job 凭据，同 job 第二次 409）、`job show` 与 web 概览展示、job 注入的规则段一行提示。
+- **终止原因与诊断**（R10）：`job.TerminationReason` 纯函数（不新增列）、`gofer job diagnose`、`GET /v1/jobs/{id}/diagnosis`、web 诊断抽屉。
+- **统一一次性调用器**（R11，`internal/oneshot`）：交付核验改走它，每日限额由 `background_agent_runs`（`kind = job_check`）落库计数，重启不清零。
+- **driver**（R3–R8，`internal/job/driver`）：双接口依赖倒置（job 侧 `PlanDriver`，driver 侧 `HostOps`），`plan_drivers` / `plan_driver_actions` 两张表，七种动作 + 写死的风险表，13 条规则，三项预算按 plan 累计并在 record 下标 `would_pause`，报告按动作 / 规则汇总一致率与「最近 20 个 ≥ 90%」建议。
+- **入口与界面**（R4 / R12）：`gofer plan drive on|off|status|report`、`GET|PUT|DELETE /v1/plans/{id}/driver`、`GET /v1/plans/{id}/driver/report`、web 计划详情「推进记录」页签、job 详情自报终态与「诊断」。
+
+### 与计划的偏离
+
+- **自报结论的列名**：计划写的 `result_json` 落地为 `result_report_json`，避免与 job 自己的结果文档 `jobs.result_json` 撞名；含义不变。
+- **driver 的钩子是两个而不是一个**：`BeforePlanEvent` 取推进**之前**的 todo / plan 状态，`OnPlanEvent` 在事件成功后记录。派发类动作必须看推进之前的状态——推进之后项已不在 `ready`，规则就无从判断。两个钩子的 panic 都在 `job` 侧兜住，driver 出错不影响推进。
+- **新增 `observe` 事件与 `needs_review_escalate` 规则**：`needs_review` 与「job 已完成而待办仍未完成」两种终态既不 `advance` 也不 `block`，用 `observe` 只通知 driver（不持久化、不推进、不阻塞）；后者按规则要交给人。
+- **报告多一项**：`plan drive report` 除按动作 / 按规则的一致率外，带最近 100 条动作明细（最新在前），便于逐条核对「本来会做什么」；计划只要求汇总。
+- **未做的界面件**：R12 的「plan 列表对启用 driver 的 plan 显示等级徽标」本批未做（详情页「推进记录」页签已能看到等级）。
+- **`block_plan` 只保留在词汇表里**：本版没有规则产出它（失败链 job 记为 `escalate`，停链仍由现有推进逻辑完成）。
+
+### 遗留
+
+- `assist` / `auto`、决策点契约、决策卡，以及 `gofer_ask_human` 的收编（P3）。
+- 缺失自报终态时的续接（本批只把它记为 `missing`）、记忆综合 `JobOneShot` 迁到统一一次性调用器（P3 一起做）。
+- 一致率只有展示，没有任何自动升级动作；样本从试点 plan 起积累。
+- leader 收编（P4）；PR / CI 等外部事件作为推进事件（P5）。
