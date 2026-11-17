@@ -58,6 +58,13 @@ job deliver	flag mode	merge | push | pr (default: the job's / project's delivery
 job deliver	flag ready	open the request ready for review (not a draft)
 job deliver	flag server	server address (overrides config server.addr)
 job deliver	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job diagnose	desc	解释 job 为何结束：终止原因、续跑链、阶段时间线与下一步建议
+job diagnose	help	
+job diagnose	examples	
+job diagnose	flag config	path to the gofer config file
+job diagnose	flag json	以 JSON 输出原始诊断结构
+job diagnose	flag server	server address (overrides config server.addr)
+job diagnose	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 job end	desc	End a resident ACP session job and release its lock
 job end	help	
 job end	examples	

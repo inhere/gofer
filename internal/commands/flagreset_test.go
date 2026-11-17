@@ -35,6 +35,7 @@ func flagGlobals() map[string]any {
 		"agentSkillOpts":        &agentSkillOpts,
 		"agentMCPOpts":          &agentMCPOpts,
 		"jobDeliverOpts":        &jobDeliverOpts,
+		"jobDiagnoseOpts":       &jobDiagnoseOpts,
 		"briefOpts":             &briefOpts,
 		"hookOpts":              &hookOpts,
 		"initOpts":              &initOpts,

@@ -312,6 +312,15 @@ func (c *Client) SetJobTitle(id, title string) (job.JobResult, error) {
 	return res, err
 }
 
+// GetJobDiagnosis fetches a job's diagnosis (R10): the derived termination reason, the
+// continuation chain with its earliest failure, the stage timeline and the next steps.
+// Same visibility as GetJob; an unknown id is an error (the server 404s).
+func (c *Client) GetJobDiagnosis(id string) (job.Diagnosis, error) {
+	var res job.Diagnosis
+	err := c.doJSON(http.MethodGet, "/v1/jobs/"+url.PathEscape(id)+"/diagnosis", nil, &res)
+	return res, err
+}
+
 // GetJobWorktree fetches the live state of a job's WT-01 managed worktree (branch,
 // HEAD, commits ahead of the base, uncommitted changes, merged-into-base). A job
 // without a managed worktree is a 404 from the server.
