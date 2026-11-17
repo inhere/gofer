@@ -23,6 +23,12 @@ func jobNotifyTarget(r job.JobResult) string {
 		return ""
 	}
 	if sid := strings.TrimSpace(r.NotifySession); sid != "" {
+		// A persistent session addressed by its JOB id is spoken into by the job
+		// layer's receipt path (wakeup); there is no agent session with that id for
+		// the relay to message.
+		if strings.HasPrefix(sid, job.JobIDPrefix) {
+			return ""
+		}
 		return sid
 	}
 	return strings.TrimSpace(r.SourceSessionID)

@@ -14,7 +14,11 @@ package job
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
+	"time"
+
+	"github.com/inhere/gofer/internal/jobstore"
 )
 
 // notifyTargetKinds are the two accepted spellings of "enable the notification":
@@ -34,6 +38,12 @@ func notifyTarget(req JobRequest) string {
 	}
 	return strings.TrimSpace(req.SourceSessionID)
 }
+
+// notifyTargetJobID reports whether target addresses a session by its JOB id
+// (`--notify-session job-…`), the form that reaches an ACP session job. A job id this
+// server minted is recognizable before anything is looked up, which is what keeps a
+// session id and a job id apart: the two live in different address spaces.
+func notifyTargetJobID(target string) bool { return strings.HasPrefix(target, JobIDPrefix) }
 
 // droppedNotify is an end-notification a submit could not honour and gave up
 // (gofer-3db4): the resolved target and why it is unusable. Submit records it as a
@@ -72,6 +82,19 @@ func (s *Service) resolveNotifyRequest(req *JobRequest) (*droppedNotify, error) 
 		reason = "no session to tell: the request named no notify_session and has no source session"
 	case target == strings.TrimSpace(req.SourceSessionID):
 		return nil, nil // proven by validateSourceSession
+	case notifyTargetJobID(target):
+		// A persistent session named by its job id: it must be one of this server's
+		// session jobs and still alive, because a receipt for an ended session has
+		// nobody to speak to.
+		res, ok := s.Get(target)
+		switch {
+		case !ok:
+			reason = fmt.Sprintf("notify session %q is not a job of this server", target)
+		case !res.Session:
+			reason = fmt.Sprintf("job %q is not a persistent session: pass the session id of an agent session, or the job id of a --session job", target)
+		case IsFinished(res.Status):
+			reason = fmt.Sprintf("session job %q has already ended (status %s)", target, res.Status)
+		}
 	default:
 		session, ok, err := s.meta.GetAgentSession(target)
 		switch {
@@ -119,14 +142,73 @@ func (e notifyTargetError) Is(target error) bool { return target == ErrNotifyTar
 // watchNotifyTarget registers the notify target's pending record, so the terminal
 // notify has something durable to claim. It is a no-op when the target is the
 // source session (Submit has already added that watch) or when notify is off.
+//
+// A target that is a session JOB id gets the receipt row of a resident parent's child
+// instead (see registerNotifySessionReceipt): there is no registered agent session to
+// watch, and the result has to arrive as the session's next turn.
 func (s *Service) watchNotifyTarget(req JobRequest, jobID string) error {
 	target := notifyTarget(req)
 	if target == "" || target == strings.TrimSpace(req.SourceSessionID) {
 		return nil
 	}
+	if notifyTargetJobID(target) {
+		return s.registerNotifySessionReceipt(req, target, jobID)
+	}
 	if _, err := s.meta.AddSessionJobWatch(target, jobID); err != nil {
 		return fmt.Errorf("register notify session watch: %w", err)
 	}
+	return nil
+}
+
+// registerNotifySessionReceipt gives `--notify-session <job id>` the row a resident
+// parent gets for a child it submitted (wakeup_child_register.go): an event wakeup on
+// the session job that the say path speaks into the session as its next turn.
+//
+// Reusing that row is the whole point — it is what parks the result while the session
+// is in a turn, delivers it when the session comes back to awaiting_input, follows a
+// takeover / retry onto the job that carries the real outcome (auto_child), and reports
+// it to a person when the session is gone.
+func (s *Service) registerNotifySessionReceipt(req JobRequest, target, jobID string) error {
+	if rows, err := s.meta.ListEventWakeupsByChild(jobID); err == nil {
+		for _, w := range rows {
+			if w.JobID == target {
+				return nil // a retried submit must not stack a second receipt
+			}
+		}
+	}
+	child, ok := s.Get(jobID)
+	if !ok {
+		return fmt.Errorf("register notify session receipt: job %s is gone", jobID)
+	}
+	now := s.nowFn()
+	// Same lifetime rule as a child receipt: long enough for this job to queue (a
+	// directory lock can wait an hour) and to run its own limit.
+	ttl := s.config().WakeupTTL()
+	if need := time.Duration(childWakeLimitSec(child, req)+childWakeQueueMarginSec) * time.Second; need > ttl {
+		ttl = need
+	}
+	w := jobstore.WakeupRecord{
+		ID:             "wk-" + RandomSuffix(),
+		JobID:          target,
+		Kind:           jobstore.WakeupKindEvent,
+		EventTypesJSON: jobstore.EncodeStringList([]string{EventJobTerminal}),
+		FilterJobID:    jobID,
+		Mode:           jobstore.WakeupModeContinuous,
+		Enabled:        1,
+		Revision:       1,
+		// auto_child marks the row as a receipt: it is spoken, not resumed, it follows
+		// the work into a retry / takeover, and a gone session reports it once.
+		AutoChild: 1,
+		CreatedBy: req.CallerID,
+		CreatedAt: now.Unix(),
+		ExpiresAt: now.Add(ttl).Unix(),
+	}
+	if err := s.meta.InsertWakeup(w); err != nil {
+		return fmt.Errorf("register notify session receipt: %w", err)
+	}
+	slog.Info("wakeup.created", "event", "wakeup.created", "wakeup_id", w.ID,
+		"job_id", w.JobID, "kind", w.Kind, "filter_job_id", w.FilterJobID, "auto_child", 1,
+		"via", "notify_session")
 	return nil
 }
 
@@ -136,6 +218,17 @@ func (s *Service) watchNotifyTarget(req JobRequest, jobID string) error {
 func (s *Service) dropNotifyTargetWatch(req JobRequest, jobID string) {
 	target := notifyTarget(req)
 	if target == "" || target == strings.TrimSpace(req.SourceSessionID) {
+		return
+	}
+	if notifyTargetJobID(target) {
+		// Undo registerNotifySessionReceipt. Best-effort for the same reason as below.
+		if rows, err := s.meta.ListEventWakeupsByChild(jobID); err == nil {
+			for _, w := range rows {
+				if w.JobID == target {
+					_ = s.meta.DeleteWakeup(w.ID)
+				}
+			}
+		}
 		return
 	}
 	_, _ = s.meta.RemoveSessionJobWatch(target, jobID)
