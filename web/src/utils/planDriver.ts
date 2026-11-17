@@ -30,6 +30,13 @@ export function driverLevelLabel(level: string | undefined): string {
   return level && te(key) ? t(key) : (level || '—')
 }
 
+// planDriverBadge 是 plan 列表行「只记录」徽标的文案（设计 2026-11-16 §1，R12）：没启用推进
+// 引擎时服务端不发 driver 字段，这里返回空串让调用方不渲染徽标；等级文案与详情页页签
+// 同一份（driverLevelLabel），不另造一套。
+export function planDriverBadge(driver: string | undefined): string {
+  return driver ? driverLevelLabel(driver) : ''
+}
+
 // driverActionLabel 给动作一个界面名；未知动作原样显示。
 export function driverActionLabel(action: string): string {
   const key = `plans.driver.action.${action}`

@@ -220,3 +220,43 @@ func TestPlanDriverReportRoute(t *testing.T) {
 		t.Fatalf("report lists must encode as [], got %+v", rep)
 	}
 }
+
+// TestPlanListCarriesDriverLevel: the plan list carries each plan's driver level and omits
+// the field when the driver is off, so the overview row can show the level badge without
+// fetching every plan's driver.
+func TestPlanListCarriesDriverLevel(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, testToken, false)
+	driven := createDriverPlan(t, s, "plan-driver-list-on")
+	plain := createDriverPlan(t, s, "plan-driver-list-off")
+
+	resp := do(t, s, http.MethodPut, "/v1/plans/"+driven+"/driver", testToken, map[string]any{"level": "record"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("enable status=%d, want 200", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	resp = do(t, s, http.MethodGet, "/v1/plans", testToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list status=%d, want 200", resp.StatusCode)
+	}
+	var page struct {
+		Plans []struct {
+			PlanID string  `json:"plan_id"`
+			Driver *string `json:"driver"`
+		} `json:"plans"`
+	}
+	if err := json.Unmarshal([]byte(readBody(t, resp)), &page); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	got := make(map[string]*string, len(page.Plans))
+	for _, p := range page.Plans {
+		got[p.PlanID] = p.Driver
+	}
+	if d, ok := got[driven]; !ok || d == nil || *d != job.PlanDriverLevelRecord {
+		t.Fatalf("plan %s driver=%v (listed=%v), want %q", driven, d, ok, job.PlanDriverLevelRecord)
+	}
+	if d, ok := got[plain]; !ok || d != nil {
+		t.Fatalf("plan %s driver=%v (listed=%v), want the field omitted", plain, d, ok)
+	}
+}

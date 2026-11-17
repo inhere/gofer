@@ -7,6 +7,7 @@ import StatusPill from './StatusPill.vue'
 import { t } from '../i18n'
 import type { Plan } from '../api/types'
 import { formatRelative } from '../utils/format'
+import { planDriverBadge } from '../utils/planDriver'
 import { planProgressModel } from './progress'
 import ProgressBar from './ProgressBar.vue'
 
@@ -65,6 +66,7 @@ function open(): void {
         <span v-if="plan.project" class="prow-chip" lang="en">{{ plan.project }}</span>
         <span v-if="plan.paused" class="prow-chip prow-chip--paused">{{ t('plans.overview.paused') }}</span>
         <span v-if="plan.leader === 'on'" class="prow-chip prow-chip--leader">{{ t('plans.overview.leaderOn') }}</span>
+        <span v-if="plan.driver" class="prow-chip prow-chip--driver" data-test="plan-driver-badge">{{ planDriverBadge(plan.driver) }}</span>
         <span class="prow-chip prow-chip--complete-on">{{ t(plan.complete_on === 'merge' ? 'plans.overview.completeOnMerge' : 'plans.overview.completeOnJob') }}</span>
         <span v-for="tag in plan.tags ?? []" :key="tag" class="prow-chip">{{ tag }}</span>
       </span>
@@ -160,6 +162,11 @@ function open(): void {
 .prow-chip--leader {
   color: var(--run);
   border-color: var(--run);
+}
+/* 推进引擎开着（本版只有「只记录」）：等级文案与详情页「推进记录」页签同一份 i18n。 */
+.prow-chip--driver {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .prow-blockers {
   display: flex;
