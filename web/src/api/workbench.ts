@@ -37,6 +37,11 @@ export interface WorkbenchThreadQuery {
   full?: string[]
   // 来源筛选：acp（持续 ACP 会话）| pty（交互式 PTY）| relay。
   source?: 'acp' | 'pty' | 'relay' | ''
+  // agent / runner 精确筛选（R10，空 = 不限）。
+  agent?: string
+  runner?: string
+  // counts=1：响应随带 counts（按 source 分组、不受 source 与分页影响，等于全部页的条数）。
+  counts?: boolean
   // live=1 只返回仍在运行的会话（单页，无 has_more）。
   live?: boolean
   // 首页随带这些线程（同置顶线程，不写偏好）；带 cursor 的后续页无效。
@@ -55,6 +60,9 @@ export function listWorkbenchThreads(query: WorkbenchThreadQuery = {}): Promise<
   if (query.detail) params.set('detail', query.detail)
   for (const id of query.full ?? []) params.append('full', id)
   if (query.source) params.set('source', query.source)
+  if (query.agent) params.set('agent', query.agent)
+  if (query.runner) params.set('runner', query.runner)
+  if (query.counts) params.set('counts', '1')
   if (query.live) params.set('live', '1')
   for (const id of query.include ?? []) params.append('include', id)
   const suffix = params.size > 0 ? `?${params.toString()}` : ''
