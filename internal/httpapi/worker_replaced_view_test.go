@@ -19,10 +19,21 @@ func TestWorkerViewShowsLastReplaced(t *testing.T) {
 		t.Fatalf("never-replaced worker shows %+v", view.LastReplaced)
 	}
 
+	// An event without the conflict flag (recorded before handovers were told
+	// apart) is not shown.
+	s.jobs.RecordScopedEvent(job.WorkerEventScope("w1"), job.EventWorkerReplaced, "", map[string]any{
+		"old_instance": "inst-x", "new_instance": "inst-y",
+	})
+	decode(t, do(t, s, http.MethodGet, "/v1/workers/w1", testToken, nil), &view)
+	if view.LastReplaced != nil {
+		t.Fatalf("unflagged event shows %+v", view.LastReplaced)
+	}
+
 	s.jobs.RecordScopedEvent(job.WorkerEventScope("w1"), job.EventWorkerReplaced, "", map[string]any{
 		"old_instance": "inst-a", "new_instance": "inst-b", "old_remote": "10.0.0.1:1", "new_remote": "10.0.0.2:2",
+		"conflict": true,
 	})
-	s.jobs.RecordScopedEvent(job.WorkerEventScope("w2"), job.EventWorkerReplaced, "", map[string]any{"new_instance": "other"})
+	s.jobs.RecordScopedEvent(job.WorkerEventScope("w2"), job.EventWorkerReplaced, "", map[string]any{"new_instance": "other", "conflict": true})
 	view.LastReplaced = nil
 	decode(t, do(t, s, http.MethodGet, "/v1/workers/w1", testToken, nil), &view)
 	got := view.LastReplaced

@@ -15,6 +15,7 @@ type workerReplacedView struct {
 	OldRemote   string `json:"old_remote,omitempty"`
 	NewRemote   string `json:"new_remote,omitempty"`
 	Suppressed  int    `json:"suppressed,omitempty"`
+	Conflict    bool   `json:"conflict,omitempty"`
 }
 
 // latestReplaced reads the newest worker.replaced event of a worker; nil when none.
@@ -27,7 +28,11 @@ func (s *Server) latestReplaced(workerID string) *workerReplacedView {
 		return nil
 	}
 	v := &workerReplacedView{At: events[0].At}
-	_ = json.Unmarshal([]byte(events[0].Detail), v) // best effort: the time alone is still useful
+	if json.Unmarshal([]byte(events[0].Detail), v) != nil || !v.Conflict {
+		// Events recorded before the conflict flag existed include plain restart and
+		// upgrade handovers; they are not a two-processes warning.
+		return nil
+	}
 	v.At = events[0].At
 	return v
 }

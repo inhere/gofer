@@ -107,7 +107,7 @@ gofer serve upgrade status <upgrade_id> [--json]
 
 一个 `worker_id` 只能有一个活连接。同一台机器上起了两个 worker 进程（旧后台进程没停、`-d` 又起了一个、容器里起了一份而宿主也在跑），或者两处机器用了同一个 `worker_id` 时，新注册会**顶掉**旧连接，旧进程随即重连、再顶回来，两边反复互顶，表现是 job 时快时慢甚至时断时续。
 
-- **server 侧怎么看**：`gofer worker show <id>` 有一行 `last_replaced`（时刻、新旧 instance_id、新旧远端地址）；web 运行节点页该 worker 的卡上也有「最近一次被同名进程顶替：<时间>」与一句「请只保留一个」。同一 worker 的 `worker.replaced` 事件 10 分钟内只写一条，`suppressed` 是期间被拦下的次数；serve 日志里同样有一条 `worker.replaced`（带 worker_id、新旧 instance_id 与远端地址）。同一进程重连（instance_id 相同，例如网络抖动）不会报这个。
+- **server 侧怎么看**：`gofer worker show <id>` 有一行 `last_replaced`（时刻、新旧 instance_id、新旧远端地址）；web 运行节点页该 worker 的卡上也有「最近一次被同名进程顶替：<时间>」与一句「请只保留一个」。同一 worker 的 `worker.replaced` 事件 10 分钟内只写一条，`suppressed` 是期间被拦下的次数；serve 日志里同样有一条 `worker.replaced`（带 worker_id、新旧 instance_id 与远端地址）。同一进程重连（instance_id 相同，例如网络抖动）不会报这个；重启或升级时新进程赶在旧连接断开前连上，这种一次性交接也不报（serve 日志只记一条 `worker.handover`），只有被挤下线的进程 30 分钟内又连回来才算互顶。
 - **worker 侧怎么看**：被顶替的进程会打一条错误日志 `worker.replaced`（写明「another process is connected with the same worker_id」与自己的 instance_id）；5 分钟内被顶替 3 次会再来一条 `worker.replaced_backoff` 并退避 5 分钟再连，**不退出进程**。
 - **处理**：只留一个进程——`gofer worker stop [<id>]` 停本机后台那个，或 `ps` / 任务管理器找到多余的进程结束掉；两台机器共用一个 id 时给其中一台换 id（`worker_id` 三处对齐，见 [worker-config.md](worker-config.md)「worker_id 三处对齐」）。改完看 `last_replaced` 不再刷新。
 
