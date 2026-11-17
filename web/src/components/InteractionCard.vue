@@ -9,8 +9,9 @@
 // 视觉：--panel 底 + --line 边 + --phosphor 强调标题；id/type mono 小字。
 // 一次性滑入动画，prefers-reduced-motion 下关闭。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import type { Interaction } from '../api/types'
+import type { Interaction, InteractionOption } from '../api/types'
 import { t } from '../i18n'
+import { choiceAnswer, initialPicks, interactionAnswerText, isRecommended } from '../utils/interactionCard'
 
 const props = defineProps<{
   interaction: Interaction
@@ -18,6 +19,8 @@ const props = defineProps<{
   isDecision?: boolean
   // 只读身份（调用方上限 read_only）：只展示问题，不给作答 / 转交入口（服务端也会 403）。
   readonly?: boolean
+  // 「其他」输入框的提示语（默认通用文案；会话权限卡用它说明「填了就是附原因拒绝」）。
+  otherLabel?: string
 }>()
 const emit = defineEmits<{
   (e: 'answer', value: string): void
@@ -67,6 +70,56 @@ function submit(value: string): void {
   }
   emit('answer', value)
 }
+
+// ---- choice 扩展（gofer_ask）：多选 / 「其他」自由文本 / 推荐项（T6 R11）----
+
+const multi = computed(() => props.interaction.multi === true)
+const allowOther = computed(() => props.interaction.allow_other === true)
+const choiceOptions = computed(() => props.interaction.options ?? [])
+// 列表模式：多选、有推荐项或选项带说明时改用「勾选 + 统一提交」——按钮里塞不下说明与
+// 推荐徽标；普通 choice（无这些字段）保持点一下即作答的老样子。
+const listChoice = computed(
+  () =>
+    multi.value ||
+    (props.interaction.recommended ?? '') !== '' ||
+    choiceOptions.value.some((o) => !!o.description),
+)
+// picks 存选项的 value，提交时才换成 label（后端两者都认，label 是人话）。
+const picks = ref<string[]>(initialPicks(props.interaction))
+const other = ref('')
+const choiceValue = computed(() => choiceAnswer(props.interaction, picks.value, other.value))
+const canSubmitChoice = computed(
+  () => pending.value && !disabled.value && choiceValue.value !== null,
+)
+const otherPlaceholder = computed(() => props.otherLabel || t('util.icard.otherLabel'))
+
+function togglePick(value: string): void {
+  if (disabled.value) {
+    return
+  }
+  if (multi.value) {
+    picks.value = picks.value.includes(value)
+      ? picks.value.filter((v) => v !== value)
+      : [...picks.value, value]
+    return
+  }
+  picks.value = [value]
+}
+
+function submitChoice(): void {
+  const v = choiceValue.value
+  if (v === null) {
+    return
+  }
+  submit(v)
+}
+
+function isReco(opt: InteractionOption): boolean {
+  return isRecommended(props.interaction, opt)
+}
+
+// 只读回显：多选的 JSON 数组转成人话
+const finalAnswer = computed(() => interactionAnswerText(props.interaction))
 
 // ---- 审批卡（type=permission，GATE-01 §1）----
 
@@ -172,7 +225,7 @@ function fmtTime(v: number | undefined): string {
     <!-- answered：只读回显 -->
     <template v-if="answered">
       <p class="icard-done mono">
-        {{ t('util.icard.submitted') }}<span class="icard-answer">{{ interaction.answer }}</span>
+        {{ t('util.icard.submitted') }}<span class="icard-answer" data-test="icard-final-answer">{{ finalAnswer }}</span>
       </p>
       <p class="icard-meta mono">
         <span>answered_by {{ answeredBy }}</span>
@@ -189,7 +242,11 @@ function fmtTime(v: number | undefined): string {
       </p>
     </template>
 
-    <!-- 非 pending（cancelled 等）：只读，不渲染任何可点按钮 -->
+    <!-- cancelled：只读，不渲染任何可点按钮 -->
+    <template v-else-if="interaction.status === 'cancelled'">
+      <p class="icard-done mono" data-test="icard-cancelled">{{ t('util.icard.cancelled') }}</p>
+      <p v-if="finalAnswer" class="icard-meta mono"><span class="icard-answer">{{ finalAnswer }}</span></p>
+    </template>
 
     <!-- 只读身份：只展示问题，不摆任何作答入口 -->
     <p v-if="pending && readonly" class="icard-meta mono" data-test="icard-readonly">{{ t('util.icard.readonly') }}</p>
@@ -245,6 +302,27 @@ function fmtTime(v: number | undefined): string {
           {{ optLabel(opt) }}
         </button>
       </div>
+      <!-- 其他（自由文本）：会话权限卡用它写「附原因拒绝」的原因 -->
+      <div v-if="allowOther" class="icard-row icard-other">
+        <input
+          v-model="other"
+          class="icard-input mono"
+          type="text"
+          autocomplete="off"
+          :placeholder="otherPlaceholder"
+          :disabled="disabled"
+          data-test="icard-other"
+          @keydown.enter.prevent="submit(other.trim())"
+        />
+        <button
+          class="icard-btn mono"
+          type="button"
+          :disabled="disabled || other.trim() === ''"
+          @click="submit(other.trim())"
+        >
+          {{ t('util.icard.submit') }}
+        </button>
+      </div>
     </div>
 
     <!-- question：文本输入 + 提交 -->
@@ -271,21 +349,77 @@ function fmtTime(v: number | undefined): string {
       </div>
     </div>
 
-    <!-- choice：选项按钮组 -->
+    <!-- choice：勾选列表（多选 / 推荐项 / 带说明）或选项按钮组 -->
     <div
       v-else-if="pending && interaction.type === 'choice' && !readonly"
-      class="icard-body icard-choices"
+      class="icard-body"
     >
-      <button
-        v-for="opt in interaction.options ?? []"
-        :key="opt.value"
-        class="icard-btn mono"
-        type="button"
-        :disabled="disabled"
-        @click="submit(opt.value)"
-      >
-        {{ optLabel(opt) }}
-      </button>
+      <div v-if="listChoice" class="icard-opts" data-test="icard-choice-list">
+        <label v-for="opt in choiceOptions" :key="opt.value" class="icard-opt">
+          <input
+            class="icard-pick"
+            :type="multi ? 'checkbox' : 'radio'"
+            :name="`ip-${interaction.id}`"
+            :value="opt.value"
+            :checked="picks.includes(opt.value)"
+            :disabled="disabled"
+            @change="togglePick(opt.value)"
+          />
+          <span class="icard-opt-text">
+            <span class="icard-opt-head">
+              <span class="icard-opt-label">{{ optLabel(opt) }}</span>
+              <span v-if="isReco(opt)" class="icard-reco mono">{{ t('util.icard.recommended') }}</span>
+            </span>
+            <span v-if="opt.description" class="icard-opt-desc">{{ opt.description }}</span>
+          </span>
+        </label>
+      </div>
+      <div v-else class="icard-choices">
+        <button
+          v-for="opt in choiceOptions"
+          :key="opt.value"
+          class="icard-btn mono"
+          type="button"
+          :disabled="disabled"
+          @click="submit(opt.value)"
+        >
+          {{ optLabel(opt) }}
+          <span v-if="isReco(opt)" class="icard-reco mono">{{ t('util.icard.recommended') }}</span>
+        </button>
+      </div>
+      <!-- 其他（自由文本）：填了以它为准（单选替换选项，多选作为其中一项） -->
+      <div v-if="allowOther" class="icard-row icard-other">
+        <input
+          v-model="other"
+          class="icard-input mono"
+          type="text"
+          autocomplete="off"
+          :placeholder="otherPlaceholder"
+          :disabled="disabled"
+          data-test="icard-other"
+          @keydown.enter.prevent="listChoice ? submitChoice() : submit(other.trim())"
+        />
+        <button
+          v-if="!listChoice"
+          class="icard-btn mono"
+          type="button"
+          :disabled="disabled || other.trim() === ''"
+          @click="submit(other.trim())"
+        >
+          {{ t('util.icard.submit') }}
+        </button>
+      </div>
+      <div v-if="listChoice" class="icard-row">
+        <button
+          class="icard-btn icard-btn--primary mono"
+          type="button"
+          :disabled="!canSubmitChoice"
+          data-test="icard-choice-submit"
+          @click="submitChoice"
+        >
+          {{ t('util.icard.submit') }}
+        </button>
+      </div>
     </div>
 
     <!-- confirmation：确认 / 取消（仅 pending；cancelled/expired 已在上方拦截） -->
@@ -308,8 +442,10 @@ function fmtTime(v: number | undefined): string {
       </button>
     </div>
 
-    <div v-if="canPunt" class="icard-footer">
+    <div v-if="canPunt || $slots.delegate" class="icard-footer">
+      <span v-if="$slots.delegate" class="icard-delegate"><slot name="delegate" /></span>
       <button
+        v-if="canPunt"
         class="icard-punt mono"
         type="button"
         :disabled="disabled"
@@ -469,6 +605,63 @@ function fmtTime(v: number | undefined): string {
   gap: 8px;
 }
 
+/* choice 扩展：勾选列表（多选 / 推荐项 / 带说明的选项） */
+.icard-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.icard-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-chip);
+  font-size: 12px;
+  cursor: pointer;
+}
+.icard-opt:hover {
+  border-color: var(--accent);
+}
+.icard-pick {
+  accent-color: var(--accent);
+  flex: none;
+  margin-top: 3px;
+}
+.icard-opt-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.icard-opt-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.icard-opt-label {
+  color: var(--ink);
+}
+.icard-opt-desc {
+  color: var(--ink-3);
+  font-size: 11px;
+  line-height: 1.4;
+}
+/* 推荐项徽标：与状态徽标同一形状，不抢主色 */
+.icard-reco {
+  border: 1px solid var(--done);
+  border-radius: 9px;
+  color: var(--done);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  padding: 0 6px;
+}
+.icard-other {
+  margin-top: 2px;
+}
+
 .icard-btn {
   background: transparent;
   color: var(--ink);
@@ -500,8 +693,14 @@ function fmtTime(v: number | undefined): string {
 }
 .icard-footer {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 10px;
   margin-top: 8px;
+}
+.icard-delegate {
+  display: inline-flex;
+  align-items: center;
 }
 .icard-punt {
   background: transparent;

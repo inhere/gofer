@@ -1648,6 +1648,8 @@ export interface InteractionOption {
   // （allow_once|allow_always|reject_once|reject_always），用于分组/徽标。
   id?: string
   kind?: string
+  // 选项的一行说明（gofer_ask 的 options[].description），显示在选项下方。
+  description?: string
 }
 
 // permission 交互的工具调用详情（GATE-01 §1）
@@ -1678,6 +1680,12 @@ export interface Interaction {
   tool_call?: InteractionToolCall
   policy_hint?: string
   expires_at?: number
+  // choice 交互的扩展（gofer_ask）：multi=可多选（答案是选中 label 的 JSON 数组）、
+  // allow_other=接受选项之外的自由文本、recommended=提问方的推荐项（label 或 value）。
+  // 都是加法字段，老交互没有它们。
+  multi?: boolean
+  allow_other?: boolean
+  recommended?: string
 }
 
 // plan 决策通道（decision channel，T4）：agent 经 MCP gofer_ask_human 提问，
