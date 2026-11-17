@@ -2,7 +2,10 @@ package job
 
 import (
 	"errors"
+	"strings"
 	"testing"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // TestSubmitSelfResult: the report is stored and shown (live and after a re-read from the
@@ -49,5 +52,18 @@ func TestSubmitSelfResult(t *testing.T) {
 	}
 	if _, err := s.SubmitSelfResult("job-missing", SelfResultInput{Decision: ResultPass, Reason: "x"}, ""); err == nil {
 		t.Fatal("unknown job accepted a report")
+	}
+}
+
+// TestRulesSectionCarriesResultHint: the job rules section (the job-only injection) tells
+// the agent about gofer_submit_result, in both languages.
+func TestRulesSectionCarriesResultHint(t *testing.T) {
+	t.Parallel()
+	refs := []RuleRef{{Name: "r"}}
+	bodies := map[string]string{"r": "body"}
+	for _, lang := range []i18n.Lang{i18n.EN, i18n.ZhCN} {
+		if got := renderRulesSectionIn(lang, refs, bodies); !strings.Contains(got, "gofer_submit_result") {
+			t.Fatalf("%s rules section lacks the hint:\n%s", lang, got)
+		}
 	}
 }

@@ -24,7 +24,6 @@ func trackerPrimeHint(lang i18n.Lang) string {
 }
 func primeTakeoverHint(lang i18n.Lang) string { return primeText(lang, "header.takeover") }
 func memoryWriteHint(lang i18n.Lang) string   { return primeText(lang, "header.memory_write") }
-func resultPrimeHint(lang i18n.Lang) string   { return primeText(lang, "header.result_hint") }
 func memoryFlagHint(lang i18n.Lang) string    { return primeText(lang, "memory.flag_hint") }
 
 // PrimeWithHandoffSection appends the caller-provided best-effort server handoff
@@ -292,10 +291,6 @@ func renderPrimeRuleIn(lang i18n.Lang, policy string, memories []Memory, rel str
 		}
 	}
 	var out strings.Builder
-	// The job rule body is the job-only injection (a terminal session's prime never
-	// takes this path), so the gofer_submit_result hint belongs here.
-	out.WriteString(resultPrimeHint(lang))
-	out.WriteString("\n")
 	out.WriteString(primeText(lang, "layout.commit_heading"))
 	out.WriteString("：")
 	out.WriteString(policy)

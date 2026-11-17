@@ -218,6 +218,10 @@ func renderRulesSection(refs []RuleRef, bodies map[string]string) string {
 func renderRulesSectionIn(lang i18n.Lang, refs []RuleRef, bodies map[string]string) string {
 	var b strings.Builder
 	b.WriteString(i18n.T(lang, "prime.rules.header"))
+	b.WriteString("\n")
+	// The job-only injection carries the self-report hint; it sits outside the
+	// tracker-prime budget on purpose.
+	b.WriteString(i18n.T(lang, "prime.rules.result_hint"))
 	b.WriteString("\n\n")
 	for _, ref := range refs {
 		b.WriteString("### ")
