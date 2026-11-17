@@ -43,7 +43,7 @@
 
 | # | 问题 | 定案 |
 |---|---|---|
-| R1 | `gofer_ask` 的注入范围 | 所有 `acp-agent` 的会话与单轮 job 都注入，标记 `GOFER_ASK=1`；管家 / 收件会话 / leader 已有自己的 gofer MCP 时不重复注入，改为在它们的收窄面里同样注册 `gofer_ask`。agent 配置里已有同名 `gofer` MCP 时以 gofer 注入的为准（同 `applyStewardRun`）。没签发凭据时不注入（与现状一致） |
+| R1 | `gofer_ask` 的注入范围 | 只对 `acp-agent` 的持续会话 job（`--session`）注入（单轮 / 批处理 job 不注入：无人值守时提问会把 job 挂住等到超时），标记 `GOFER_ASK=1`；管家 / 收件会话 / leader 已有自己的 gofer MCP 时不重复注入，改为在它们的收窄面里同样注册 `gofer_ask`。agent 配置里已有同名 `gofer` MCP 时以 gofer 注入的为准（同 `applyStewardRun`）。没签发凭据时不注入（与现状一致） |
 | R2 | `gofer_ask` 的工具面与契约 | 带 `GOFER_ASK` 且无其它标记时，MCP 只注册 `gofer_ask` 一个工具。输入 `{question, options?[{label, description?}], multi?, allow_other?, recommended?, timeout_sec?}`；无 options = 自由文本；`timeout_sec` 默认 1800、上限 86400。实现：`POST /v1/jobs/{本 job}/interactions`（choice / question）后轮询 `GET` 直到 answered / cancelled / 过期，返回 `{state: answered\|expired\|cancelled, answer}`；过期由工具按截止时间判定并取消该交互。工具说明写明「过期时用你的推荐项继续」 |
 | R3 | 凭据路由 | `POST /v1/jobs/*/interactions` 与 `GET /v1/jobs/*/interactions` 加入 job 凭据白名单，**只允许本 job**（与 `/jobs/*/say`、`/jobs/*/wakeups` 同一「own」判定）；`type` 只允许 `question / choice / confirmation`，`permission` 拒绝 |
 | R4 | 交互数据扩展 | `Interaction` / `InteractionInput` 加可选字段 `multi bool`、`allow_other bool`、`recommended string`（JSON 加法，存于现有交互记录，不改表）；多选答案为选中 label 的 JSON 数组字符串；答案校验：单选必须是某个 label 或（`allow_other` 时）非空文本 |
