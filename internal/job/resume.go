@@ -595,6 +595,9 @@ func (s *Service) acpResumeRequest(req JobRequest, src JobResult, ac config.Agen
 	}
 	if continuous {
 		req.IdleTimeoutSec, req.MaxSessionSec = src.IdleTimeoutSec, src.MaxSessionSec
+		// A hosted session stays hosted across a resume: the continuation is the same
+		// always-on session, so it must not acquire the default idle timeout back.
+		req.Hosted = src.Hosted
 	}
 	req.Agent = targetAgent
 	req.Prompt = prompt

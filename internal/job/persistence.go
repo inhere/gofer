@@ -548,6 +548,7 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 	var state sessionState
 	_ = json.Unmarshal([]byte(rec.SessionStateJSON), &state)
 	result.Session = state.Session
+	result.Hosted = state.Hosted
 	result.TurnNo = state.TurnNo
 	result.IdleTimeoutSec = state.IdleTimeoutSec
 	result.MaxSessionSec = state.MaxSessionSec
@@ -562,6 +563,7 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 
 type sessionState struct {
 	Session              bool     `json:"session"`
+	Hosted               bool     `json:"hosted,omitempty"`
 	TurnNo               int      `json:"turn_no"`
 	IdleTimeoutSec       int      `json:"idle_timeout_sec"`
 	MaxSessionSec        int      `json:"max_session_sec"`
@@ -578,7 +580,7 @@ func marshalSessionState(r JobResult) string {
 		return ""
 	}
 	b, _ := json.Marshal(sessionState{
-		Session: r.Session, TurnNo: r.TurnNo,
+		Session: r.Session, Hosted: r.Hosted, TurnNo: r.TurnNo,
 		IdleTimeoutSec: r.IdleTimeoutSec, MaxSessionSec: r.MaxSessionSec,
 		IdleDeadlineAt: r.IdleDeadlineAt, MaxSessionDeadlineAt: r.MaxSessionDeadlineAt,
 		SessionEndReason: r.SessionEndReason,

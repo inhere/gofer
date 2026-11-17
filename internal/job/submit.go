@@ -1266,6 +1266,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			TimeoutLimitSource:  limitSource,
 			TimeoutLimitKey:     config.TimeoutLimitKey(limitSource, req.ProjectKey),
 			Session:             req.Session,
+			Hosted:              req.Hosted,
 			IdleTimeoutSec:      req.IdleTimeoutSec,
 			MaxSessionSec:       req.MaxSessionSec,
 			Title:               req.Title,
