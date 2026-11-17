@@ -275,14 +275,14 @@ watch(() => props.planId, load)
 .pd-table { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r-chip); overflow: hidden; }
 .pd-head, .pd-trow {
   display: grid;
-  grid-template-columns: minmax(120px, 1.4fr) repeat(6, minmax(44px, 0.6fr)) minmax(70px, 0.8fr) minmax(120px, 1.4fr);
+  grid-template-columns: minmax(120px, 1.4fr) repeat(5, minmax(44px, 0.6fr)) minmax(70px, 0.8fr) minmax(120px, 1.4fr);
   gap: 8px;
   padding: 6px 10px;
   align-items: center;
   font-size: 12px;
 }
 .pd-table--rule .pd-head, .pd-table--rule .pd-trow {
-  grid-template-columns: minmax(110px, 1.2fr) minmax(140px, 1.6fr) repeat(4, minmax(44px, 0.6fr)) minmax(56px, 0.7fr);
+  grid-template-columns: minmax(110px, 1.2fr) minmax(140px, 1.6fr) repeat(5, minmax(44px, 0.6fr)) minmax(56px, 0.7fr);
 }
 .pd-head { background: var(--surface-2, transparent); color: var(--ink-3); font-size: 11px; border-bottom: 1px solid var(--line); }
 .pd-trow { border-bottom: 1px solid var(--line); }
