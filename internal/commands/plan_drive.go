@@ -26,7 +26,13 @@ var planDriveOpts struct {
 	maxJobs   int
 	maxRework int
 	maxHours  float64
+	recent    int
 }
+
+// planDriveDefaultRecent is how many recent actions `plan drive report` prints when --recent
+// is not given; 0 on the flag prints none, and more than job.PlanDriverReportRecent has
+// nothing more to show (the report already stops there).
+const planDriveDefaultRecent = 20
 
 // newPlanDriveCmd builds the `plan drive` group: on / off / status.
 func newPlanDriveCmd() *gcli.Command {
@@ -75,6 +81,8 @@ func newPlanDriveCmd() *gcli.Command {
 					bindConfigFlag(c)
 					bindServerFlags(c)
 					c.AddArg("plan-id", "plan id", true)
+					c.IntOpt(&planDriveOpts.recent, "recent", "", planDriveDefaultRecent,
+						"how many recent recorded actions to print (0 = none, at most 100)")
 				},
 				Func: runPlanDriveReport,
 			},
@@ -148,14 +156,25 @@ func runPlanDriveReport(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	printPlanDriverReport(c, rep)
+	printPlanDriverReport(c, rep, planDriverRecentLimit(planDriveOpts.recent))
 	return nil
+}
+
+// planDriverRecentLimit clamps --recent to what the report can hold: 0 (or a negative value,
+// which asks for nothing readable) prints no detail, and more than PlanDriverReportRecent has
+// nothing more to show because the report itself stops at that many.
+func planDriverRecentLimit(n int) int {
+	if n < 0 {
+		return 0
+	}
+	return min(n, job.PlanDriverReportRecent)
 }
 
 // printPlanDriverReport prints the report: the driver line, the budget against its spend,
 // then one line per action and per rule. A rate is shown only when something was resolved,
 // and the upgrade verdict names the condition so the number is not mistaken for a decision.
-func printPlanDriverReport(c *gcli.Command, rep job.PlanDriverReport) {
+// recent caps how many of the newest recorded actions are printed after the summary (0 = none).
+func printPlanDriverReport(c *gcli.Command, rep job.PlanDriverReport, recent int) {
 	c.Printf("plan:    %s\n", rep.PlanID)
 	if rep.Enabled {
 		c.Printf("driver:  on (level=%s)\n", rep.Level)
@@ -189,6 +208,39 @@ func printPlanDriverReport(c *gcli.Command, rep job.PlanDriverReport) {
 	c.Println("\nby rule:")
 	for _, r := range rep.ByRule {
 		c.Printf("  %-18s %-28s %s\n", r.Action, r.Rule, row(r))
+	}
+	printPlanDriverRecent(c, rep.Recent, recent)
+}
+
+// printPlanDriverRecent prints the newest recorded actions (at most limit of them, 0 = none),
+// one line each: when it happened, which todo and event, the rule that decided, the action and
+// how it compared with what actually happened. A row its item never followed up reads
+// no_followup, and one still inside the observation window reads pending — neither is a
+// mismatch. When the report holds more than limit rows, the last line says how many are left.
+func printPlanDriverRecent(c *gcli.Command, recent []job.PlanDriverActionView, limit int) {
+	if limit <= 0 || len(recent) == 0 {
+		return
+	}
+	shown := recent
+	if len(shown) > limit {
+		shown = shown[:limit]
+	}
+	c.Printf("\nrecent actions (newest first, %d of %d):\n", len(shown), len(recent))
+	c.Printf("  %-19s %-14s %-10s %-26s %-18s %s\n", "time", "todo", "event", "rule", "action", "outcome")
+	for _, a := range shown {
+		outcome := a.Outcome
+		if outcome == "" {
+			outcome = "pending"
+		}
+		todo := a.TodoID
+		if todo == "" {
+			todo = "-"
+		}
+		c.Printf("  %-19s %-14s %-10s %-26s %-18s %s\n",
+			time.Unix(a.CreatedAt, 0).Format("2006-01-02 15:04:05"), todo, a.EventKind, a.Rule, a.Action, outcome)
+	}
+	if rest := len(recent) - len(shown); rest > 0 {
+		c.Printf("  ... %d more not shown (raise --recent, up to %d)\n", rest, job.PlanDriverReportRecent)
 	}
 }
 

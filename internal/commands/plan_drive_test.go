@@ -161,3 +161,101 @@ func TestPlanDriveReportPrintsAgreement(t *testing.T) {
 		}
 	}
 }
+
+// TestPlanDriveReportPrintsRecentActions: after the summary the report prints the newest
+// recorded actions (time, todo, event, rule, action, outcome), --recent caps how many, and a
+// report holding more says how many were left out. --recent 0 prints none.
+func TestPlanDriveReportPrintsRecentActions(t *testing.T) {
+	one := func(i int) job.PlanDriverActionView {
+		a := job.PlanDriverActionView{
+			ID: int64(i), TodoID: "td-" + string(rune('a'+i)), EventKind: job.PlanEventAdvance,
+			Action: "complete_todo", Rule: "job_done_complete", Risk: "low", CreatedAt: 1700000300,
+		}
+		if i%2 == 0 {
+			a.Outcome = "match"
+		}
+		return a
+	}
+	report := func(n int) job.PlanDriverReport {
+		recent := make([]job.PlanDriverActionView, 0, n)
+		for i := 0; i < n; i++ {
+			recent = append(recent, one(i))
+		}
+		return job.PlanDriverReport{
+			PlanID: "plan-drive-cli-recent", Enabled: true, Level: job.PlanDriverLevelRecord,
+			Total: n, WindowHours: 24, ByAction: []job.PlanDriverReportRow{{Action: "complete_todo", Total: n}},
+			Recent: recent,
+		}
+	}
+	run := func(t *testing.T, n int, args ...string) (string, int) {
+		t.Helper()
+		ts := isolateTodoCLI(t, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(report(n))
+		})
+		argv := append([]string{"plan", "drive", "report", "--server", ts.URL}, args...)
+		argv = append(argv, "plan-drive-cli-recent")
+		code := 0
+		out := captureOutput(t, func() { code = NewApp("test").Run(argv) })
+		return out, code
+	}
+
+	t.Run("prints the recent rows", func(t *testing.T) {
+		out, code := run(t, 2)
+		if code != 0 {
+			t.Fatalf("exit code = %d, want 0 (%s)", code, out)
+		}
+		for _, want := range []string{
+			"recent actions (newest first, 2 of 2):", "time", "todo", "rule", "action", "outcome",
+			"complete_todo", "job_done_complete", "td-a", "match",
+			// A row still inside its observation window reads pending, not mismatch.
+			"pending",
+		} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("output missing %q:\n%s", want, out)
+			}
+		}
+		if strings.Contains(out, "more not shown") {
+			t.Fatalf("nothing was left out, so no hint is expected:\n%s", out)
+		}
+	})
+
+	t.Run("recent 0 prints no detail", func(t *testing.T) {
+		out, code := run(t, 3, "--recent", "0")
+		if code != 0 {
+			t.Fatalf("exit code = %d, want 0 (%s)", code, out)
+		}
+		if strings.Contains(out, "recent actions") || strings.Contains(out, "more not shown") {
+			t.Fatalf("--recent 0 must print the summary only:\n%s", out)
+		}
+		if !strings.Contains(out, "by rule:") {
+			t.Fatalf("the summary must still be printed:\n%s", out)
+		}
+	})
+
+	t.Run("default prints 20 and counts the rest", func(t *testing.T) {
+		out, code := run(t, 23)
+		if code != 0 {
+			t.Fatalf("exit code = %d, want 0 (%s)", code, out)
+		}
+		if !strings.Contains(out, "recent actions (newest first, 20 of 23):") {
+			t.Fatalf("the default must print 20 of 23:\n%s", out)
+		}
+		if !strings.Contains(out, "3 more not shown") {
+			t.Fatalf("the last line must say how many were left out:\n%s", out)
+		}
+	})
+
+	t.Run("recent caps to the flag", func(t *testing.T) {
+		out, code := run(t, 23, "--recent", "5")
+		if code != 0 {
+			t.Fatalf("exit code = %d, want 0 (%s)", code, out)
+		}
+		if !strings.Contains(out, "recent actions (newest first, 5 of 23):") {
+			t.Fatalf("--recent 5 must print 5 of 23:\n%s", out)
+		}
+		if !strings.Contains(out, "18 more not shown") {
+			t.Fatalf("18 rows are left out:\n%s", out)
+		}
+	})
+}

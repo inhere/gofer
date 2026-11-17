@@ -604,6 +604,7 @@ plan drive report	desc	Compare what the driver recorded it would do with what ac
 plan drive report	help	
 plan drive report	examples	
 plan drive report	flag config	path to the gofer config file
+plan drive report	flag recent	how many recent recorded actions to print (0 = none, at most 100)
 plan drive report	flag server	server address (overrides config server.addr)
 plan drive report	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 plan drive status	desc	Show whether the plan's driver is on, at which level and with which budget
