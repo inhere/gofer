@@ -25,6 +25,8 @@
 - worker 上的持续会话在 worker 进程重启（含 `worker upgrade`）后自动接回：同一个 job id 重新派发到同名新进程，以 `session/load` 恢复后回到等待输入，web 线程不变；新进程在恢复窗口内没连上才判失败「worker lost」。正在跑的一轮在重启时中断，时间线记一条；agent 不支持 `session/load`、会话没有 agent 会话 id 或带 worktree / `ref` 的会话仍按原样判失败。worker 协议升到 v32：派发帧多一个可选的 `hosted`，结果带 worker 会话的结束原因（如 `idle_timeout`）并记到 job 行；托管会话派给低于 v32 的 worker 会在提交时被拒绝。
 - `gofer plan drive report` 在一致率汇总之后多印一张「最近动作」表（时间、待办、事件、规则、动作、与实际是否一致），默认 20 行；`--recent N` 改行数（`0` 只印汇总，上限 100），超出时末行写还有多少条没印。
 - web 计划总览的行上对启用了推进引擎的计划显示等级徽标（本版只有「只记录」），未启用不显示；`GET /v1/plans` 每项多一个可选的 `driver` 字段（未启用省略）。
+- **托管常驻会话**：`job run --hosted`（HTTP / MCP 字段 `hosted`，配合 `--session`）让一个 ACP 会话不按空闲结束、不限最长时长——像开着的终端一样，只在手动结束、agent 退出或出错时结束；与 `--idle-timeout` / `--max-session` 同用会被拒（`400`）。`job resume` 续接托管会话时继续保持托管；`job show` 多一行 `hosted: true`。web「新建会话」默认勾选「托管（不按空闲结束）」，job 详情显示「托管」标记。
+- **`--notify-session` 可以填会话 job id**：`--notify-session <job-id>`（HTTP / MCP 字段 `notify_session`）把结果直接送进那个 ACP 会话，作为它的下一轮；会话正在跑时先停放，回到等输入时送达。目标不是持续会话或已结束就是 `400`。
 
 ## [0.215.0] - 2026-11-17
 

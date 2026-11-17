@@ -794,6 +794,10 @@ type runJobInput struct {
 	// StrictTimeout refuses a timeout_sec above the applicable limit instead of clamping it.
 	StrictTimeout bool `json:"strict_timeout,omitempty"`
 	Session       bool `json:"session,omitempty"`
+	// Hosted makes that persistent session one that never ends for being idle and has
+	// no maximum length (the same field the HTTP body carries): use it like an open
+	// terminal. Refused without Session or together with an idle / max limit.
+	Hosted bool `json:"hosted,omitempty"`
 	// KeepDirLock keeps a persistent session's directory lock while it waits for input.
 	KeepDirLock    bool   `json:"keep_dir_lock,omitempty"`
 	IdleTimeoutSec int    `json:"idle_timeout_sec,omitempty"`
@@ -933,6 +937,7 @@ func runJobHandler(b Backend, scoped string) mcp.ToolHandlerFor[runJobInput, job
 			TimeoutSec:      in.TimeoutSec,
 			StrictTimeout:   in.StrictTimeout,
 			Session:         in.Session,
+			Hosted:          in.Hosted,
 			KeepDirLock:     in.KeepDirLock,
 			IdleTimeoutSec:  in.IdleTimeoutSec,
 			MaxSessionSec:   in.MaxSessionSec,

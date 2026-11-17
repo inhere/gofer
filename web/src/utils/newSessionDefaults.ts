@@ -91,15 +91,20 @@ export function permissionTierValue(tier: PermissionTier): PermissionTier | unde
 
 // sessionSubmitOptions 把新建会话的两个新选项转成提交字段（R7 / R8）：只给 ACP 会话，
 // 自动档不发 permission_tier，保持目录锁默认关。
+//
+// hosted（托管常驻会话）：不按空闲结束、不限最长时长。新建会话默认勾上（web 会话本来
+// 就是要一直开着用的）；不勾时不发该字段，后端按默认 1800s 空闲。
 export function sessionSubmitOptions(opts: {
   type: 'pty' | 'acp'
   tier: PermissionTier
   keepDirLock: boolean
-}): { permission_tier?: PermissionTier; keep_dir_lock?: boolean } {
+  hosted?: boolean
+}): { permission_tier?: PermissionTier; keep_dir_lock?: boolean; hosted?: boolean } {
   if (opts.type !== 'acp') return {}
-  const out: { permission_tier?: PermissionTier; keep_dir_lock?: boolean } = {}
+  const out: { permission_tier?: PermissionTier; keep_dir_lock?: boolean; hosted?: boolean } = {}
   const tier = permissionTierValue(opts.tier)
   if (tier) out.permission_tier = tier
   if (opts.keepDirLock) out.keep_dir_lock = true
+  if (opts.hosted) out.hosted = true
   return out
 }

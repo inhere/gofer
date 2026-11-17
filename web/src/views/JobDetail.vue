@@ -2055,6 +2055,7 @@ onUnmounted(() => {
       <BackLink v-if="!embedded" list="jobs" to="/jobs" :label="t('jobs.detail.back')" />
       <div class="head-right">
         <StatusPill v-if="job" :status="status" :title="jobStatusTitle(status, job.waiting_on_job)" />
+        <span v-if="job?.hosted" class="hosted-badge" data-test="hosted-badge">{{ t('sessions.hosted') }}</span>
         <UncommittedBadge v-if="job" :count="job.uncommitted_count" :files="job.uncommitted_files" />
         <Signal v-if="job" :status="status" :rate="logRate" :duration-sec="durationSec" />
         <RouterLink
@@ -3262,6 +3263,14 @@ onUnmounted(() => {
   white-space: pre-wrap;
   word-break: break-all;
 }
+.hosted-badge {
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
 .detail-head {
   display: flex;
   align-items: center;

@@ -65,6 +65,7 @@ type jobRunFlags struct {
 	lockWait        string
 	interactive     bool
 	session         bool
+	hosted          bool
 	idleTimeout     int
 	maxSession      int
 	noParentWake    bool
@@ -1556,6 +1557,9 @@ func bindJobRunFlags(c *gcli.Command) {
 	c.BoolOpt2(&jobRunOpts.session, "session", "keep an ACP agent in the same job across turns", gflag.WithCategory("Execution"))
 	c.IntOpt2(&jobRunOpts.idleTimeout, "idle-timeout", "seconds to await the next session message (0 = 1800)", jobRunOptCategory("Execution", 0))
 	c.IntOpt2(&jobRunOpts.maxSession, "max-session", "whole session ceiling in seconds (0 = unlimited)", jobRunOptCategory("Execution", 0))
+	// 托管常驻会话（第 6 批）：不按空闲结束、不限最长时长。只在 --session 下有效，
+	// 与 --idle-timeout / --max-session 同用报错——判定由 Submit 做，CLI 不另判。
+	c.BoolOpt2(&jobRunOpts.hosted, "hosted", "persistent session (--session) that never ends for being idle and has no maximum length: use it like an open terminal (cannot be combined with --idle-timeout / --max-session)", gflag.WithCategory("Execution"))
 	// Resi dent-job child receipts (design 2026-11-03): a resident job that submits a job
 	// with its own credential is woken when that job has a result. These two shape or turn
 	// off that receipt for THIS submission; only a job credential's submit can carry them
@@ -1621,7 +1625,7 @@ func bindJobRunFlags(c *gcli.Command) {
 	// gofer-3db4: 结束时通知提交会话（默认关：每次通知都起一个传话人进程，只在明说时用）。
 	c.BoolOpt2(&jobRunOpts.notify, "notify", "tell the submitting session through the gofer messenger when this job ends (a system notice; off by default because each notice starts a messenger process)", gflag.WithCategory("Submission"))
 	c.BoolOpt2(&jobRunOpts.noNotify, "no-notify", "do not notify the submitting session when this job ends (a --hold job run from an agent session notifies that session by default)", gflag.WithCategory("Submission"))
-	c.StrOpt2(&jobRunOpts.notifySession, "notify-session", "session id to notify when this job ends (implies --notify); default: the source session, else the agent session this command runs in ($GOFER_SESSION_ID / $CLAUDE_CODE_SESSION_ID)", jobRunOptCategory("Submission", ""))
+	c.StrOpt2(&jobRunOpts.notifySession, "notify-session", "session id to notify when this job ends (implies --notify); also accepts a persistent session job id (job-…), which gets the result as its next turn; default: the source session, else the agent session this command runs in ($GOFER_SESSION_ID / $CLAUDE_CODE_SESSION_ID)", jobRunOptCategory("Submission", ""))
 
 	// Wait: synchronous submission and client-side polling controls.
 	c.BoolOpt2(&jobRunOpts.wait, "wait", "poll until the job reaches a terminal state", gflag.WithCategory("Wait"))
@@ -2423,6 +2427,7 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		TimeoutSec:     jobRunOpts.timeout,
 		StrictTimeout:  jobRunOpts.strictTimeout,
 		Session:        jobRunOpts.session,
+		Hosted:         jobRunOpts.hosted,
 		IdleTimeoutSec: jobRunOpts.idleTimeout,
 		MaxSessionSec:  jobRunOpts.maxSession,
 		// Child receipt of the resident job that submits this one (server-side: the parent
@@ -2954,6 +2959,10 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	}
 	if res.SessionID != "" {
 		c.Printf("session_id: %s\n", res.SessionID)
+	}
+	// 托管会话（不按空闲结束、不限最长时长）——回答"这个会话为什么一直没结束"。
+	if res.Hosted {
+		c.Printf("hosted:     true\n")
 	}
 	// gofer-gk74：agent 自己的收尾原因（步数 / 用量 / 时限到顶）。status 仍是 done、汇报也在，
 	// 但任务很可能没做完——不说出来就与正常成功分不开。

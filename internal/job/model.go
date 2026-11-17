@@ -838,7 +838,11 @@ type JobResult struct {
 	TimeoutSec int `json:"timeout_sec,omitempty"`
 	// Session metadata is persisted together as session_state_json. The job status
 	// remains the authoritative lifecycle state.
-	Session              bool   `json:"session,omitempty"`
+	Session bool `json:"session,omitempty"`
+	// Hosted marks a persistent session with no idle timeout and no maximum length
+	// (JobRequest.Hosted): it ends only when someone ends it, the agent exits or it
+	// fails. Persisted in session_state_json, so job show and the web can say it.
+	Hosted               bool   `json:"hosted,omitempty"`
 	TurnNo               int    `json:"turn_no,omitempty"`
 	IdleTimeoutSec       int    `json:"idle_timeout_sec,omitempty"`
 	MaxSessionSec        int    `json:"max_session_sec,omitempty"`
