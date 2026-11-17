@@ -7,6 +7,8 @@
 - [等待方式与超时](#等待方式与超时)
 - [job 结束时通知提交会话（--notify）](#job-结束时通知提交会话--notify)
 - [job 状态速览](#job-状态速览)
+- [自报终态（gofer_submit_result）](#自报终态gofer_submit_result)
+- [诊断：job 为何结束（job diagnose）](#诊断job-为何结束job-diagnose)
 - [agent 的两种启动方式与交互 pty job](#agent-的两种启动方式与交互-pty-job)
 - [ACP 持续会话（--session）](#acp-持续会话--session)
 - [中断后续跑（job resume）](#中断后续跑job-resume)
@@ -73,6 +75,47 @@ gofer job run -p <p> -a exec --notify-session <sid> -- <命令>  # 结束时通�
 | `done` / `failed` / `timeout` / `cancelled` / `rejected` | 终态 |
 
 `gofer job list --status <状态>` 过滤；`--all` 连内部传话 job 一起列。
+
+## 自报终态（gofer_submit_result）
+
+job 里的 agent 可以在结束时**自报**这次跑得怎么样，让跟进的人不用读完整份汇报就能判断该看哪里。它是**陈述，不是判定**：只记录与展示，不改变 job 的状态，也不会因此续跑或判失败——真正的结论仍来自退出码、`--verify`、交付核验与人的验收。
+
+```text
+# job 内的 MCP 工具（完整面与 leader 面都有，管家面没有）：
+gofer_submit_result {decision: "human", reason: "两处接口取舍要人拍板",
+                     action_required: "选 A 还是 B", findings: ["A 改动小但慢", "B 快但要改调用方"]}
+
+# 人这一侧（看）：
+gofer job show <id>    # 有自报时多几行：reported: human — 两处接口取舍要人拍板
+```
+
+| decision | 含义 |
+|---|---|
+| `pass` | 按要求做完了 |
+| `rework` | 还有一趟返工要做（reason 说清还差什么） |
+| `fail` | 做不了 / 没做成（reason 说清卡在哪） |
+| `human` | 要人拍板（`action_required` 写清要定什么） |
+
+- `decision` 与 `reason` 必填（reason 最多 2000 字），`action_required` 最多 1000 字，`findings` 最多 20 条、每条最多 1000 字。
+- **每个 job 只报一次**：同一 job 第二次提交被拒（HTTP 409）。续跑 / 重试 / 续接是新 job，各报各的。
+- 只能用该 job 自己的凭据写：`POST /v1/jobs/{id}/result` 只认本 job 的 job 凭据，人的 token 与别的 job 的凭据都 403——所以没人能替它自报。
+- job 注入的规则段开头有一行提示，让它结束前报一次；agent 不报也不算错，只是 job 上没有这份自报。
+- 哪里看：`job show` 的 `reported:` 行（带理由、`action required` 与 findings），web 任务详情概览的「自报终态」块（决策徽标、理由、「需人处理」、发现与「第 n 次运行上报」），job 事件 `job.result_reported`，HTTP job 字段 `result_decision` / `result_reason` / `result_report_json` / `result_attempt`（见 `docs/reference/http-api.md`）。
+
+## 诊断：job 为何结束（job diagnose）
+
+```bash
+gofer job diagnose <id> [--json]
+```
+
+一份确定的解释，不用翻日志猜。它全部由 job 已有的行与事件推导，不重跑、不新增存储，所以重启后、CLI 与网页看到的都一致：
+
+- **终止原因**：`reason:` 是稳定枚举加一句中文标签——`ok`（正常结束）/ `agent_error`（活本身没做成）/ `transient`（供应商侧瞬时错误）/ `stalled`（无输出被看门狗杀掉）/ `timeout`（时限用尽）/ `budget`（预算封顶）/ `cancelled`（被人或会话取消）/ `worktree_gone`（续跑时 worktree 已失效被拒）/ `caller_disabled`（提交方已停用被拒）/ `session_ended`（持续会话自身到期）/ `unknown`（还没结束，或没有字段能解释）。
+- **续跑链**：沿续跑、自动续投、来源 job、故障转移与 `--retry` 的关系一路走出来，按发生时间排序并标出关系；**首错**指明链上最早结束得不好的那个 job（自己不算首错），一眼看出后面几次是在替谁收拾。
+- **阶段时间线**：排队、开始、首个输出、最后输出、结束五个时刻；gofer 没有记录的那一段写「未知」并说明原因——「首个输出」历来不记录（只有「最后输出」能从日志文件的修改时间得出），其它没落库的时刻也不拿相邻时间凑。
+- **证据 / 未知 / 下一步**：证据是 job 行自己证明的事实（状态、退出码、失败分类、收尾原因 `wrap_up`、停止原因、会话结束原因、超时与封顶的配置键、worker、worktree、错误首行）；未知列出这份诊断回答不了的部分；下一步是按终止原因给出的固定建议。
+- `--json` 输出原始结构（`GET /v1/jobs/{id}/diagnosis` 同一份），字段名见 `docs/reference/http-api.md`。
+- web：任务详情底部「诊断」按钮，点开右侧抽屉（终止原因、续跑链与首错、时间线、证据 / 未知 / 下一步），点开才请求。
 
 ## agent 的两种启动方式与交互 pty job
 
@@ -467,7 +510,7 @@ gofer job comments <job-id>
 
 `gofer job show` 显示 `check_req`（是否带要求及来源）、`check`（裁决、轮次与不合格条目）、`check_resumes`、`check_error`，以及由核验触发的续接 job id（`continued by:`）。事件：`job.delivery_check.started|passed|failed|auto_resumed|error`。
 
-配置在 `server.delivery_check`（默认关闭）：`agent`（需是带只读模式的 cli-agent）、`model`、`args`、`timeout_sec`、`max_auto_resumes`、`daily_limit`、`input_max_bytes`、`report_tail_bytes`、`include_acceptance`。核验以隐藏的只读 job 运行（`gofer job ls --all` 可见）。要求写成可观测的条件（数量、文件、汇报内容），不要写成模糊的评价。后台 agent 的会话轮换与硬停见下一节。
+配置在 `server.delivery_check`（默认关闭）：`agent`（需是带只读模式的 cli-agent）、`model`、`args`、`timeout_sec`、`max_auto_resumes`、`daily_limit`、`input_max_bytes`、`report_tail_bytes`、`include_acceptance`。`daily_limit` 是每天最多跑几次核验，按 UTC 天计数且**落库**（serve 重启不清零，负数 = 不限）。核验以隐藏的只读 job 运行（`gofer job ls --all` 可见）。要求写成可观测的条件（数量、文件、汇报内容），不要写成模糊的评价。后台 agent 的会话轮换与硬停见下一节。
 
 ### 后台 agent 的会话轮换与硬停
 

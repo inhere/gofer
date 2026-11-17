@@ -32,7 +32,8 @@
 |---|---|---|
 | `job run`（别名 `add`） | 提交 | SKILL.md；进阶 flag 见 [job-advanced.md](job-advanced.md) |
 | `tool refs <id>` | 列出引用该 issue / job / plan / todo / workflow 的可见对象 | `gofer tool refs gofer-abcd`；也可用 MCP `gofer_refs` |
-| `job logs <id>` / `show <id>` / `watch <id>` | 读输出 / 查状态 / 跟随到结束 | |
+| `job logs <id>` / `show <id>` / `watch <id>` | 读输出 / 查状态（含 agent 自报的 `reported:` 行）/ 跟随到结束 | 「自报终态」 |
+| `job diagnose <id> [--json]` | 为何结束：终止原因、续跑链与首错、阶段时间线、证据 / 未知 / 下一步 | [job-advanced.md](job-advanced.md)「诊断」 |
 | `job list`（`ls`） | 列 job：`-p` `--status` `--hold pending\|decided\|any` `--tag` `--agent` `--runner` `--plan` `--session` `--since <unix秒>` `--limit` `--all` | |
 | `job cancel <id>` | 取消 | `needs_review` 用 reject |
 | `job set <id> --title "…"` | 改 / 清空标题 | |
@@ -69,9 +70,11 @@ gofer plan handoff <plan> [--set … | -f …] [--history] [--version N]
 gofer plan brief <plan> [--json]
 gofer plan ask / decisions / answer          # 决策点（人这一侧）
 gofer plan comment <plan> "…" [--todo <todo>] / comments <plan>
+gofer plan drive on <plan> [--level record] [--max-jobs N --max-rework N --max-hours H]   # 推进引擎（本版只有只记录）
+gofer plan drive status / off / report <plan>                                              # 状态 / 关闭 / 一致率报告
 ```
 
-细节（派发字段、依赖链、方案规则、决策点、主 Agent 会话）见 [plans-workflows.md](plans-workflows.md)。
+细节（派发字段、依赖链、方案规则、决策点、自主推进、主 Agent 会话）见 [plans-workflows.md](plans-workflows.md)。
 
 ## workflow（别名 wf）
 
