@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createSSRApp, h } from 'vue'
 import { renderToString } from 'vue/server-renderer'
 import ConversationTimeline from './ConversationTimeline.vue'
-import type { ConversationEntry } from '../utils/conversationTimeline'
+import { acpEventEntries, type ConversationEntry } from '../utils/conversationTimeline'
 import type { Interaction } from '../api/types'
 
 // 测试环境没有 DOM：与 markdownBlock.test.ts 一样用等价桩替掉 DOMPurify。
@@ -94,6 +94,17 @@ describe('ConversationTimeline', () => {
     expect(html).toContain('跑一下测试')
     expect(html).toContain('data-test="timeline-resend"')
     expect(html).toContain('重发')
+  })
+
+  it('shows the stale-question note from the session transcript as one line', async () => {
+    const entries = acpEventEntries(
+      [{ seq: 1, kind: 'session_note', code: 'session_restarted' }],
+      { user: '你', agent: '助手' },
+    )
+    expect(entries).toEqual([{ kind: 'note', id: 'note-1', code: 'session_restarted' }])
+    const html = await render(entries)
+    expect(html).toContain('data-test="timeline-note"')
+    expect(html).toContain('重启前的提问已失效，请重新发起')
   })
 
   it('clamps long messages only when a limit is given', async () => {

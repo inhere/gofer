@@ -714,7 +714,7 @@ func (s *Store) GetJobByRequestID(reqID string) (JobRecord, bool, error) {
 // deliberately excludes `recovering`: only a WORKER job ever enters that state, and
 // such jobs are held (not failed) via orphanWorkerJobStatuses instead. Kept local so
 // jobstore never imports job.
-var nonTerminalJobStatuses = []string{"queued", "running", "waiting_dir"}
+var nonTerminalJobStatuses = []string{"queued", "running", "waiting_dir", "pending_interaction"}
 
 // ClaimLocalSessionsForRecovery moves resident local ACP jobs into a durable
 // recovering state before the ordinary orphan sweep can fail running rows.
@@ -722,7 +722,7 @@ var nonTerminalJobStatuses = []string{"queued", "running", "waiting_dir"}
 // existing orphan behavior.
 func (s *Store) ClaimLocalSessionsForRecovery(ts int64) ([]JobRecord, error) {
 	defer s.emit(Change{Kind: ChangeJob})
-	rows, err := s.db.Query(selectCols + ` WHERE runner='local' AND status IN ('running','awaiting_input')
+	rows, err := s.db.Query(selectCols + ` WHERE runner='local' AND status IN ('running','awaiting_input','pending_interaction')
   AND COALESCE(session_state_json,'') <> ''`)
 	if err != nil {
 		return nil, fmt.Errorf("jobstore: list local session recovery candidates: %w", err)

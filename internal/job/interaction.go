@@ -412,7 +412,11 @@ func (s *Service) ReconcileOrphanJobs() (int, error) {
 	if err != nil {
 		return len(records), err
 	}
+	// The orphans just failed may have left pending interactions behind; the startup
+	// sweep ran before them.
+	_, _ = s.meta.ReconcileOrphanInteractions(s.nowFn().Unix())
 	for _, rec := range records {
+		s.expireStaleInteractions(rec.ID, rec.ResultDir)
 		if startErr := s.resumeLocalSession(rec); startErr != nil {
 			s.failLocalSessionRecovery(rec.ID, startErr)
 		}
