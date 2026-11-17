@@ -105,6 +105,11 @@ describe('ConversationTimeline', () => {
     const html = await render(entries)
     expect(html).toContain('data-test="timeline-note"')
     expect(html).toContain('重启前的提问已失效，请重新发起')
+    const interrupted = await render(acpEventEntries(
+      [{ seq: 2, kind: 'session_note', code: 'turn_interrupted_worker_restart' }],
+      { user: '你', agent: '助手' },
+    ))
+    expect(interrupted).toContain('上一轮因 worker 重启中断')
   })
 
   it('clamps long messages only when a limit is given', async () => {
