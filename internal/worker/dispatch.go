@@ -193,6 +193,9 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		// so both fields are empty and the job simply runs without one.
 		JobToken:           d.JobToken,
 		CredentialExternal: true,
+		// The credential is the HUB job's: GOFER_JOB_ID (and the gofer MCP's job id) must be
+		// the hub's id, not this worker's local one.
+		CredentialJobID: d.JobID,
 		// SEC-01: which hub to call back on. The dispatch arrived on this connection, so
 		// its URL is the only address guaranteed to be reachable from here; the worker's
 		// own config server.addr would point at itself.

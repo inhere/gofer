@@ -96,3 +96,46 @@ func TestSessionJobGetsGoferAskOneShotDoesNot(t *testing.T) {
 		t.Fatalf("a one-shot ACP job must get no gofer_ask MCP: %s", olog)
 	}
 }
+
+// A worker re-entry (CredentialExternal) runs a LOCAL job with its own id, but carries the
+// hub job's credential: GOFER_JOB_ID, and with it the gofer MCP's job id, must be the hub
+// job's, never the local one (the credential only reaches its own job).
+func TestWorkerReentryUsesTheHubJobIDForTheJobEnv(t *testing.T) {
+	s := newACPService(t, t.TempDir(), acptest.Options{EnvPrint: []string{EnvJobToken, "GOFER_JOB_ID", goferAskEnv}})
+	const hubID = "hub-job-20261117-000000-abcd1234"
+	res, err := s.Submit(JobRequest{
+		ProjectKey: "self", Agent: "acpbot", Runner: "local", Cwd: ".",
+		Prompt: "hello", Session: true, TimeoutSec: 20, IdleTimeoutSec: 20,
+		JobToken: "gjt_" + hubID + "_0123456789abcdef", CredentialExternal: true, CredentialJobID: hubID,
+		Env: map[string]string{EnvServerAddr: "http://hub.example:8765"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitSessionTurn(t, s, res.ID, 1)
+	if res.ID == hubID {
+		t.Fatal("the local job must have its own id")
+	}
+	log := readJobLog(t, res, store.StderrFile)
+	if got := envLine(log, "GOFER_JOB_ID"); got != hubID {
+		t.Fatalf("GOFER_JOB_ID = %q, want the hub job id %q (local id %s)\n%s", got, hubID, res.ID, log)
+	}
+	if envLine(log, goferAskEnv) != "1" || !strings.Contains(log, "mcp_servers=1") {
+		t.Fatalf("the session must still get the gofer_ask MCP: %s", log)
+	}
+	_ = s.EndSession(res.ID)
+	s.Wait(res.ID)
+}
+
+// The MCP entry built for a session takes its job id from the run env, so the hub id above
+// is what the gofer_ask child is started with.
+func TestGoferAskMCPCarriesTheEnvJobID(t *testing.T) {
+	runReq := runner.Request{
+		Env: map[string]string{EnvJobToken: "tok", EnvJobBin: "/opt/gofer", "GOFER_JOB_ID": "hub-1"},
+		ACP: &runner.ACPRequest{},
+	}
+	applyGoferAskRun(&runReq)
+	if len(runReq.ACP.MCPServers) != 1 || runReq.ACP.MCPServers[0].Env["GOFER_JOB_ID"] != "hub-1" {
+		t.Fatalf("MCP entry = %+v, want GOFER_JOB_ID=hub-1", runReq.ACP.MCPServers)
+	}
+}

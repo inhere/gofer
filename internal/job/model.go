@@ -372,6 +372,13 @@ type JobRequest struct {
 	// same job would be one nobody can revoke. Empty JobToken + this flag is the
 	// pre-v11 worker case: the job simply runs without a credential.
 	CredentialExternal bool `json:"-" yaml:"-"`
+	// CredentialJobID is the id of the job the credential in JobToken belongs to: the HUB's
+	// job id on a worker re-entry, where this process's own job has a different (local) id.
+	// The job's GOFER_JOB_ID, and with it the gofer MCP's job id, must be that id — a job
+	// credential only reaches its OWN job, so naming the local id gets every own-job request
+	// (gofer_ask, comments, wakeups) refused. Empty = this machine's own job id. Never on
+	// the wire of a submit: set by the worker's dispatch handler only.
+	CredentialJobID string `json:"-" yaml:"-"`
 	// ExclusiveDir overrides the same-directory lock rule for this job (JOB-11): nil
 	// (the default) applies the rule — a WRITABLE agent job (cli/acp, not read-only,
 	// not interactive) takes the exclusive lock of its working directory, while exec

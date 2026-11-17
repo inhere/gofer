@@ -712,7 +712,12 @@ func (s *Service) jobLimitEnvAtStart(entry *jobEntry, base map[string]string, ti
 	entry.mu.Unlock()
 	limit := jobTimeLimit(s.nowFn(), timeout,
 		&JobRequest{Session: res.Session, MaxSessionSec: res.MaxSessionSec}, res.MaxSessionDeadlineAt)
-	return goferJobEnv(base, res.ID, res.Cwd, res.ResultDir, limit)
+	// Keep the job id Submit stamped: on a worker it is the hub's id (the credential's job).
+	envID := res.ID
+	if id := base["GOFER_JOB_ID"]; id != "" {
+		envID = id
+	}
+	return goferJobEnv(base, envID, res.Cwd, res.ResultDir, limit)
 }
 
 // renderedCommandJSON 把本次实际执行的命令序列化为审计 JSON：

@@ -65,6 +65,9 @@ type stubJobs struct {
 	gotNoRules bool
 	// gotPermissionTier captures the dispatch's permission tier as the worker's local Submit saw it.
 	gotPermissionTier string
+	// gotCredentialJobID / gotJobToken capture the credential projection: whose job the credential belongs to.
+	gotCredentialJobID string
+	gotJobToken        string
 	// gotKeepDirLock captures the request's keep_dir_lock (R8).
 	gotKeepDirLock bool
 
@@ -88,6 +91,7 @@ func (s *stubJobs) Submit(req job.JobRequest) (job.JobResult, error) {
 	s.gotCols, s.gotRows = req.Cols, req.Rows
 	s.gotEnv, s.gotNoRules = req.Env, req.NoRules
 	s.gotPermissionTier = req.PermissionTier
+	s.gotCredentialJobID, s.gotJobToken = req.CredentialJobID, req.JobToken
 	s.gotKeepDirLock = req.KeepDirLock
 	s.mu.Unlock()
 	if s.submitErr != nil {
@@ -508,6 +512,32 @@ func TestHandleDispatchCarriesPermissionTier(t *testing.T) {
 	jobs.mu.Unlock()
 	if got != "strict" {
 		t.Fatalf("local Submit permission tier = %q, want strict", got)
+	}
+}
+
+// TestHandleDispatchNamesTheHubJobAsCredentialJob: the credential on a dispatch is the HUB
+// job's, so the worker's local Submit is told that job id (it becomes GOFER_JOB_ID and the
+// gofer MCP's job id); the local job has its own, different id.
+func TestHandleDispatchNamesTheHubJobAsCredentialJob(t *testing.T) {
+	jobs := &stubJobs{
+		submitID:   "local-9",
+		waitResult: job.JobResult{Status: job.StatusDone, ExitCode: 0},
+		waitOK:     true,
+	}
+	cl, frames, url := dialLiveClient(t, jobs)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cl.handleDispatch(ctx, url, wsproto.Dispatch{JobID: "hub-job-1", JobToken: "gjt_hub-job-1_tok"})
+	waitForResult(t, frames, "hub-job-1")
+	jobs.mu.Lock()
+	id, tok := jobs.gotCredentialJobID, jobs.gotJobToken
+	jobs.mu.Unlock()
+	if id != "hub-job-1" || tok != "gjt_hub-job-1_tok" {
+		t.Fatalf("local Submit credential = job %q token %q, want the hub job hub-job-1 and its token", id, tok)
+	}
+	if id == jobs.submitID {
+		t.Fatal("the credential job id must not be the local job id")
 	}
 }
 

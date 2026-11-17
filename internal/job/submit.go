@@ -351,7 +351,9 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		return JobResult{}, fmt.Errorf("%w: --lock declares a directory lock and cannot be combined with --shared-dir", ErrInvalidRequest)
 	}
 	dirExclusive := resolveDirExclusive(cfg, &req)
-	req.ExclusiveDir = &dirExclusive
+	if !dirLockDecisionBelongsToExecutor(cfg, &req) {
+		req.ExclusiveDir = &dirExclusive
+	}
 
 	// AUTO-05: same for the output-stall window — resolved from the SAME snapshot
 	// (request > agent > server, exec jobs off unless asked) and stamped, so the
@@ -1068,7 +1070,13 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		// are resolved here and only enter runReq.Env (resume_env.go).
 		agentEnv := util.MergeEnv(resolved.Env, resumeAgentEnv(cfg, req))
 		inherited := s.resumeInheritedEnv(req)
-		runReq.Env = goferJobEnv(util.MergeEnv(util.MergeEnv(util.MergeEnv(secretMap, agentEnv), inherited), req.Env), jobID, workDir, resultDir, limit)
+		// A worker re-entry names the HUB's job id here (CredentialJobID): the credential the
+		// job carries belongs to that job, not to this machine's local one.
+		envJobID := jobID
+		if req.CredentialJobID != "" {
+			envJobID = req.CredentialJobID
+		}
+		runReq.Env = goferJobEnv(util.MergeEnv(util.MergeEnv(util.MergeEnv(secretMap, agentEnv), inherited), req.Env), envJobID, workDir, resultDir, limit)
 		// MCP-06: secret values for the bound MCP servers live only in the agent
 		// process's environment (never in argv, request_json or a file).
 		if len(mcpInj.Env) > 0 {
@@ -1542,6 +1550,21 @@ func resolveDirExclusive(cfg *config.Config, req *JobRequest) bool {
 		return false
 	}
 	return ac.Type != agent.TypeExec && !req.ReadOnly && !req.Interactive
+}
+
+// dirLockDecisionBelongsToExecutor reports whether the same-directory lock decision must
+// be left UNSTAMPED (nil) so the machine that runs the job makes it: the request has no
+// explicit choice, no --lock, the lock is not switched off here, and this server cannot
+// resolve the agent (a worker-only agent). Stamping the false that resolveDirExclusive
+// answers for an unknown agent would turn "I do not know" into a DECISION the worker
+// then obeys, and a writable agent job (a worker-hosted ACP session included) would
+// never take its directory lock there.
+func dirLockDecisionBelongsToExecutor(cfg *config.Config, req *JobRequest) bool {
+	if !cfg.EffectiveDirLock() || req.ExclusiveDir != nil || len(req.LockPaths) > 0 {
+		return false
+	}
+	_, ok := agent.ResolveAgent(cfg, req.Agent)
+	return !ok
 }
 
 // TitleMaxRunes caps an explicit job title (submit and later edits). It is

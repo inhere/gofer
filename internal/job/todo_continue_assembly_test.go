@@ -59,7 +59,7 @@ const (
 var continuationFieldClasses = map[string]string{
 	// from the predecessor
 	"SessionID": fieldPred, "ResumedFrom": fieldPred, "SourceJobID": fieldPred, "Cwd": fieldPred,
-	"Runner": fieldPred, "MCP": fieldPred, "SessionApproval": fieldPred, "PermissionTier": fieldPred,
+	"Runner": fieldPred, "MCP": fieldPred, "SessionApproval": fieldPred, "PermissionTier": fieldPred, "CredentialJobID": fieldInternal,
 	"Language": fieldPred,
 	// set by the assembler
 	"Agent": fieldAssembled, "Cmd": fieldAssembled, "Prompt": fieldAssembled, "Model": fieldAssembled,

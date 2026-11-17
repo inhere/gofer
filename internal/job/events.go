@@ -72,6 +72,12 @@ var mirroredEventTypes = map[string]bool{
 	// job ran with a variable its denylist would have stripped, which is exactly the
 	// fact the job detail exists to show.
 	EventJobEnvAllowed: true,
+	// The same-directory lock is taken on the executing machine, so a job queued for it
+	// there (first start or a session's next turn) looks merely "queued" on the host
+	// without these; the host has no lock event of its own for a remote job.
+	EventJobWaitingDir:     true,
+	EventJobDirWait:        true,
+	EventJobDirWaitTimeout: true,
 }
 
 // job.session_captured is filtered by source below: the host's PTY relay owns
