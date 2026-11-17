@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 
 	"github.com/inhere/gofer/internal/job"
@@ -153,4 +154,11 @@ func (s *adoptSink) Suspend(reason string) (int64, int64) { return s.aj.Suspend(
 
 func (s *adoptSink) Resume() { s.aj.Resume() }
 
-func (s *adoptSink) OnDisconnect(err error) { s.aj.OnDisconnect(err) }
+func (s *adoptSink) OnDisconnect(err error) {
+	if errors.Is(err, wshub.ErrWorkerRestarted) {
+		// The job service cannot see the hub's error: re-tag it so a session can be reloaded
+		// on the restarted process.
+		err = runner.NewWorkerRestartedError(err)
+	}
+	s.aj.OnDisconnect(err)
+}

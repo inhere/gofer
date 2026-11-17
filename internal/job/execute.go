@@ -244,6 +244,7 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 				entry.mu.Lock()
 				entry.result.Status = StatusRunning
 				entry.result.StartedAt = now
+				entry.result.RecoveringSince, entry.result.Error = 0, "" // a reloaded session leaves `recovering` here
 				snap := entry.result
 				entry.mu.Unlock()
 				_ = s.persist(snap)
@@ -505,6 +506,7 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 		close(storeProbeDone)
 	}
 	res := run.Run(runCtx, req)
+	res = s.redispatchWorkerSession(runCtx, entry, run, &req, res)
 	close(storeProbeStop)
 	<-storeProbeDone
 	entry.mu.Lock()

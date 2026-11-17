@@ -19,6 +19,13 @@ import (
 // for log search is the "error_code=worker_lost" attribute on the warning below.
 var errWorkerLost = errors.New("worker lost: recovery window expired")
 
+// ErrWorkerRestarted is the error an in-flight job is finished with when a NEW process
+// instance registered under its worker id: the process that ran the job is gone and nothing
+// it ran survived. It is distinct from errWorkerLost (the window elapsed with no sign of the
+// worker) so the job service can reload a persistent session on the new process instead of
+// failing it. Its text keeps the "worker lost" vocabulary a plain failure shows.
+var ErrWorkerRestarted = errors.New("worker lost: worker process restarted")
+
 // pendingCancelCap bounds the per-worker pending-cancel map (mirrors the worker's
 // own pendingCancelCap). In practice the map only ever holds jobs that ARE in the
 // recovery set, so the cap is a formality rather than a real bound.
@@ -199,7 +206,14 @@ func (h *Hub) suspendOnDisconnect(wc *workerConn, jobIDs []string) {
 // touched: its register already failed these jobs.
 func (h *Hub) attachToLiveReconnect(wc *workerConn, jobIDs []string) {
 	live, ok := h.reg.Get(wc.workerID)
-	if !ok || live == wc || live.instanceID != wc.instanceID {
+	if ok && live != wc && live.instanceID != wc.instanceID {
+		// A DIFFERENT process instance is already registered: the process that ran these
+		// jobs is gone, so end them as a restart now rather than holding them for a window
+		// nothing can satisfy.
+		h.failRestarted(wc, jobIDs)
+		return
+	}
+	if !ok || live == wc {
 		return
 	}
 	for _, jobID := range jobIDs {
@@ -215,6 +229,37 @@ func (h *Hub) attachToLiveReconnect(wc *workerConn, jobIDs []string) {
 		}
 		live.putSink(jobID, rj.sink)
 		live.adoptReserve(jobID)
+	}
+}
+
+// failRestarted takes jobIDs out of the worker's recovery set and ends them as a worker
+// restart (ErrWorkerRestarted): the same outcome planRecovery gives a different instance
+// that registers after the disconnect was processed.
+func (h *Hub) failRestarted(wc *workerConn, jobIDs []string) {
+	h.recMu.Lock()
+	rs := h.recov[wc.workerID]
+	var lost []*recoveringJob
+	var ids []string
+	if rs != nil {
+		for _, jobID := range jobIDs {
+			if rj, ok := rs.jobs[jobID]; ok {
+				delete(rs.jobs, jobID)
+				lost = append(lost, rj)
+				ids = append(ids, jobID)
+			}
+		}
+		if len(rs.jobs) == 0 {
+			h.dropRecoveryLocked(wc.workerID, rs)
+		}
+	}
+	h.recMu.Unlock()
+	for i, rj := range lost {
+		slog.Warn("worker.job_lost", "event", "worker.job_lost", "component", "server",
+			"worker_id", wc.workerID, "job_id", ids[i], "error_code", "worker_lost",
+			"reason", "worker restarted (new instance)")
+		if rj != nil && rj.sink != nil {
+			rj.sink.OnDisconnect(ErrWorkerRestarted)
+		}
 	}
 }
 
@@ -325,7 +370,7 @@ func (h *Hub) planRecovery(reg wsproto.Register) pendingRecovery {
 				"worker_id", reg.WorkerID, "job_id", jobID, "error_code", "worker_lost",
 				"reason", "worker restarted (new instance)")
 			if rj != nil && rj.sink != nil {
-				rj.sink.OnDisconnect(errWorkerLost)
+				rj.sink.OnDisconnect(ErrWorkerRestarted)
 			}
 		}
 		return plan

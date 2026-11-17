@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	acprunner "github.com/inhere/gofer/internal/runner/acp"
+	"github.com/inhere/gofer/internal/runner"
 )
 
 // staleInteractionReason is the reason recorded on an interaction whose question
@@ -59,11 +59,11 @@ func appendSessionNote(resultDir, code string) {
 	if err != nil {
 		return
 	}
-	dir := filepath.Join(resultDir, "artifacts")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	path := runner.ACPArtifactPath(resultDir)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return
 	}
-	f, err := os.OpenFile(filepath.Join(dir, acprunner.ACPFileName), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		slog.Debug("append session note", "err", err)
 		return

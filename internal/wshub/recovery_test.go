@@ -171,7 +171,8 @@ func TestRecoverWindowExpiryFailsWorkerLost(t *testing.T) {
 
 // TestNewInstanceFailsRecoveringImmediately: a reconnecting worker with a DIFFERENT
 // instance_id is a restarted process — the old process's jobs died with it, so the
-// recovering jobs are failed at once instead of waiting out the window.
+// recovering jobs are ended at once instead of waiting out the window, as a restart
+// (ErrWorkerRestarted) so a session can be reloaded on the new process.
 func TestNewInstanceFailsRecoveringImmediately(t *testing.T) {
 	hub := recoverHub(30 * time.Second) // long: only an immediate fail can satisfy this
 	_, wsURL := hubServer(t, hub, "w1")
@@ -191,8 +192,8 @@ func TestNewInstanceFailsRecoveringImmediately(t *testing.T) {
 	}
 	select {
 	case err := <-sink.lost:
-		if err != errWorkerLost {
-			t.Fatalf("OnDisconnect err = %v, want errWorkerLost", err)
+		if err != ErrWorkerRestarted {
+			t.Fatalf("OnDisconnect err = %v, want ErrWorkerRestarted", err)
 		}
 	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("new instance did not fail the recovering job immediately")
@@ -410,4 +411,51 @@ func TestCancelFrameRetriedWhenWriteFails(t *testing.T) {
 		return
 	}
 	t.Fatal("a cancel whose frame could not be written was never retried after the reconnect")
+}
+
+// TestRestartRegisteringBeforeOldConnectionDropsEndsAsRestart: the new process can register
+// while the old connection still looks alive; when that connection is then replaced and
+// torn down, the jobs it held are ended as a restart at once (not held for a window nothing
+// can satisfy), so a session is reloaded straight away.
+func TestRestartRegisteringBeforeOldConnectionDropsEndsAsRestart(t *testing.T) {
+	hub := recoverHub(30 * time.Second) // long: only an immediate end can satisfy this
+	_, wsURL := hubServer(t, hub, "w1")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	conn1, _ := dialRegisterRaw(t, ctx, wsURL, wsproto.Register{
+		WorkerID: "w1", InstanceID: "inst-A", ProtocolVersion: wsproto.CurrentProtocolVersion,
+	})
+	defer conn1.Close(websocket.StatusNormalClosure, "")
+	// Read so the hub's close of this replaced connection completes promptly.
+	go func() {
+		for {
+			if _, _, err := conn1.Read(ctx); err != nil {
+				return
+			}
+		}
+	}()
+	waitFor(t, func() bool { _, ok := hub.reg.Get("w1"); return ok })
+	sink := newFakeSink()
+	if err := registerSink(t, hub, "w1", "j1", sink); err != nil {
+		t.Fatalf("RegisterSink: %v", err)
+	}
+	if err := hub.Dispatch("w1", wsproto.Dispatch{JobID: "j1"}); err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+
+	conn2, _ := dialRegisterRaw(t, ctx, wsURL, wsproto.Register{
+		WorkerID: "w1", InstanceID: "inst-B", ProtocolVersion: wsproto.CurrentProtocolVersion,
+		Inflight: []wsproto.InflightJob{},
+	})
+	defer conn2.Close(websocket.StatusNormalClosure, "")
+
+	select {
+	case err := <-sink.lost:
+		if err != ErrWorkerRestarted {
+			t.Fatalf("OnDisconnect err = %v, want ErrWorkerRestarted", err)
+		}
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
+		t.Fatal("a restarted worker registering first did not end the old process's job as a restart")
+	}
 }

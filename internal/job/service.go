@@ -471,6 +471,10 @@ type jobEntry struct {
 	// sessionCommandTurn is the turn a pending REMOTE say was sent after; a worker
 	// report of a later turn proves the worker consumed it. Guarded by mu.
 	sessionCommandTurn int
+	// turnBase is the host's turn count when a worker session was reloaded on a restarted
+	// worker process: that process counts its turns from zero again, so every turn it reports
+	// is shifted by this much. Guarded by mu.
+	turnBase int
 	// sessionCommandID is the command id of the pending batch (empty for a local
 	// session, which needs no wire id). A re-send must reuse it — the worker drops an
 	// id it has already seen and never recycles them — so it also tells a re-send

@@ -370,6 +370,13 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	// offline worker, or a legacy connection with none recorded) is treated as "cannot
 	// carry the mount", because guessing wrong would write a skill into the shared
 	// checkout. JOB-10 does NOT gate the dispatch on skills — see splitSkillUploads.
+	// A session being re-dispatched after its worker process restarted may find the new
+	// process still registering: wait for it (bounded) instead of failing at once.
+	if f.WaitWorkerOnline > 0 {
+		if err := r.waitWorkerOnline(ctx, workerID, f.WaitWorkerOnline); err != nil {
+			return runner.Result{ExitCode: -1, Err: err}
+		}
+	}
 	proto, protoKnown := r.hub.WorkerProtocol(workerID)
 	if f.Session && !protoKnown {
 		if _, online := r.hub.LiveInstance(workerID); online {
@@ -702,6 +709,30 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 }
 
 const relayNonceTTLSeconds = 60
+
+// workerOnlinePoll is how often waitWorkerOnline looks for the worker's connection.
+const workerOnlinePoll = 200 * time.Millisecond
+
+// waitWorkerOnline returns once the worker has a live connection, ErrWorkerOffline when
+// max passes first, or the ctx error when the job is cancelled while it waits.
+func (r *Runner) waitWorkerOnline(ctx context.Context, workerID string, max time.Duration) error {
+	deadline := time.NewTimer(max)
+	defer deadline.Stop()
+	tick := time.NewTicker(workerOnlinePoll)
+	defer tick.Stop()
+	for {
+		if _, ok := r.hub.LiveInstance(workerID); ok {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline.C:
+			return wshub.ErrWorkerOffline
+		case <-tick.C:
+		}
+	}
+}
 
 func newPtySessionID(jobID string) string {
 	var b [16]byte
@@ -1177,8 +1208,14 @@ func (s *boundedSink) Finish(res wsproto.Result) {
 // is then simply never read (the deferred DeregisterSink GC's the sink), so a
 // disconnect arriving after a completed job never overrides its true outcome.
 func (s *boundedSink) OnDisconnect(err error) {
+	restarted := errors.Is(err, wshub.ErrWorkerRestarted)
 	if s.sessionJobID != "" && err != nil && (strings.Contains(err.Error(), "worker lost") || strings.Contains(err.Error(), "worker restarted")) {
 		err = errors.New(i18n.T(s.lang, "job.errors.worker_restarted", "job", s.sessionJobID))
+	}
+	if restarted {
+		// Keep the readable text but stay recognisable: a session the job service can
+		// reload on the new process is re-dispatched instead of failed.
+		err = runner.NewWorkerRestartedError(err)
 	}
 	select {
 	case s.lostCh <- err:
