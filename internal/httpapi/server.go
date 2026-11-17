@@ -1684,6 +1684,8 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/jobs/{id}/cancel", s.handleCancelJob)
 		r.POST("/jobs/{id}/say", s.handleSessionJobSay)
 		r.POST("/jobs/{id}/end", s.handleSessionJobEnd)
+		// A job's own report of how its run ended (gofer_submit_result): own credential only.
+		r.POST("/jobs/{id}/result", s.handleSubmitJobResult)
 
 		// GATE-01 S3 人工验收：accept/reject 是人对交付物的裁决（agent 永远不能 accept
 		// 自己的工作）。仅 user caller（worker 403）；governance.require_answer_capability

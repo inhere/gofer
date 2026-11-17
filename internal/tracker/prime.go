@@ -24,6 +24,7 @@ func trackerPrimeHint(lang i18n.Lang) string {
 }
 func primeTakeoverHint(lang i18n.Lang) string { return primeText(lang, "header.takeover") }
 func memoryWriteHint(lang i18n.Lang) string   { return primeText(lang, "header.memory_write") }
+func resultPrimeHint(lang i18n.Lang) string   { return primeText(lang, "header.result_hint") }
 func memoryFlagHint(lang i18n.Lang) string    { return primeText(lang, "memory.flag_hint") }
 
 // PrimeWithHandoffSection appends the caller-provided best-effort server handoff
