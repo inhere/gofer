@@ -266,6 +266,10 @@ func (n *acpNormalizer) record(record map[string]any) []map[string]any {
 		return append(events, permissionEvent(record))
 	case "plan":
 		return append(events, selectEvent("plan", record, "entries"))
+	case "turn_unsent":
+		// A session turn that never ran (the directory stayed busy past the wait cap):
+		// the workspace shows the note and offers the original message back to resend.
+		return append(events, selectEvent("turn_unsent", record, "text", "prompt"))
 	case "usage_update", "usage":
 		return append(events, usageEvent(record))
 	case "stop":
