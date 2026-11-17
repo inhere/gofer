@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.1.0 -->
 # 第 4 批：自主推进 P1 + P2 实施计划
 
-> 状态：Draft 0.1（待用户审）
+> 状态：Draft 0.1 已批准（2026-11-16，用户：「4 批计划批准」）
 > 设计：`docs/design/2026-11-16-plan-driver-autonomy-design.md`（已批准，Q1–Q6 = A）
 > issue：gofer-eeod（底座部分）、gofer-jaoy、gofer-n3kw；关联 gofer-5hdh、gofer-ds7i、gofer-zoww（P3 起）
 

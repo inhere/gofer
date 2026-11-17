@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.2.0 -->
 # 第 5 批：web 会话体验（容器 claude-acp） 总设计
 
-> 状态：Draft 0.1（待用户审）
+> 状态：Approved（Draft 0.1；用户 2026-11-16 批准：Q1–Q7 按推荐，Q6 调整为「让出目录锁」提前到本批 P1，常驻与自动接回仍下一批）
 > issue：gofer-59vu（等待输入让出目录锁）、gofer-xmit（空闲常驻会话拖住 worker 升级）、gofer-geyu（会话已死时 job 无法结束）、gofer-byvi（恢复后 secret 掩码）；关联 gofer-9dbh（工作区代理）、gofer-t28g（决策 hook）、gofer-ds7i（卡片绑定轮次）
 > 关联设计：第 4 批 `2026-11-16-plan-driver-autonomy-design.md`（决策卡）、`2026-10-12-session-question-relay-design.md`（gofer-02fu，终端选择题转 web）、`2026-11-10-acp-session-history-design.md`（gofer-7yrg，ACP 历史）、`2026-11-09-scope-derived-dir-lock-design.md`（Q6/Q7 deferred）
 > 依据：2026-11-16 真实试用（容器 worker 上 `claude-acp` 持续会话两轮 + 无头浏览器截图）
