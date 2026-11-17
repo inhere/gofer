@@ -91,3 +91,16 @@ func TestPrimeRuleScopesMemoriesToCwd(t *testing.T) {
 	assert.Contains(t, unknown, "- go-rule: GO-RULE-FULL")
 	assert.Contains(t, unknown, "- java-note · JAVA-NOTE")
 }
+
+// TestResultHintOnlyInJobPrime: the gofer_submit_result hint is in the job rule body and
+// not in the session-opening prime (a terminal session has no such tool).
+func TestResultHintOnlyInJobPrime(t *testing.T) {
+	now := time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC)
+	job := renderPrimeRule("POLICY", nil, "", false, PrimeSelection{}, now)
+	assert.Contains(t, job, "gofer_submit_result")
+
+	s := primeTestStore(t)
+	session, err := s.PrimeWith(PrimeOptions{Now: now})
+	assert.NoErr(t, err)
+	assert.NotContains(t, session, "gofer_submit_result")
+}

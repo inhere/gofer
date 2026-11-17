@@ -128,8 +128,6 @@ func (s *Store) renderPrime(opts PrimeOptions) (string, bool, error) {
 	}
 	out.WriteString(trackerPrimeHint(lang))
 	out.WriteString("\n")
-	out.WriteString(resultPrimeHint(lang))
-	out.WriteString("\n")
 	truncated := false
 	budget := func(n int) int {
 		if opts.Unbounded {

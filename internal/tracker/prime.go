@@ -292,6 +292,10 @@ func renderPrimeRuleIn(lang i18n.Lang, policy string, memories []Memory, rel str
 		}
 	}
 	var out strings.Builder
+	// The job rule body is the job-only injection (a terminal session's prime never
+	// takes this path), so the gofer_submit_result hint belongs here.
+	out.WriteString(resultPrimeHint(lang))
+	out.WriteString("\n")
 	out.WriteString(primeText(lang, "layout.commit_heading"))
 	out.WriteString("：")
 	out.WriteString(policy)
