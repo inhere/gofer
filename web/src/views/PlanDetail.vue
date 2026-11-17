@@ -24,6 +24,7 @@ import CommentThread from '../components/CommentThread.vue'
 import DocLinkText from '../components/DocLinkText.vue'
 import MarkdownBlock from '../components/MarkdownBlock.vue'
 import PlanSupervisor from '../components/PlanSupervisor.vue'
+import PlanDriverTab from '../components/PlanDriverTab.vue'
 import ExperimentalBadge from '../components/ExperimentalBadge.vue'
 import BackLink from '../ui/BackLink.vue'
 import ProgressBar from '../ui/ProgressBar.vue'
@@ -100,6 +101,9 @@ const planTabs = computed<TabItem[]>(() => {
       tone: decisionsTabTone((p?.decisions ?? []).filter((d) => d.state === 'OPEN').length),
     },
     { value: 'handoff', label: t('plans.detail.tab.handoff'), count: handoffVersions.value.length || undefined },
+    // 推进记录（计划 R12）：driver 状态、预算与一致率。record 等级只算不做，所以这里
+    // 没有「需要人」的角标，也不参与链控制。
+    { value: 'driver', label: t('plans.detail.tab.driver') },
     { value: 'comments', label: t('plans.detail.tab.comments') },
     { value: 'events', label: t('plans.detail.tab.events') },
   ]
@@ -663,6 +667,14 @@ const todoDrawerOpen = computed({
 })
 function openTodo(todo: Todo): void {
   todoOpenId.value = todo.todo_id
+}
+// 推进记录页签的动作明细里只有 todo 标识：在本页这份 plan 里找得到就开同一条抽屉，
+// 找不到（条目已被删）什么都不做，不弹一个空抽屉。
+function openTodoById(todoId: string): void {
+  const todo = plan.value?.todos.find((x) => x.todo_id === todoId)
+  if (todo) {
+    openTodo(todo)
+  }
 }
 // 没人认领的条目在抽屉里先选 agent（与看板拖到 ready 同一套：agent 随 status=ready 一起发）。
 function onTodoDrawerDispatch(todo: Todo, agent: string): void {
@@ -1485,6 +1497,15 @@ onUnmounted(() => {
             @answer="onAnswerDecision(d, $event)"
           />
         </section>
+
+        <!-- 推进记录页签（设计 2026-11-16 §1，计划 R12）：driver 开关、预算与一致率；
+             内容在 PlanDriverTab（本文件只接线）。 -->
+        <PlanDriverTab
+          v-if="plan && active === 'driver'"
+          :plan-id="plan.plan_id"
+          :write-block="planWriteBlock()"
+          @open-todo="openTodoById"
+        />
 
         <section v-if="plan && active === 'todos'" class="section">
           <!-- 视图切换（issue gofer-qw2g）：从页头右上角挪到「待办（完成 x/y · 进行中 n）」

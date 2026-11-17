@@ -12,6 +12,8 @@
 - [完成时机：todo 何时算完成（--complete-on）](#完成时机todo-何时算完成--complete-on)
 - [方案规则与 plan import](#方案规则与-plan-import)
 - [决策点问人（gofer_ask_human）](#决策点问人gofer_ask_human)
+- [自主推进（plan drive）](#自主推进plan-drive)
+- [推进的可靠性：重启后补推进](#推进的可靠性重启后补推进)
 - [主 Agent 会话与 job 来源会话](#主-agent-会话与-job-来源会话)
 - [workflow：有依赖的多步编排](#workflow有依赖的多步编排)
 - [verify / release 起步 workflow](#verify--release-起步-workflow)
@@ -40,7 +42,7 @@ gofer plan comment <plan> "…" [--todo <todo>] / comments <plan>
 
 - `plan show` 在每个 todo 下列出挂接的 job（状态 / agent / 用时）、assignee 与派发错误，头部有用量汇总，并打出 `complete_on:`（见下文「完成时机」）。`plan set <plan> --complete-on merge|job` 随时改这一项（默认 `job`）。
 - `set-todo --status doing` 记开始时间，`done` / `skipped` 记完结时间；裸调用 = done，`--undone` = pending；`--note` 写**结果 / 验收一句话**，过程在 job logs。
-- todo 状态：`pending`（不会自动派发）→ `ready`（可派发）→ `doing` → `done` / `skipped`。server 重启**不补派** ready 的项（派发只发生在写入时）。
+- todo 状态：`pending`（不会自动派发）→ `ready`（可派发）→ `doing` → `done` / `skipped`。除写入时派发外，serve 每 60 秒还有一次补推进扫描（重启后同样先扫一次），把「已就绪却没派出 job」的项补派出去，见下文「推进的可靠性」。
 - plan 状态：`open` / `blocked`（链停在某一项等人处理，非终态）/ `done`（全部 done|skipped 自动置）/ `archived`；另有暂停开关 `plan pause` / `plan resume`。
 - web 的 Plans 页有**计划总览**（每行一个计划，带分段进度条与卡点）与**计划详情**；详情页的待办页签就是**计划看板**（五列：把卡片拖到 `ready` 即派发、拖到 `done` / `skipped` 即人工标记；`doing` / `needs_review` 由服务端驱动、不可拖入），任务 / 决策 / 交接说明 / 评论 / 事件是同一个详情页的其他页签（`?tab=`），手机也能看实时进度。
 
@@ -248,6 +250,36 @@ gofer plan answer <decision-id> --answer "方案A"
 - 超时兜底在 agent 侧：收到 `expired` 后按预案继续（执行推荐项），或把该步 todo 置 `skipped` 并说明——不无限阻塞、不原地重问。
 - `timeout_sec` 缺省 1800（范围 2 秒到 24 小时）；按宿主客户端的工具调用超时上限来设，宿主先杀调用时决策留 OPEN、到期自动过期。
 - 一次只问一个决策点是范式建议，不是连接限制。
+
+## 自主推进（plan drive）
+
+推进引擎（driver）让 gofer 自己盯着一条 plan 往前走。本版只开放**只记录**等级：它对每个推进事件算出「本来会做什么」并记下来，**不派发、不续接、不重试、不暂停**；随后把记录与实际发生的处理对比，给出一致率，先量准了再谈放权。`assist` / `auto` 未开放（指定这两个等级会被服务端拒绝，提示「该等级在后续版本支持」）。
+
+```bash
+gofer plan drive on <plan> [--level record] [--max-jobs N --max-rework N --max-hours H]   # 开启（默认 record），预算可留空 = 不限
+gofer plan drive status <plan>   # 开关、等级、预算、启用于何时
+gofer plan drive off <plan>      # 关闭（幂等：本来就关着回答一样）
+gofer plan drive report <plan>   # 一致率报告
+```
+
+- **默认关**：新 plan 不带 driver；关着时推进与以前完全一样，driver 也不收事件。
+- **预算是整条 plan 的累计**（自开启起算，不是每天）：`--max-jobs`（这个 plan 派出的 job 数，含续接与重试）、`--max-rework`（返工轮数）、`--max-hours`（时长）。`0` / 留空 = 不限。
+  - 只记录等级下预算**只计数**：超了不暂停，只在那条记录上标「本会暂停」（web 列显示「本会暂停」，报告里也是同一字段）。
+- **记什么**：每个推进事件（待办完成、`plan run` / `resume` / `set-todo`、链上 job 失败，以及「停在等验收」与「job 完成而待办仍未完成」这两种观察）算出一条动作 —— 派发待办 / 完成待办 / 带意见续接 / 重试 / 阻塞 plan / 交给人工 / 预算熔断。每条带命中的规则与风险（低 / 中 / 红线，风险表写死在代码里）。「交给人工」= 规则判断不了，后续版本在这里接决策点。
+- **规则口径**（本版）：自报 `human` / `fail` → 交给人工；自报 `rework` → 带意见续接（返工预算用尽则交给人工）；交付核验不通过 → 带意见续接；瞬时失败（含停滞被杀）→ 重试；其它失败 → 交给人工；等验收 → 交给人工；核验通过 / 自报通过 / 正常完成 → 完成待办；可开工的待办 → 派发（按推进**之前**的状态判断）。
+- **一致率**：每条记录在 24 小时内观察同一待办的下一步（派发、完成、续接、重试、跳过、blocked）。对应上 = 一致，不同 = 不一致，24 小时没有变化 = 无后续。`report` 按动作、按「动作 + 规则」列出 合计 / 一致 / 不一致 / 无后续 / 未观察 与一致率，另给「最近 20 个已观察动作里一致率 ≥ 90%」这条升级建议（**只显示，不会自动升级**），最后是最近 100 条动作明细（最新在前）。还没观察出结果的记录不算进一致率（显示「—」）。
+  - `report` 每次读取时会先把能定的记录定下来，所以 plan 已经不动了也能看到最新结论。
+- web：计划详情多一个「推进记录」页签（开关、等级、预算与用量、按动作 / 按规则的一致率、动作明细；点动作里的待办打开同一页的待办抽屉），见 [web-console.md](web-console.md)。
+- 权限：开关是 plan 写（plan 所有者或 `plan.manage.others`），读与 plan 本身一样公开。HTTP：`PUT|DELETE|GET /v1/plans/{id}/driver`、`GET /v1/plans/{id}/driver/report`（见 `docs/reference/http-api.md`）。MCP 没有对应工具，agent 用 CLI 或 HTTP。
+
+## 推进的可靠性：重启后补推进
+
+推进事件是**先落库、再执行**：每个事件先写一行，执行成功后删掉。进程在执行途中退出、或这次推进失败（存储故障），那一行就留着；serve 启动后以及之后每 60 秒扫描一次，重放残留事件，并对每个 open、未暂停的 plan 各推进一次——没人触发的链也会接着往下走，不用重新 `plan run`。
+
+- 补推进是**幂等**的：只有还在 `pending` 的项会被移动，已经派出 job、已完成、已 blocked 的项不会被重复处理。中断在「已就绪、job 还没派出去」的项也在这次扫描里补派。
+- 同一条 plan 的推进**按 plan 串行**：同一时刻只有一个处理者，其它触发的推进排队后依次执行（排队的事件一样会执行到）。
+- 扫描投递的推进不重复发通知：这类「没改变任何状态」的扫描不会反复发链事件通知。
+- 一次事件连续失败 5 次就被丢弃，并记一条审计事件 `plan.event_dropped`（带 plan、事件类型、待办 / job 与最后一次错误），不会无休止重试。plan 卡住不动时先看它：事件一直失败说明存储或数据有问题，不是链的规则问题。
 
 ## 主 Agent 会话与 job 来源会话
 

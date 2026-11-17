@@ -158,20 +158,35 @@ func (s *Service) PlanTodoChanged(todoID, status, by string) {
 // advancePlan moves a plan's chain forward after one of its items finished. It is the
 // single place the advance rule lives; the job terminal hooks and the todo write paths
 // all funnel into it.
+//
+// It is the emitting entry (planevents.go): the advance itself is doAdvancePlan.
 func (s *Service) advancePlan(planID, by string) {
+	s.emitPlanEvent(PlanEvent{PlanID: planID, Kind: PlanEventAdvance, By: by}, nil)
+}
+
+// doAdvancePlan is the advance body. A returned error means the advance could not run to
+// the end (the store failed), which keeps the event row for the scan to replay; per-item
+// failures are logged and skipped as before. quiet (the periodic scan) suppresses the
+// announcements that would otherwise repeat every pass for a state nobody changed.
+func (s *Service) doAdvancePlan(planID, by string, quiet bool) error {
 	p, ok, err := s.meta.GetPlan(planID)
-	if err != nil || !ok {
-		return
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
 	}
 	if p.Paused {
-		s.RecordScopedEvent(PlanEventScope(planID), EventPlanAdvancePaused, p.ProjectKey,
-			map[string]any{"plan_id": planID})
-		return
+		if !quiet {
+			s.RecordScopedEvent(PlanEventScope(planID), EventPlanAdvancePaused, p.ProjectKey,
+				map[string]any{"plan_id": planID})
+		}
+		return nil
 	}
 	todos, err := s.meta.ListTodosByPlan(planID)
 	if err != nil {
 		slog.Warn("advance plan: list todos", "plan_id", planID, "err", err)
-		return
+		return err
 	}
 	byID := todosByID(todos)
 	for _, t := range todos {
@@ -182,7 +197,9 @@ func (s *Service) advancePlan(planID, by string) {
 			continue
 		}
 		if t.Assignee == "" {
-			s.todoUnassigned(p, t)
+			if !quiet {
+				s.todoUnassigned(p, t)
+			}
 			continue
 		}
 		if !t.Auto {
@@ -201,15 +218,20 @@ func (s *Service) advancePlan(planID, by string) {
 			slog.Warn("advance plan: dispatch todo", "plan_id", planID, "todo_id", t.TodoID, "err", err)
 		}
 	}
+	if quiet {
+		s.relinkFinishedDoing(todos)
+		s.dispatchStrandedReady(p, todos, by)
+	}
 	if len(todos) == 0 || !todosFinished(todos) || p.Status == jobstore.PlanDone {
-		return
+		return nil
 	}
 	if err := s.meta.SetPlanStatus(planID, jobstore.PlanDone, -1); err != nil {
 		slog.Warn("advance plan: complete", "plan_id", planID, "err", err)
-		return
+		return err
 	}
 	s.RecordScopedEvent(PlanEventScope(planID), EventPlanCompleted, p.ProjectKey,
 		map[string]any{"plan_id": planID})
+	return nil
 }
 
 // maybeBlockPlan parks a plan whose CHAIN job ended in failure (PLAN-03, design
@@ -228,6 +250,9 @@ func (s *Service) advancePlan(planID, by string) {
 //     not a chain, and blocking it would be a surprise (design §一.2);
 //   - the plan is already blocked on this very item (the second terminal event of a
 //     re-run must not re-record it).
+//
+// It is the emitting entry (planevents.go): the cheap preconditions that need no store
+// round trip beyond the todo lookup run here, the rest in doBlockPlan.
 func (s *Service) maybeBlockPlan(snap JobResult) {
 	if snap.TodoID == "" {
 		return
@@ -237,33 +262,57 @@ func (s *Service) maybeBlockPlan(snap JobResult) {
 	default:
 		return
 	}
-	if rec, ok, err := s.meta.GetJob(snap.ID); err == nil && ok {
-		if rec.AutoResumedBy != "" || rec.FellBackTo != "" {
-			return
-		}
-	}
 	todo, ok, err := s.meta.GetTodo(snap.TodoID)
 	if err != nil || !ok {
 		return
 	}
+	s.emitPlanEvent(PlanEvent{PlanID: todo.PlanID, TodoID: snap.TodoID, JobID: snap.ID, Kind: PlanEventBlock}, &snap)
+}
+
+// doBlockPlan is the block body; see maybeBlockPlan for the rules. A returned error keeps
+// the event row for replay.
+func (s *Service) doBlockPlan(snap JobResult) error {
+	if snap.TodoID == "" {
+		return nil
+	}
+	switch snap.Status {
+	case StatusFailed, StatusTimeout, StatusCancelled, StatusRejected:
+	default:
+		return nil
+	}
+	if rec, ok, err := s.meta.GetJob(snap.ID); err == nil && ok {
+		if rec.AutoResumedBy != "" || rec.FellBackTo != "" {
+			return nil
+		}
+	}
+	todo, ok, err := s.meta.GetTodo(snap.TodoID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
 	plan, ok, err := s.meta.GetPlan(todo.PlanID)
-	if err != nil || !ok {
-		return
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
 	}
 	if plan.Status == jobstore.PlanBlocked && plan.BlockedTodo == snap.TodoID {
-		return
+		return nil
 	}
 	todos, err := s.meta.ListTodosByPlan(todo.PlanID)
 	if err != nil {
 		slog.Warn("block plan: list todos", "plan_id", todo.PlanID, "err", err)
-		return
+		return err
 	}
 	if !chainPlan(todos) {
-		return
+		return nil
 	}
 	if err := s.meta.SetPlanBlocked(todo.PlanID, snap.TodoID); err != nil {
 		slog.Warn("block plan", "plan_id", todo.PlanID, "todo_id", snap.TodoID, "err", err)
-		return
+		return err
 	}
 	reason := firstRunes(snap.Error, maxTodoNoteErrorRunes)
 	if reason == "" {
@@ -272,6 +321,7 @@ func (s *Service) maybeBlockPlan(snap JobResult) {
 	s.RecordScopedEvent(PlanEventScope(todo.PlanID), EventPlanBlocked, plan.ProjectKey, map[string]any{
 		"todo_id": snap.TodoID, "job": snap.ID, "reason": reason,
 	})
+	return nil
 }
 
 // recordPlanAdvanced announces one queued item (PLAN-03): the plan's own event stream

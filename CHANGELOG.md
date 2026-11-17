@@ -19,12 +19,16 @@
 - **`gofer worker service register|start|stop|status|uninstall [--purge]`**：把本机 worker 登记成**用户级**系统服务（Linux systemd `--user`、Windows 登录任务，macOS 暂不支持，用 `gofer worker -d`）；`status` 退出码沿用 `serve status` 的分级；`--purge` 额外删除该 worker 的 worker.yaml、`.env` 里的 token 与运行时文件，用于「这台机器不再接入」（gofer-glzl）。
 - **server 自检**：每 60 秒检四项——`storage`（库能不能写）、`disk`（数据目录剩余空间低于 1 GiB 或 5%）、`sweep`（定时扫描卡住）、`notification`（出站通道连续投递失败）；**连续失败达到 `server.health.fail_threshold`（默认 3）才算故障**，一次成功即恢复。入口：`GET /v1/health/checks`（每项的 `ok` / 连续失败数 / `failing` / 最近错误 / 检查时间）、公开的 `/health` 多一个 `degraded`（不带细节）、`/v1/stats` 多 `health_failing`（故障项名）、web「设置 → 自检」、`gofer doctor` 诊断包的 `health-checks.json`；`serve status` 有故障项时归 4 并列出项名。故障时在 server 事件流写 `server.health_failing`（恢复时 `server.health_recovered`）并在「等我」出卡，同一故障期间只发一次（gofer-dcmc ㉑）。
 - **worker 断线期间的审批事件、结果摘要与 ACP 记录不再丢**（协议 v30，两端都 ≥ 30 才启用）：worker 给每个 job 的镜像事件编号并留在未确认缓冲里，重连后按 server 回的进度重放，server 按序号去重，所以**重放不会多出事件行、不会重复发 webhook 与通知**；ACP 记录像 stdout / stderr 一样从字节偏移重发，断开期间结束的 job 按「事件 → Outcome → Result」到达。真的溢出丢事件时会补一条 `job.events_lost`，时间线上能看到缺口（gofer-ivmr ㉓）。
+- **plan 自主推进（本版只有「只记录」）**：`gofer plan drive on|off|status|report <plan>` 给一条计划打开推进引擎——`--level record`（本版唯一等级，`assist` / `auto` 被拒并说明后续版本），`--max-jobs` / `--max-rework` / `--max-hours` 三项预算按整条计划自开启起累计（0 = 不限）。record 只算出「本来会做什么」并记录（派发待办 / 完成待办 / 带意见续接 / 重试 / 交给人工 / 预算熔断，每条带命中的规则与风险），**不派发、不续接、不重试、不暂停**，超预算只标「本会暂停」；`report` 按动作与按规则给出一致率（每条记录观察 24 小时内同一待办的下一步：一致 / 不一致 / 无后续 / 未观察），并显示「最近 20 个已观察动作 ≥ 90%」这条升级建议（只显示，不自动升级）。入口：CLI、web 计划详情新页签「推进记录」、`GET/PUT/DELETE /v1/plans/{id}/driver` 与 `GET /v1/plans/{id}/driver/report`。
+- **job 自报终态**：job 里的 agent 用 MCP 工具 `gofer_submit_result {decision: pass|rework|fail|human, reason, action_required?, findings?}` 说明本次跑得怎么样，每个 job 一次（重复提交 409；只有本 job 的凭据能写，人的 token 与别的 job 的凭据都拒）。它只记录与展示，**不改变 job 状态**。`gofer job show` 多一行 `reported:`，web 任务详情概览多「自报终态」块（决策、理由、需人处理、发现）；job 注入的规则段开头多一行提示，让它结束前报一次。接口 `POST /v1/jobs/{id}/result`，job 视图新增 `result_decision` / `result_reason` / `result_report_json` / `result_attempt`。
+- **`gofer job diagnose <id> [--json]`**：一句话回答「这个 job 为什么结束」——终止原因（`ok` / `agent_error` / `transient` / `stalled` / `interrupted`（serve 重启中断）/ `timeout` / `budget` / `cancelled` / `worktree_gone` / `caller_disabled` / `session_ended` / `unknown`，由 job 行已有的字段推导，所以重启后、CLI 与网页看到的一致）、续跑链与链上最早出错的那个 job、排队 / 开始 / 首输出 / 末输出 / 结束的时间线（gofer 没记录的段写「未知」）、证据 / 未知 / 下一步。接口 `GET /v1/jobs/{id}/diagnosis`，web 任务详情底部的「诊断」按钮点开就是同一份。
 
 ### 变更
 
 - **升级下载缺校验值即失败（行为变化）**：一键更新、远程 worker 升级与一行安装都要求下载源给出该二进制的 sha256，取不到就报「更新源缺少校验值」并失败，不再静默安装未校验的二进制。mirror 取该版本目录下的 `latest.yaml`（`version` 要与所取版本一致），所以按版本分目录的 mirror 要在**每个版本目录**里放一份 `latest.yaml`；GitHub 取该 tag 的 release（gofer-glzl、Q8）。
 - **「定时任务已暂停」卡改归「需要你处理」类（行为变化）**：这类卡不再与「你提交的任务失败了」混在一起，而与「调用方 token 即将到期 / 已过期」「server 自检项故障」同属 `attention` 类（排在「你提交的任务失败了」之后、「投递待你确认」之前）；「等我」的排序与收件箱分类相应变化。
 - **审计保留期可配**：`server.audit_retention_days`（默认 90，负数 = 永久）同时管新加的 `admin_audit` 与已有的 `auth_audit`；清理循环**总是**启动（不再要求配了 `storage.retention`）——以前一直没被调用的 `auth_audit` 清理也接上了，升级后旧审计行会按保留期自动消失。
+- **交付核验的每日限额改为落库计数**（`server.delivery_check.daily_limit`）：按 UTC 天计入 server 数据库，**serve 重启不再清零**。
 
 ### 修复
 
@@ -33,6 +37,7 @@
 - 一行安装只接受纯 http(s) 的 server 地址写进脚本（别的前缀直接拒绝，不拼进 `curl` 命令），脚本在 macOS 上不强求服务登记（只装二进制并接入）。
 - 开发构建（版本号不是发布版）请求 `/install/manifest` 时明确说明「本机不是发布版本，无法给出一行安装」，不再当成 404 一样含糊。
 - web 上从「调用方 token 即将到期」卡片点「轮换」，以前会丢掉刚生成的 token，现在正确打开轮换面板并显示新 token。
+- **plan 不再因为 server 重启而停在原地**：推进改为先落库再执行，serve 启动后与之后每 60 秒扫描一次，重放残留事件并推进每个 open 且未暂停的 plan——中断在「已就绪、job 还没派出去」的待办也会补派（以前会一直卡着，要人工重新 `plan run`）。补推进是幂等的，已派发 / 已完成 / 已 blocked 的项不会被重复处理；同一事件连续失败 5 次即丢弃并记审计 `plan.event_dropped`，不再无休止重试。
 
 ## [0.214.1] - 2026-11-15
 

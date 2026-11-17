@@ -58,6 +58,13 @@ job deliver	flag mode	merge | push | pr (default: the job's / project's delivery
 job deliver	flag ready	open the request ready for review (not a draft)
 job deliver	flag server	server address (overrides config server.addr)
 job deliver	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job diagnose	desc	解释 job 为何结束：终止原因、续跑链、阶段时间线与下一步建议
+job diagnose	help	
+job diagnose	examples	
+job diagnose	flag config	path to the gofer config file
+job diagnose	flag json	以 JSON 输出原始诊断结构
+job diagnose	flag server	server address (overrides config server.addr)
+job diagnose	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 job end	desc	End a resident ACP session job and release its lock
 job end	help	
 job end	examples	
@@ -572,6 +579,37 @@ plan dispatch	examples
 plan dispatch	flag config	path to the gofer config file
 plan dispatch	flag server	server address (overrides config server.addr)
 plan dispatch	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+plan drive	desc	Turn a plan's driver on or off and show its state (autonomous advance; this version supports --level record only)
+plan drive	help	
+plan drive	examples	
+plan drive off	desc	Disable the plan's driver (idempotent: a plan that is already off answers the same)
+plan drive off	help	
+plan drive off	examples	
+plan drive off	flag config	path to the gofer config file
+plan drive off	flag server	server address (overrides config server.addr)
+plan drive off	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+plan drive on	desc	Enable the plan's driver: record what it would do, within an optional budget
+plan drive on	help	
+plan drive on	examples	
+plan drive on	flag config	path to the gofer config file
+plan drive on	flag level	autonomy level: record (the only level this version supports; assist / auto come later)
+plan drive on	flag max-hours	cap on wall-clock hours since the driver was enabled (0 = unlimited)
+plan drive on	flag max-jobs	cap on the jobs the plan may start, rework and retries included (0 = unlimited)
+plan drive on	flag max-rework	cap on the plan's rework rounds (0 = unlimited)
+plan drive on	flag server	server address (overrides config server.addr)
+plan drive on	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+plan drive report	desc	Compare what the driver recorded it would do with what actually happened: agreement per action and per rule
+plan drive report	help	
+plan drive report	examples	
+plan drive report	flag config	path to the gofer config file
+plan drive report	flag server	server address (overrides config server.addr)
+plan drive report	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+plan drive status	desc	Show whether the plan's driver is on, at which level and with which budget
+plan drive status	help	
+plan drive status	examples	
+plan drive status	flag config	path to the gofer config file
+plan drive status	flag server	server address (overrides config server.addr)
+plan drive status	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 plan handoff	desc	Show or update a plan handoff note
 plan handoff	help	
 plan handoff	examples	

@@ -1623,6 +1623,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/jobs/secret-scan", s.handleSecretScan)
 		r.GET("/jobs", s.handleListJobs)
 		r.GET("/jobs/{id}", s.handleGetJob)
+		r.GET("/jobs/{id}/diagnosis", s.handleGetJobDiagnosis)
 		r.PATCH("/jobs/{id}", s.handlePatchJob)
 		r.POST("/jobs/{id}/redact", s.handleRedactJob)
 		r.DELETE("/jobs/{id}", s.handleDeleteJob)
@@ -1684,6 +1685,8 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/jobs/{id}/cancel", s.handleCancelJob)
 		r.POST("/jobs/{id}/say", s.handleSessionJobSay)
 		r.POST("/jobs/{id}/end", s.handleSessionJobEnd)
+		// A job's own report of how its run ended (gofer_submit_result): own credential only.
+		r.POST("/jobs/{id}/result", s.handleSubmitJobResult)
 
 		// GATE-01 S3 人工验收：accept/reject 是人对交付物的裁决（agent 永远不能 accept
 		// 自己的工作）。仅 user caller（worker 403）；governance.require_answer_capability
@@ -1774,6 +1777,13 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/plans/{id}/run", s.handleRunPlan)
 		r.POST("/plans/{id}/pause", s.handlePausePlan)
 		r.POST("/plans/{id}/resume", s.handleResumePlan)
+		// plan driver (design 2026-11-16 §1, R4): the persisted autonomy state of one plan —
+		// on at a level with a budget, off, and the read the plan page shows. This batch
+		// accepts the `record` level only; the job layer refuses the rest with a 400.
+		r.PUT("/plans/{id}/driver", s.handleSetPlanDriver)
+		r.DELETE("/plans/{id}/driver", s.handleDeletePlanDriver)
+		r.GET("/plans/{id}/driver", s.handleGetPlanDriver)
+		r.GET("/plans/{id}/driver/report", s.handleGetPlanDriverReport)
 		r.PATCH("/todos/{todo_id}", s.handleUpdateTodo)
 		// PLAN-02 P2: explicit dispatch of an assigned item (ignores its status).
 		r.POST("/todos/{todo_id}/dispatch", s.handleDispatchTodo)

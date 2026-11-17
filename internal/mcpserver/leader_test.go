@@ -19,6 +19,7 @@ var leaderToolNames = []string{
 	"gofer_comment",
 	"gofer_get_plan",
 	"gofer_list_comments",
+	"gofer_submit_result",
 	"gofer_update_todo",
 	"gofer_wakeup_create",
 }

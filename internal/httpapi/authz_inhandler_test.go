@@ -225,6 +225,9 @@ var jobAuthzCases = []authzCase{
 	{key: "GET /v1/jobs/{id}/retries", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodGet, "/v1/jobs/" + e.job.ID + "/retries", nil}
 	}},
+	{key: "GET /v1/jobs/{id}/diagnosis", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodGet, "/v1/jobs/" + e.job.ID + "/diagnosis", nil}
+	}},
 	{key: "GET /v1/wakeups/{wid}", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodGet, "/v1/wakeups/" + e.wakeup(), nil}
 	}},
@@ -476,6 +479,15 @@ var planAuthzCases = []authzCase{
 	}},
 	{key: "POST /v1/plans/{id}/run", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodPost, "/v1/plans/" + e.plan() + "/run", nil}
+	}},
+	// The driver's two switches (design 2026-11-16 §1, R4): enabling it at the record level
+	// and turning it off are plan writes like pause. The own half holds plan.manage.others and
+	// really flips the switch; the third entry (GET) is Public and needs no case.
+	{key: "PUT /v1/plans/{id}/driver", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPut, "/v1/plans/" + e.plan() + "/driver", map[string]any{"level": "record"}}
+	}},
+	{key: "DELETE /v1/plans/{id}/driver", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodDelete, "/v1/plans/" + e.plan() + "/driver", nil}
 	}},
 
 	// ---- the checklist ----

@@ -149,10 +149,6 @@ type Service struct {
 	// deliveryChecker runs the delivery-check agent; nil = the default (a one-shot
 	// read-only job of server.delivery_check.agent). A test installs a fake.
 	deliveryChecker DeliveryChecker
-	// checkDayMu guards the per-day count of delivery-check runs (daily_limit).
-	checkDayMu    sync.Mutex
-	checkDay      string
-	checkDayCount int
 	// gitBase is a nil-in-production test seam for the pre-agent git captures.
 	gitBase *gitBaseline
 	// rebuildTodoRequest assembles the ORDINARY dispatch request of a plan item and is
@@ -326,6 +322,14 @@ type Service struct {
 	// bg counts the background work that may still write after a job looks finished
 	// (finish, terminal hooks, advances, timers); Shutdown waits for it (shutdown.go).
 	bg bgGroup
+	// planEvents serialises plan progression per plan (see emitPlanEvent).
+	planEvents planEventHub
+	// planEventHook is a test seam: called when a plan event starts processing, its return
+	// value when the processing ends. Nil (always, in production) costs nothing.
+	planEventHook func(PlanEvent) func()
+
+	// planDriver observes processed plan events (see plandriver_iface.go); nil = unwired.
+	planDriver PlanDriver
 
 	// xfer is the XFER-01 X2 file-transfer seam (see XferBridge): uploads placed
 	// before the agent starts and collected files published after the job. Injected

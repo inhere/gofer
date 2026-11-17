@@ -518,6 +518,10 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		CheckJSON:        rec.CheckJSON,
 		CheckResumeCount: rec.CheckResumeCount,
 		CheckError:       rec.CheckError,
+		ResultDecision:   rec.ResultDecision,
+		ResultReason:     rec.ResultReason,
+		ResultReportJSON: rec.ResultReportJSON,
+		ResultAttempt:    rec.ResultAttempt,
 		// 强制规则（JOB-06①）：旧行 "" = 没注入规则（nil），不伪造成注入过。
 		Rules: unmarshalRules(rec.RulesJSON),
 		// 领导回合（MCP-05 阶段 B）：旧行 "" = 不是 leader job。
