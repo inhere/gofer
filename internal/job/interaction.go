@@ -483,7 +483,10 @@ func (s *Service) workerRunnerNames() []string {
 // is what CLI/web then show as the job's error. Best-effort at the caller: serve logs
 // a failure and carries on. Returns the rows failed.
 func (s *Service) FailRecoveringJobs(reason string) (int, error) {
-	return s.meta.FailRecoveringJobs(s.nowFn().Unix(), reason)
+	// A session being re-dispatched onto a restarted worker process is owned by its
+	// execute, which waits for the process and ends the job itself; failing the row here
+	// would leave a live entry behind a terminal row.
+	return s.meta.FailRecoveringJobsExcept(s.nowFn().Unix(), reason, s.redispatchingJobIDs())
 }
 
 // MarkInteractionNeedsHuman flags a pending interaction as "punted to a human" by the通用

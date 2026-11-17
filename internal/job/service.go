@@ -475,6 +475,11 @@ type jobEntry struct {
 	// worker process: that process counts its turns from zero again, so every turn it reports
 	// is shifted by this much. Guarded by mu.
 	turnBase int
+	// redispatching is true while this entry's execute is re-dispatching the session onto a
+	// restarted worker process (reattachSession until the new process reports started or
+	// the run ends). The serve-start recovery window leaves such a row alone: the re-dispatch
+	// has its own wait and ends the job itself. Guarded by mu.
+	redispatching bool
 	// sessionCommandID is the command id of the pending batch (empty for a local
 	// session, which needs no wire id). A re-send must reuse it — the worker drops an
 	// id it has already seen and never recycles them — so it also tells a re-send

@@ -265,3 +265,59 @@ func TestAdoptedWorkerSessionReloadedWhenItsProcessRestartsLater(t *testing.T) {
 		t.Fatalf("final = %+v, want done", final)
 	}
 }
+
+// TestRecoveryWindowLeavesARedispatchingSessionAlone: the serve-start recovery window ends
+// what nobody claimed, but a session whose execute is re-dispatching it onto the restarted
+// worker process is claimed; failing its row would put a terminal row in front of a live
+// entry. The window fails the unclaimed row and leaves the session to its re-dispatch.
+func TestRecoveryWindowLeavesARedispatchingSessionAlone(t *testing.T) {
+	t.Parallel()
+	run := &restartingRunner{}
+	run.forwards = []runner.Forward{{}}
+	inRedispatch, release := make(chan struct{}), make(chan struct{})
+	run.onRedispatch = func(req runner.Request) runner.Result {
+		close(inRedispatch)
+		<-release
+		return runner.Result{ExitCode: 0}
+	}
+	root := t.TempDir()
+	s := newWorkerTestService(t, root, run)
+	now := time.Now().Unix()
+	resultDir := filepath.Join(root, "self", "window-race")
+	if err := os.MkdirAll(filepath.Join(resultDir, "artifacts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.meta.UpsertJob(jobstore.JobRecord{
+		ID: "window-race", ProjectKey: "self", Agent: "acpw", Runner: "remote-w1", WorkerID: "w1",
+		WorkerInstanceID: "old-instance", Status: StatusRecovering, RecoveringSince: now, Cwd: ".", ResultDir: resultDir,
+		RequestJSON: `{"project_key":"self","agent":"acpw","runner":"remote-w1","cwd":".","session":true,"prompt":"hi"}`,
+		SessionID:   "agent-sess-9", TimeoutSec: 30, StartedAt: now - 60, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.ReconcileAdoption("w1", "new-instance", []WorkerInflightJob{}, AdoptBackend{})
+	select {
+	case <-inRedispatch:
+	case <-time.After(wait.Timeout(t, 10*time.Second)):
+		t.Fatal("the session was not re-dispatched")
+	}
+	if err := s.meta.UpsertJob(jobstore.JobRecord{
+		ID: "unclaimed", ProjectKey: "self", Agent: "exec", Runner: "remote-w1", WorkerID: "w1",
+		Status: StatusRecovering, RecoveringSince: now, Cwd: ".", ResultDir: t.TempDir(),
+		RequestJSON: `{"project_key":"self","agent":"exec","runner":"remote-w1","cwd":".","cmd":["echo","x"]}`, StartedAt: now - 60, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := s.FailRecoveringJobs("worker lost")
+	if err != nil || n != 1 {
+		t.Fatalf("FailRecoveringJobs = %d, %v; want only the unclaimed row", n, err)
+	}
+	if rec, ok, _ := s.meta.GetJob("window-race"); !ok || rec.Status == StatusFailed {
+		t.Fatalf("re-dispatching session row = %+v, want it left to its re-dispatch", rec)
+	}
+	close(release)
+	if final, _ := s.Wait("window-race"); final.Status != StatusDone {
+		t.Fatalf("final = %+v", final)
+	}
+}

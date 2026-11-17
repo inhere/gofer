@@ -72,6 +72,7 @@ func (s *Service) redispatchWorkerSession(ctx context.Context, entry *jobEntry, 
 			break
 		}
 		res = run.Run(ctx, *req)
+		s.endRedispatch(entry)
 	}
 	return res
 }
@@ -93,12 +94,14 @@ func (s *Service) prepareSessionRedispatch(entry *jobEntry, req *runner.Request)
 	// arrives the job is `recovering`, and then the session status takes over.
 	started, startedAt := req.OnStarted, req.OnStartedAt
 	req.OnStarted = func() {
+		s.endRedispatch(entry)
 		s.clearRecovering(entry, snap.ID)
 		if started != nil {
 			started()
 		}
 	}
 	req.OnStartedAt = func(t int64) {
+		s.endRedispatch(entry)
 		s.clearRecovering(entry, snap.ID)
 		if startedAt != nil {
 			startedAt(t)
@@ -114,6 +117,7 @@ func (s *Service) prepareSessionRedispatch(entry *jobEntry, req *runner.Request)
 func (s *Service) reattachSession(entry *jobEntry, snap JobResult) {
 	entry.mu.Lock()
 	entry.turnBase = snap.TurnNo
+	entry.redispatching = true
 	var pending []string
 	for _, rec := range entry.interactions {
 		if rec.data.Status == InteractionPending {
@@ -258,4 +262,30 @@ func (a *AdoptedJob) reloadSession() bool {
 		close(a.entry.done)
 	}
 	return true
+}
+
+// endRedispatch marks entry as no longer waiting for a restarted worker process.
+func (s *Service) endRedispatch(entry *jobEntry) {
+	entry.mu.Lock()
+	entry.redispatching = false
+	entry.mu.Unlock()
+}
+
+// redispatchingJobIDs lists the jobs whose execute is re-dispatching a session right now.
+func (s *Service) redispatchingJobIDs() []string {
+	s.mu.Lock()
+	entries := make([]*jobEntry, 0, len(s.jobs))
+	for _, e := range s.jobs {
+		entries = append(entries, e)
+	}
+	s.mu.Unlock()
+	var ids []string
+	for _, e := range entries {
+		e.mu.Lock()
+		if e.redispatching {
+			ids = append(ids, e.result.ID)
+		}
+		e.mu.Unlock()
+	}
+	return ids
 }
