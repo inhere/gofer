@@ -45,7 +45,9 @@ const meta = ref<MetaResp>({ projects: [], agents: [], runners: [], workers: [] 
 const type = ref<NewSessionType>(props.type)
 const projectKey = ref('')
 const agentKey = ref('')
-const runnerName = ref('local')
+// Empty until chooseDefaults picks one: a non-empty start value would be kept as the
+// "user's choice" and the online container worker would never become the default.
+const runnerName = ref('')
 const title = ref('')
 const prompt = ref('')
 const model = ref('')
@@ -199,6 +201,7 @@ watch(open, (value) => {
   keepDirLock.value = false
   hosted.value = true
   moreOpen.value = false
+  runnerName.value = ''
   void loadMeta()
 })
 if (open.value) void loadMeta()
