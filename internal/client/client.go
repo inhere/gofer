@@ -324,6 +324,15 @@ func (c *Client) SubmitJobResult(id string, in job.SelfResultInput) (job.JobResu
 	return res, err
 }
 
+// GetJobDiagnosis fetches a job's diagnosis (R10): the derived termination reason, the
+// continuation chain with its earliest failure, the stage timeline and the next steps.
+// Same visibility as GetJob; an unknown id is an error (the server 404s).
+func (c *Client) GetJobDiagnosis(id string) (job.Diagnosis, error) {
+	var res job.Diagnosis
+	err := c.doJSON(http.MethodGet, "/v1/jobs/"+url.PathEscape(id)+"/diagnosis", nil, &res)
+	return res, err
+}
+
 // GetJobWorktree fetches the live state of a job's WT-01 managed worktree (branch,
 // HEAD, commits ahead of the base, uncommitted changes, merged-into-base). A job
 // without a managed worktree is a 404 from the server.
@@ -2175,6 +2184,35 @@ func (c *Client) planAction(planID, action string) (Plan, error) {
 	var p Plan
 	err := c.doJSON(http.MethodPost, "/v1/plans/"+url.PathEscape(planID)+"/"+action, nil, &p)
 	return p, err
+}
+
+// SetPlanDriver enables (or re-configures) a plan's driver at level with budget
+// (PUT /v1/plans/{id}/driver, plan R4). This version accepts the record level only: the
+// server refuses assist / auto with a 400 that says so, before storing anything.
+func (c *Client) SetPlanDriver(planID, level string, budget job.PlanDriverBudget) (job.PlanDriverStatus, error) {
+	body, err := json.Marshal(map[string]any{"level": level, "budget": budget})
+	if err != nil {
+		return job.PlanDriverStatus{}, fmt.Errorf("encode plan driver: %w", err)
+	}
+	var st job.PlanDriverStatus
+	err = c.doJSON(http.MethodPut, "/v1/plans/"+url.PathEscape(planID)+"/driver", bytes.NewReader(body), &st)
+	return st, err
+}
+
+// DisablePlanDriver turns a plan's driver off (DELETE /v1/plans/{id}/driver). It is
+// idempotent server-side, so asking twice answers the same off state.
+func (c *Client) DisablePlanDriver(planID string) (job.PlanDriverStatus, error) {
+	var st job.PlanDriverStatus
+	err := c.doJSON(http.MethodDelete, "/v1/plans/"+url.PathEscape(planID)+"/driver", nil, &st)
+	return st, err
+}
+
+// GetPlanDriver reads a plan's driver state (GET /v1/plans/{id}/driver): whether it is on,
+// at which level, and with which budget. A plan without a driver answers Enabled=false.
+func (c *Client) GetPlanDriver(planID string) (job.PlanDriverStatus, error) {
+	var st job.PlanDriverStatus
+	err := c.doJSON(http.MethodGet, "/v1/plans/"+url.PathEscape(planID)+"/driver", nil, &st)
+	return st, err
 }
 
 // AttachJob binds an existing job to a plan.

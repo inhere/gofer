@@ -274,6 +274,17 @@ func NewJobCmd() *gcli.Command {
 				Func: runJobShow,
 			},
 			{
+				Name: "diagnose",
+				Desc: cliText("cli.job.desc.diagnose"),
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.BoolOpt(&jobDiagnoseOpts.jsonOut, "json", "", false, cliText("cli.job.flag.diagnose_json"))
+					c.AddArg("id", "job id", true)
+				},
+				Func: runJobDiagnose,
+			},
+			{
 				Name: "set",
 				Desc: "Set or clear a job title",
 				Config: func(c *gcli.Command) {
