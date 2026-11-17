@@ -45,13 +45,14 @@ func hasTool(names []string, want string) bool {
 	return false
 }
 
-// A resident ACP session's gofer MCP (GOFER_ASK) exposes gofer_ask and nothing else.
+// A resident ACP session's gofer MCP (GOFER_ASK) exposes gofer_ask and its own outcome
+// report, nothing else.
 func TestGoferAskSurfaceIsOnlyGoferAsk(t *testing.T) {
 	t.Setenv(envGoferAsk, "1")
 	jobs, projects, agents := testCore(t)
 	got := toolNamesOf(t, connectTo(t, NewLocal(jobs, projects, agents)))
-	if strings.Join(got, ",") != "gofer_ask" {
-		t.Fatalf("GOFER_ASK surface = %v, want exactly [gofer_ask]", got)
+	if strings.Join(got, ",") != "gofer_ask,gofer_submit_result" {
+		t.Fatalf("GOFER_ASK surface = %v, want exactly [gofer_ask gofer_submit_result]", got)
 	}
 }
 

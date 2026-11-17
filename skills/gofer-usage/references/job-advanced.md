@@ -145,7 +145,7 @@ gofer job end <job-id>                   # 结束会话并释放目录锁
   - 拿回锁后若等待期间有别的 job 用过该目录，下一轮的 prompt 前会带一段「目录变化」说明（列出 job id 与标题），它在 web 里按注入规则折叠显示。
   - 需要独占整段会话就在提交时加 `--keep-dir-lock`（web 新建会话表单的「保持目录锁」），行为同旧版。
 - **权限档位**（`--permission-tier auto|ask|strict`，HTTP / MCP 同名字段 `permission_tier`；只对 acp-agent 生效，其它 agent 带 `ask` / `strict` 就是 400）：`ask` = 项目已自动放行的种类照旧，其余都出审批卡，并把 agent 切到它自己的「问我」模式（`acp.modes.ask`，内置 `claude-acp` 映射到 `default`）；`strict` = 每个权限请求都出卡；`auto`（默认）= 按项目策略。**只收紧不放宽**：项目已是 `strict` 时请求 `ask` 仍按 `strict`，请求方的宽松设置不会盖过项目或 agent 的审批策略。agent 没配 `acp.modes.ask` 时只收紧 gofer 这道闸门（不报错），时间线上记 `job.permission_tier` 写明生效档位与到底切没切 agent 模式。会话的审批策略仍由 server 决定，请求体直接带 `session_approval` 一律 400。跑在 worker 上需要该 worker 协议 **v31** 及以上，旧 worker 在提交时被拒并提示升级（不会静默按它自己的、可能更宽的闸门跑）。
-- **提问工具 `gofer_ask`**：只有持续会话（`--session`）的 ACP job 会拿到这个工具（单轮 / 批处理 job 不注入——没人看着的时候提问只会把它挂到超时）；管家会话与收件会话的工具面里也有它。它对自己所在的这个 job 开一个交互，问题以可点选卡片出现在工作台对话、「等我」页与手机宽度下，你点选后答案作为工具返回值交给 agent 继续：
+- **提问工具 `gofer_ask`**：只有持续会话（`--session`）的 ACP job 会拿到这个工具（单轮 / 批处理 job 不注入——没人看着的时候提问只会把它挂到超时），这类会话的 gofer MCP 只带它和 `gofer_submit_result`（报告本 job 的结论）；管家会话与收件会话的工具面里也有它。它对自己所在的这个 job 开一个交互，问题以可点选卡片出现在工作台对话、「等我」页与手机宽度下，你点选后答案作为工具返回值交给 agent 继续：
 
   ```jsonc
   // gofer_ask 的输入：不带 options 就是自由文本提问
