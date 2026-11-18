@@ -32,3 +32,16 @@ func (s *Service) noteRemoteWaitingDir(jobID, eventType string, detail map[strin
 		slog.Warn("persist waiting_dir snapshot of a worker job", "job_id", jobID, "err", err)
 	}
 }
+
+// dirHolderLabel names a directory-lock holder the way people know it: a job a worker runs
+// for the hub is known by the hub's id, so the holder in waiting_dir events and rows is the
+// hub id rather than the worker's local one (gofer-dhis). Other jobs keep their own id.
+func (s *Service) dirHolderLabel(holder string) string {
+	if holder == "" {
+		return ""
+	}
+	if e := s.entry(holder); e != nil && e.hubJobID != "" {
+		return e.hubJobID
+	}
+	return holder
+}

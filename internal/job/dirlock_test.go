@@ -630,3 +630,31 @@ func TestDirLockMultiPathCancelHoldsNothing(t *testing.T) {
 		t.Fatalf("lock table not empty after all releases: %d entries", left)
 	}
 }
+
+// gofer-dhis: a worker names its jobs by the hub's id, so the holder a waiting job reports
+// (event and row) is the hub id of the job holding the directory, not the worker-local one.
+func TestWaitingDirHolderIsTheHubJobID(t *testing.T) {
+	t.Parallel()
+	const hubID = "hub-job-20261117-000000-holder01"
+	root := t.TempDir()
+	s := dirlockService(t, root, []string{"excl-guard", "marker", "1500ms"}, nil)
+
+	first := mustSubmit(t, s, JobRequest{
+		ProjectKey: "self", Agent: "agent", Runner: "local",
+		Prompt: "first", Cwd: ".", TimeoutSec: 60, CredentialJobID: hubID,
+	})
+	waitForStatus(t, s, first.ID, StatusRunning, 10*time.Second)
+	second := mustSubmit(t, s, JobRequest{
+		ProjectKey: "self", Agent: "agent", Runner: "local",
+		Prompt: "second", Cwd: ".", TimeoutSec: 60,
+	})
+	waiting := waitStatus(t, s, second.ID, 10*time.Second, StatusWaitingDir)
+	if waiting.WaitingOnJob != hubID {
+		t.Fatalf("waiting_on_job = %q, want the hub id %q (local %s)", waiting.WaitingOnJob, hubID, first.ID)
+	}
+	if holder, ok := waitingDirEvent(t, s, second.ID); !ok || holder != hubID {
+		t.Fatalf("job.waiting_dir holder = %q (found=%v), want %q", holder, ok, hubID)
+	}
+	s.Wait(first.ID)
+	s.Wait(second.ID)
+}

@@ -177,7 +177,7 @@ func (h *sessionDirHold) reacquire() error {
 		h.entry.mu.Lock()
 		turn := h.entry.result.TurnNo + 1
 		h.entry.mu.Unlock()
-		h.s.recordEvent(h.jobID, EventJobDirWait, map[string]any{"holder_job": holder, "dir": dir, "turn_no": turn})
+		h.s.recordEvent(h.jobID, EventJobDirWait, map[string]any{"holder_job": h.s.dirHolderLabel(holder), "dir": dir, "turn_no": turn})
 	})
 
 	h.mu.Lock()
@@ -193,7 +193,7 @@ func (h *sessionDirHold) reacquire() error {
 		// The wait cap ran out: the message is NOT sent and the session goes back to
 		// awaiting_input (the person can send it again); it is never failed for this.
 		lockPathText := strings.Join(h.dirs, ", ")
-		h.s.recordEvent(h.jobID, EventJobDirWaitTimeout, map[string]any{"holder_job": holder, "dir": lockPathText, "wait_sec": h.wait, "unsent": true})
+		h.s.recordEvent(h.jobID, EventJobDirWaitTimeout, map[string]any{"holder_job": h.s.dirHolderLabel(holder), "dir": lockPathText, "wait_sec": h.wait, "unsent": true})
 		holderText := holder
 		if holderText == "" {
 			// The wait was behind a queue rather than one named job.
