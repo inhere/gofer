@@ -454,7 +454,7 @@ gofer job transcript <id> --out notes.md        # 自动翻页，把全部结果
 - **一次只取一个模式**：`--outline` / `--turns` / `--head` / `--tail` / `--search` 互斥（都不给 = 概要）；`--search` 是字面子串（不分词、不调外部命令），最长 200 字符。参数不合法一律 `400`。
 - **分页**：一次响应最多 64KB 正文。被截断时命令末尾打印 `-- more: --cursor <回合:偏移>`，带这个 `--cursor` 再请一次就从断点接着取——一个很大的回合也能分几次取完。`--out` 自己跟着游标翻到底。
 - **数据来源**（按顺序取到哪个用哪个）：
-  - claude / suga 这类 stream-json agent：执行时就写好的逐回合记录（每回合正文有上限，超出标 truncated）；正文写入前已按该 job 授予的 secret 值掩码。
+  - claude / suga 这类 stream-json agent：执行时就写好的逐回合记录（每回合正文有上限，超出标 truncated）；正文写入前已按该 job 授予的 secret 值掩码。suga 的一个回合在每次工具调用处切成段（工具调用前后的两段正文各自成段，不会黏在一起），所以转录里 suga 的段数可以比回合数多。
   - ACP job（含跑在远程 worker 上的 ACP job）：该 job 的结构化事件记录 `artifacts/acp.jsonl`，按 prompt 切成回合，带工具计数。
   - 其他 agent（codex exec 等纯文本日志）：没有回合概念，整份 stdout 当一个回合返回。
 - 权限与读日志相同（别人的 job 需要相应的读权限）；接口只读。HTTP `GET /v1/jobs/{id}/transcript`（参数与游标同上），MCP `gofer_get_job_transcript`。

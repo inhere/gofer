@@ -244,8 +244,11 @@ func (c *claudeTurns) finish() { c.flush(0, "") }
 
 // sugaTurns: `turn_start` opens a turn, `message_delta` rows accumulate its text,
 // `tool_call` counts tools, `turn_end` (or the following `result`) closes it.
-// `retry{restart:true}` means the model call is re-sent from scratch, so only the
-// text accumulated since the latest tool_result / turn_start is dropped.
+// A tool call also SPLITS the turn's text: the text before it and the text after it are
+// two records, because a reader otherwise sees them glued together (the deltas carry no
+// separator). `retry{restart:true}` means the model call is re-sent from scratch, so only
+// the text accumulated since the latest segment boundary (a tool call, a tool result or
+// the turn start) is dropped.
 type sugaTurns struct {
 	w        *TurnWriter
 	text     turnText
@@ -253,9 +256,13 @@ type sugaTurns struct {
 	open     bool
 	ended    bool // turn_end seen, waiting only for `result` to fill an empty text
 	turn     int
-	segStart int // len(text) at the latest turn_start / tool_result
+	segStart int // len(text) at the latest turn_start / tool_call / tool_result
 	tokens   int64
 	errText  string
+	// wrote reports that the current turn already went to the file as a text segment (a
+	// tool call split it): such a turn must not be re-opened for the `result` text, which
+	// would repeat the segment it already wrote.
+	wrote bool
 }
 
 func (s *sugaTurns) observe(typ string, obj map[string]any) {
@@ -272,6 +279,7 @@ func (s *sugaTurns) observe(typ string, obj map[string]any) {
 			s.tools = map[string]int{}
 		}
 		s.tools[stringField(obj, "name")]++
+		s.flushSegment()
 	case "tool_result":
 		s.segStart = s.text.len()
 	case "retry":
@@ -287,7 +295,7 @@ func (s *sugaTurns) observe(typ string, obj map[string]any) {
 			s.tokens = totalTokens(u.TotalTokens, u.InputTokens, u.OutputTokens)
 		}
 		s.ended = true
-		if s.text.len() > 0 {
+		if s.text.len() > 0 || s.wrote {
 			s.flush()
 		}
 	case "result":
@@ -313,14 +321,39 @@ func (s *sugaTurns) ensureOpen() {
 	}
 }
 
+// flushSegment closes the text segment that a tool call ends: the text accumulated since
+// the last boundary becomes its own record (with the tools counted so far), so the turns
+// after a tool call do not read as one glued run of text. Nothing to write when the tool
+// call came first — only the counters carry over.
+func (s *sugaTurns) flushSegment() {
+	if !s.open || s.text.len() == 0 {
+		return
+	}
+	s.turn++
+	_ = s.w.WriteTurn(TurnRecord{Turn: s.turn, Role: "assistant", Text: s.text.buf, Tools: s.tools, Truncated: s.text.truncated})
+	s.text.reset()
+	s.tools, s.segStart, s.wrote = nil, 0, true
+}
+
 func (s *sugaTurns) flush() {
 	if !s.open {
 		return
 	}
+	// A turn the tool calls already wrote out closes without a record of its own when
+	// nothing is left to say (an empty record reads as an empty turn).
+	if s.text.len() == 0 && len(s.tools) == 0 && s.tokens == 0 && s.errText == "" {
+		s.resetTurn()
+		return
+	}
 	s.turn++
 	_ = s.w.WriteTurn(TurnRecord{Turn: s.turn, Role: "assistant", Text: s.text.buf, Tools: s.tools, Tokens: s.tokens, Error: s.errText, Truncated: s.text.truncated})
+	s.resetTurn()
+}
+
+// resetTurn clears the per-turn state after its last record was written.
+func (s *sugaTurns) resetTurn() {
 	s.text.reset()
-	s.tools, s.open, s.ended, s.segStart, s.tokens, s.errText = nil, false, false, 0, 0, ""
+	s.tools, s.open, s.ended, s.segStart, s.tokens, s.errText, s.wrote = nil, false, false, 0, 0, "", false
 }
 
 func (s *sugaTurns) finish() { s.flush() }
