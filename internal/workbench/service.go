@@ -494,10 +494,14 @@ func projectJobThread(id string, records []jobstore.JobRecord, pref jobstore.Wor
 	}
 	if latest.SessionStateJSON != "" {
 		var state struct {
-			TurnNo int `json:"turn_no"`
+			TurnNo int  `json:"turn_no"`
+			Hosted bool `json:"hosted"`
 		}
-		if json.Unmarshal([]byte(latest.SessionStateJSON), &state) == nil && state.TurnNo > 0 {
-			thread.Turns = state.TurnNo
+		if json.Unmarshal([]byte(latest.SessionStateJSON), &state) == nil {
+			if state.TurnNo > 0 {
+				thread.Turns = state.TurnNo
+			}
+			thread.Hosted = state.Hosted
 		}
 	}
 	if pref.Title != "" {

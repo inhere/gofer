@@ -213,6 +213,7 @@ defineExpose({ focusSearch })
             <span class="tm">{{ formatRelative(thread.updated_at) }}</span>
             <span class="ln">
               <span class="ln-agent">{{ thread.agent || thread.kind }}</span>
+              <span v-if="thread.hosted" class="ln-hosted" data-test="thread-hosted-badge" :title="t('sessions.hosted')">{{ t('sessions.hosted') }}</span>
               <RunnerTag :name="thread.runner" />
               <span v-if="turnsText(thread)" class="ln-meta">{{ turnsText(thread) }}</span>
               <span v-if="durationText(thread)" class="ln-meta">{{ durationText(thread) }}</span>
@@ -476,6 +477,13 @@ defineExpose({ focusSearch })
 .ln-stalled {
   flex: none;
   color: var(--need);
+}
+.ln-hosted {
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  color: var(--ink-3);
 }
 .ln-new {
   flex: none;

@@ -163,6 +163,9 @@ type Thread struct {
 	Cwd                 string            `json:"cwd,omitempty"`
 	Interactive         bool              `json:"interactive,omitempty"`
 	Resumable           bool              `json:"resumable"`
+	// Hosted says this thread's session never ends for being idle and has no maximum
+	// length (job.JobRequest.Hosted, persisted in the job's session_state_json).
+	Hosted              bool              `json:"hosted,omitempty"`
 	Pinned              bool              `json:"pinned,omitempty"`
 	SeenAt              int64             `json:"seen_at,omitempty"`
 	StartedAt           int64             `json:"started_at"`

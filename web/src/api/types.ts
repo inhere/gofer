@@ -2355,6 +2355,8 @@ export interface WorkbenchThread {
   cwd?: string
   interactive?: boolean
   resumable: boolean
+  // hosted：常驻会话——不按空闲结束、无最大时长（job 详情的「托管」徽标同一个字段）。
+  hosted?: boolean
   pinned?: boolean
   seen_at?: number
   started_at: number
