@@ -67,6 +67,9 @@ func (s *Service) SweepDueRetries(now int64, limit int, lease int64) (started, f
 		req.Attempt = rec.Attempt
 		req.RequestID = ""
 		req.Sync = false
+		// A row written by an older run may still carry the pre-run check's output; the
+		// retry is a new run, so it starts without that verdict.
+		dropPrecheckOutput(&req)
 		req.Tags = retryTagList(req.Tags, rec.SourceJobID)
 		req.admissionPermit = permit
 		// gofer-3db4: a durable retry replays the stored request; an end-notification whose

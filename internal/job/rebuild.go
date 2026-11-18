@@ -144,6 +144,9 @@ func (s *Service) RebuildJob(jobID string, ov RebuildOverrides, callerID, client
 	if err := rejectPlaceholders(ov); err != nil {
 		return JobResult{}, err
 	}
+	// The pre-run check that handed the source its output is long gone: the rerun starts
+	// without it (an explicit env_set below may still name it).
+	dropPrecheckOutput(&base)
 	applyOverrides(&base, ov) // pointer scalars + slices; env_set/env_unset merge
 	// SUP-01 P5: the source's prompt is already the RENDERED text — a rebuild replays it
 	// (edited or not) instead of rendering the task book a second time onto itself.

@@ -411,6 +411,87 @@ func TestTailHashWriter(t *testing.T) {
 	}
 }
 
+// A rerun of a run that passed a pre-run check does not inherit that check's output: the
+// check belonged to the run that already ended, so the new one starts without it.
+func TestPrecheckOutputNotReplayedOnRerun(t *testing.T) {
+	root := t.TempDir()
+	s := newTestService(t, root)
+	precheckSchedule(t, s, "sch-rr", []string{"sh", "-c", `printf %s "${GOFER_PRECHECK_OUTPUT-unset}"`},
+		SchedulePrecheck{Argv: []string{"sh", "-c", "echo 3 new issues"}}, nil)
+	fireChecked(t, s, "sch-rr")
+	wait.Until(t, 15*time.Second, "the checked run's job", func() bool { return len(scheduleJobs(t, s, "sch-rr")) == 1 })
+	first := scheduleJobs(t, s, "sch-rr")[0]
+	if final, _ := s.Wait(first.ID); final.Status != StatusDone {
+		t.Fatalf("checked run = %s (%s)", final.Status, final.Error)
+	}
+	if out := jobStdout(t, root, first.ID); strings.TrimSpace(out) != "3 new issues" {
+		t.Fatalf("the checked run's stdout = %q, want the check output", out)
+	}
+
+	rerun, err := s.RebuildJob(first.ID, RebuildOverrides{}, "tester", "127.0.0.1")
+	if err != nil {
+		t.Fatalf("RebuildJob: %v", err)
+	}
+	final, _ := s.Wait(rerun.ID)
+	if final.Status != StatusDone {
+		t.Fatalf("rerun = %s (%s)", final.Status, final.Error)
+	}
+	if out := jobStdout(t, root, rerun.ID); strings.TrimSpace(out) != "unset" {
+		t.Fatalf("the rerun replayed the old check output: %q", out)
+	}
+	if req := templateRequest(t, final); req.Env[EnvPrecheckOutput] != "" {
+		t.Fatalf("the rerun's request still carries %s: %q", EnvPrecheckOutput, req.Env[EnvPrecheckOutput])
+	}
+}
+
+// The same for a retry: the failed run's durable row replays the request, but not the output
+// of the check that started it — the retry is a new run with no verdict of its own.
+func TestPrecheckOutputNotReplayedOnRetry(t *testing.T) {
+	root := t.TempDir()
+	s := newTestService(t, root)
+	precheckSchedule(t, s, "sch-rt", []string{"sh", "-c", `printf %s "${GOFER_PRECHECK_OUTPUT-unset}"; exit 7`},
+		SchedulePrecheck{Argv: []string{"sh", "-c", "echo 3 new issues"}}, func(r *jobstore.ScheduleRecord) {
+			// A retry budget on the stored request: the failing run schedules its own retry.
+			var req JobRequest
+			if err := json.Unmarshal([]byte(r.RequestJSON), &req); err != nil {
+				t.Fatal(err)
+			}
+			req.Retry = &RetryPolicy{MaxAttempts: 3, BackoffSec: []int{0}}
+			b, err := json.Marshal(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.RequestJSON = string(b)
+		})
+	fireChecked(t, s, "sch-rt")
+	wait.Until(t, 15*time.Second, "the checked run's job", func() bool { return len(scheduleJobs(t, s, "sch-rt")) == 1 })
+	first := scheduleJobs(t, s, "sch-rt")[0]
+	if final, _ := s.Wait(first.ID); final.Status != StatusFailed {
+		t.Fatalf("checked run = %s (%s), want failed", final.Status, final.Error)
+	}
+	if out := jobStdout(t, root, first.ID); !strings.Contains(out, "3 new issues") {
+		t.Fatalf("the checked run's stdout = %q, want the check output", out)
+	}
+	wait.Until(t, 10*time.Second, "the failed run's retry row", func() bool {
+		rows, err := s.meta.ListRetriesByJob(first.ID)
+		return err == nil && len(rows) == 1
+	})
+	if started, failed, err := s.SweepDueRetries(time.Now().Unix(), 10, 60); err != nil || started != 1 || failed != 0 {
+		t.Fatalf("SweepDueRetries = %d/%d err=%v, want the one retry started", started, failed, err)
+	}
+	rows := retryRows(t, s, first.ID)
+	if rows[0].NewJobID == "" {
+		t.Fatalf("retry row after the sweep = %+v, want the new job id", rows[0])
+	}
+	final, _ := s.Wait(rows[0].NewJobID)
+	if out := jobStdout(t, root, rows[0].NewJobID); strings.TrimSpace(out) != "unset" {
+		t.Fatalf("the retry replayed the old check output: %q", out)
+	}
+	if req := templateRequest(t, final); req.Env[EnvPrecheckOutput] != "" {
+		t.Fatalf("the retry's request still carries %s: %q", EnvPrecheckOutput, req.Env[EnvPrecheckOutput])
+	}
+}
+
 func TestSchedulePrecheckValidation(t *testing.T) {
 	bad := []SchedulePrecheck{
 		{}, {Argv: []string{""}}, {Argv: []string{"x"}, TimeoutSec: -1}, {Argv: []string{"x"}, TimeoutSec: 301},

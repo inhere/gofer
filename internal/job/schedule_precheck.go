@@ -371,3 +371,12 @@ func (d *ScheduleDispatcher) submitChecked(rec jobstore.ScheduleRecord, req JobR
 		slog.Warn("schedule precheck fingerprint", "schedule_id", rec.ID, "err", err)
 	}
 }
+
+// dropPrecheckOutput removes the pre-run check's output from a request that is replayed
+// (a rerun or a retry). The check ran for the run that already ended and its verdict is
+// spent: replaying the text would tell the new run that a check it never got has just
+// passed, so the rerun starts without it.
+func dropPrecheckOutput(req *JobRequest) {
+	delete(req.Env, EnvPrecheckOutput)
+	delete(req.TemplateVars, precheckVarOutput)
+}
