@@ -39,3 +39,12 @@ func TestJobEventSeqWireShape(t *testing.T) {
 		t.Fatalf("v30 event decode = %+v, %v", ev, err)
 	}
 }
+
+func TestTerminalLogResumeVersionGate(t *testing.T) {
+	if CurrentProtocolVersion < TerminalLogResumeMinProtocolVersion {
+		t.Fatalf("CurrentProtocolVersion = %d is below TerminalLogResumeMinProtocolVersion", CurrentProtocolVersion)
+	}
+	if SupportsTerminalLogResume(TerminalLogResumeMinProtocolVersion-1) || !SupportsTerminalLogResume(TerminalLogResumeMinProtocolVersion) {
+		t.Fatal("SupportsTerminalLogResume does not switch on at v33")
+	}
+}

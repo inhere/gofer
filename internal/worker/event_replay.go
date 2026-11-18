@@ -232,6 +232,9 @@ func (cl *Client) replayJobState(ctx context.Context, conn *websocket.Conn) {
 		if !ok {
 			continue
 		}
+		if !cl.replayLogTail(ctx, conn, id) {
+			return
+		}
 		if o := cl.cachedOutcome(id); o != nil {
 			if err := cl.writeFrameOn(ctx, conn, wsproto.TypeOutcome, id, *o); err != nil {
 				return

@@ -625,6 +625,9 @@ type inflightJob struct {
 	// is the id the job service is asked about. Empty until Submit returns (and for a
 	// dispatch that never produced a local job at all).
 	localID string
+	// logDir is the local job's directory holding stdout/stderr/acp, recorded by the
+	// log tailer so a terminal job's unsent tail can be re-sent on replay.
+	logDir string
 	// stdoutOff / stderrOff are the offsets of the local log files this worker has
 	// SUCCESSFULLY written to the wire. A failed writeFrame leaves them exactly where
 	// they were (the unsent bytes are retried verbatim on the next tick), and a

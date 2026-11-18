@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/inhere/gofer/internal/util"
 	"github.com/inhere/gofer/internal/wsproto"
 )
 
@@ -90,6 +91,10 @@ type pendingRecovery struct {
 	// remain IN the recovery set until a frame arrives (markLive) or the window
 	// expires.
 	waiting map[string]*recoveringJob
+	// terminal is the subset of waiting the worker reported as FINISHED (its Result is
+	// still owed). A v33 worker's ack lists them too, so it re-sends the log tail it
+	// wrote while disconnected before the Result (see resumeEntries).
+	terminal map[string]*recoveringJob
 	// cancels are the host-side cancels recorded while the worker was offline for the
 	// RESUMED jobs. They are carried here (taken out of the recovery set, which the
 	// plan may empty and drop) so the delivery does not depend on the set surviving
@@ -110,18 +115,34 @@ type lostJob struct {
 //
 // withCursors adds the v30 cursors (EventSeq / AcpOff): only a worker that speaks v30
 // gets them, so an older worker's ack is byte-for-byte what it always was.
-func (p pendingRecovery) resumeEntries(withCursors bool) []wsproto.ResumeJob {
-	if len(p.resumed) == 0 {
+//
+// withTerminal (v33) also lists the finished jobs still owing a Result, so the worker
+// rewinds their log offsets to what the hub persisted and re-sends the tail first.
+func (p pendingRecovery) resumeEntries(withCursors, withTerminal bool) []wsproto.ResumeJob {
+	n := len(p.resumed)
+	if withTerminal {
+		n = util.CapSum(len(p.resumed), len(p.terminal))
+	}
+	if n == 0 {
 		return nil
 	}
-	ids := make([]string, 0, len(p.resumed))
-	for id := range p.resumed {
+	all := make(map[string]*recoveringJob, n)
+	for id, rj := range p.resumed {
+		all[id] = rj
+	}
+	if withTerminal {
+		for id, rj := range p.terminal {
+			all[id] = rj
+		}
+	}
+	ids := make([]string, 0, len(all))
+	for id := range all {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
 	out := make([]wsproto.ResumeJob, 0, len(ids))
 	for _, id := range ids {
-		rj := p.resumed[id]
+		rj := all[id]
 		e := wsproto.ResumeJob{JobID: id, StdoutOff: rj.stdoutOff, StderrOff: rj.stderrOff}
 		if withCursors {
 			e.EventSeq, e.AcpOff = rj.eventSeq, rj.acpOff
@@ -337,9 +358,10 @@ func (h *Hub) expireRecovery(workerID string) {
 //     window and the first frame for one of them proves the worker (markLive).
 func (h *Hub) planRecovery(reg wsproto.Register) pendingRecovery {
 	plan := pendingRecovery{
-		resumed: map[string]*recoveringJob{},
-		waiting: map[string]*recoveringJob{},
-		cancels: map[string]struct{}{},
+		resumed:  map[string]*recoveringJob{},
+		waiting:  map[string]*recoveringJob{},
+		terminal: map[string]*recoveringJob{},
+		cancels:  map[string]struct{}{},
 	}
 
 	h.recMu.Lock()
@@ -401,6 +423,7 @@ func (h *Hub) planRecovery(reg wsproto.Register) pendingRecovery {
 			lost = append(lost, lostJob{jobID: jobID, rj: rj, reason: "worker no longer tracks job"})
 		case isTerminalWireStatus(f.Status):
 			plan.waiting[jobID] = rj // keep recovering: wait for the replayed Result
+			plan.terminal[jobID] = rj
 		default:
 			plan.resumed[jobID] = rj
 			delete(rs.jobs, jobID)

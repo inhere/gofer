@@ -591,7 +591,7 @@ func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) 
 	// so they are reconciled against the store separately and merged into the same plan
 	// (their resume offsets come from the log files on disk).
 	plan = h.planAdoption(reg, plan)
-	ack.Resume = plan.resumeEntries(wsproto.SupportsJobEventSeq(reg.ProtocolVersion))
+	ack.Resume = plan.resumeEntries(wsproto.SupportsJobEventSeq(reg.ProtocolVersion), wsproto.SupportsTerminalLogResume(reg.ProtocolVersion))
 	ackedRev := int64(0)
 	if h.policySrc != nil && wsproto.SupportsPolicy(reg.ProtocolVersion) {
 		if p, ok := h.policySrc.PolicyFor(reg.WorkerID); ok {

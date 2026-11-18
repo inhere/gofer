@@ -574,6 +574,7 @@ func (cl *Client) streamLocalJob(ctx context.Context, localID, resultDir, remote
 	stdoutPath := filepath.Join(base, localID, store.StdoutFile)
 	stderrPath := filepath.Join(base, localID, store.StderrFile)
 	acpPath := runner.ACPArtifactPath(filepath.Join(base, localID))
+	cl.inflightSetLogDir(remoteJobID, filepath.Join(base, localID))
 
 	// seenStatus dedupes interaction frames: it remembers the last status pushed
 	// per interaction id, so a re-poll only emits a frame on a status change (same
