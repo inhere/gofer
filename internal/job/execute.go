@@ -180,7 +180,7 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 			lockPathText := strings.Join(lockDirs, ", ")
 			err := fmt.Errorf("dir lock wait exceeded %ds (holder %q, dir %s)", gates.dirWait, holder, lockPathText)
 			s.recordEvent(req.JobID, EventJobDirWaitTimeout, map[string]any{
-				"holder_job": holder,
+				"holder_job": s.dirHolderLabel(holder),
 				"dir":        lockPathText,
 				"wait_sec":   gates.dirWait,
 			})
@@ -637,11 +637,11 @@ func (s *Service) enterWaitingDir(entry *jobEntry, jobID, holder, dir string, lo
 	// SSE / the web timeline) always finds the job.waiting_dir row naming the
 	// holder — recording it after the flip let TestDirLockSerializesWritableAgentJobs
 	// observe the status with no event yet under load.
-	s.recordEvent(jobID, EventJobWaitingDir, map[string]any{"holder_job": holder, "dir": dir, "lock_paths": lockPaths})
+	s.recordEvent(jobID, EventJobWaitingDir, map[string]any{"holder_job": s.dirHolderLabel(holder), "dir": dir, "lock_paths": lockPaths})
 
 	entry.mu.Lock()
 	entry.result.Status = StatusWaitingDir
-	entry.result.WaitingOnJob = holder
+	entry.result.WaitingOnJob = s.dirHolderLabel(holder)
 	snap := entry.result
 	entry.mu.Unlock()
 

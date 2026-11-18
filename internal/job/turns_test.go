@@ -141,3 +141,32 @@ func TestResumeLocalSessionRefusesWhenSecretCannotBeResolved(t *testing.T) {
 		t.Fatal("the session must not be registered when its secrets cannot be resolved")
 	}
 }
+
+// gofer-byvi: a recovered session keeps the granted secret values on its entry, so the
+// stdout / acp.jsonl writers of the resumed turns still mask them.
+func TestResumeLocalSessionRestoresEntrySecretValues(t *testing.T) {
+	const secret = "s3cr3t-recovered-value"
+	t.Setenv("TURNS_TEST_SECRET", secret)
+	root := t.TempDir()
+	s := newACPService(t, root, acptest.Options{})
+	cfg := s.cfg.Load()
+	cfg.Secrets = map[string]config.SecretConfig{"tok": {Env: "TURNS_TEST_SECRET"}}
+	p := cfg.Projects["self"]
+	p.Secrets = []string{"tok"}
+	cfg.Projects["self"] = p
+	rec := jobstore.JobRecord{
+		ID: "job-recover-mask", ProjectKey: "self", Agent: "acpbot", Cwd: root,
+		ResultDir: filepath.Join(root, "self", "job-recover-mask"), SessionID: "sess-1",
+		RequestJSON: `{"project_key":"self","agent":"acpbot","runner":"local","secrets":["tok"]}`,
+	}
+	if err := s.resumeLocalSession(rec); err != nil {
+		t.Fatalf("resumeLocalSession: %v", err)
+	}
+	entry := s.entry(rec.ID)
+	if entry == nil {
+		t.Fatal("recovered session not registered")
+	}
+	if len(entry.secretValues) != 1 || entry.secretValues[0] != secret {
+		t.Fatalf("entry.secretValues = %v, want the granted value", entry.secretValues)
+	}
+}
