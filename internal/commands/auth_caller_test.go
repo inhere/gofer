@@ -240,6 +240,39 @@ func TestAuthCallerListPrintsExpiredState(t *testing.T) {
 	}
 }
 
+// TestAuthCallerListShowsDashWithoutAName: a caller nobody named shows `-` in the NAME
+// column instead of its token hint, which reads like a name at a glance (gofer-3ey2).
+func TestAuthCallerListShowsDashWithoutAName(t *testing.T) {
+	isolateAgentSessionEnv(t)
+	isolateCallerFlags(t)
+	t.Setenv(i18n.EnvLanguageVar, string(i18n.EN))
+	stub := &callerStubServer{body: map[string]any{"callers": []any{
+		map[string]any{"id": "anon", "source": "db", "state": "active", "token_set": true, "token_hint": "gct_...abcd"},
+		map[string]any{"id": "named", "name": "CI runner", "source": "db", "state": "active", "token_set": true, "token_hint": "gct_...wxyz"},
+	}}}
+	srv := httptest.NewServer(stub.handler())
+	t.Cleanup(srv.Close)
+
+	var code int
+	out := captureOutput(t, func() {
+		code = NewApp("test").Run([]string{"auth", "caller", "ls", "--server", srv.URL, "--token", "tok-root"})
+	})
+	if code != 0 {
+		t.Fatalf("caller ls exit code=%d, out=%s", code, out)
+	}
+	if strings.Contains(out, "gct_...abcd") {
+		t.Fatalf("the NAME column must not fall back to the token hint, out=%s", out)
+	}
+	if !strings.Contains(out, "CI runner") {
+		t.Fatalf("a named caller still shows its name, out=%s", out)
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "anon") && !strings.Contains(line, "-") {
+			t.Fatalf("the nameless row must show `-`, line=%q", line)
+		}
+	}
+}
+
 // TestAuthCallerRepairNeedsOffline: the repair is the one caller command that does not go
 // through the server, so the flag that says so is required.
 func TestAuthCallerRepairNeedsOffline(t *testing.T) {

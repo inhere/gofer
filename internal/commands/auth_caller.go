@@ -177,6 +177,9 @@ otherwise the token from before the takeover would work again.
 not restricted — EXCEPT runners: with no --ceiling-runner the caller may NOT use the machine
 runner (local), only remote workers.
 
+The quota (concurrency / submit rate) is NOT part of the ceiling: change it with
+"gofer auth caller set-limits".
+
 A caller declared in the configuration file has its ceiling written to that file (the server
 re-renders the ` + "`server:`" + ` block, so comments there are lost, like every other server-field
 write); a stored caller's ceiling is written to the database and applies at once.
@@ -198,6 +201,9 @@ write); a stored caller's ceiling is written to the database and applies at once
 		Help: `Replaces the caller's quota overrides. A value left out means "take the server.governance
 default", so setting only --rate-limit clears the other two. A raised concurrency limit applies
 to the next job without a restart.
+
+The ceiling (which projects / runners / agents the caller may reach) is a separate setting:
+change it with "gofer auth caller set-ceiling".
 
   gofer auth caller set-limits ci --max-concurrent-jobs 4 --rate-limit 2`,
 		Config: func(c *gcli.Command) {
@@ -396,14 +402,12 @@ func callerStampCell(ts int64, none string) string {
 	return time.Unix(ts, 0).Format("2006-01-02 15:04")
 }
 
-// callerNameCell renders the name (or the token hint when the name is empty), so a list row
-// always says which credential it is about.
+// callerNameCell renders the name for the list (none = "-"): a row without a name says so
+// instead of falling back to the token hint, which has its own column and reads like a name
+// at a glance (gofer-3ey2).
 func callerNameCell(cl client.Caller) string {
 	if strings.TrimSpace(cl.Name) != "" {
 		return cl.Name
-	}
-	if cl.TokenHint != "" {
-		return cl.TokenHint
 	}
 	return "-"
 }

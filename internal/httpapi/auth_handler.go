@@ -875,7 +875,17 @@ func (s *Server) handleAuthActivateGrant(c *rux.Context) {
 	}
 	s.invalidateDBGrants()
 	_ = st.InsertAuthAudit(jobstore.AuthAuditEntry{Actor: callerFromCtx(c), Action: "grant.activate", Subject: row.Subject, Permission: row.Pattern, GrantID: row.ID})
-	c.JSON(http.StatusOK, authGrantViewOf(row, time.Now().Unix()))
+	// Answer with what the grant is NOW, not with the projection that always reports
+	// effective=false: the row handed back by the store already has the orphan mark cleared,
+	// so the same verdict the listing computes applies here (gofer-3ey2).
+	now := time.Now().Unix()
+	view := authGrantViewOf(row, now)
+	if kind, _, err := authz.ParseSubject(row.Subject); err == nil && kind == authz.SubjectSession {
+		view.Effective = s.sessionGrantEffective(row, view.Active, now)
+	} else {
+		view.Effective = view.Active
+	}
+	c.JSON(http.StatusOK, view)
 }
 
 // authGrantRenewReq is the body of POST /v1/auth/grants/{id}/renew: how much longer the grant

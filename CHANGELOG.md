@@ -13,6 +13,9 @@
 
 ### 修复
 
+- `gofer auth grants activate` 的响应里 `effective` 不再恒为 `false`：激活后的响应与列表同口径给出真实状态（`active` / `effective`），自动化不必再读一次。
+- `gofer auth caller ls` 的 NAME 列在调用方没有显示名时显示 `-`，不再回落成 token 提示（看着像一个名字）；要提示可看 `--json` 的 `token_hint`。
+- `gofer auth caller set-ceiling --help` 说清配额不在上限里、要用 `set-limits`（`set-limits --help` 反向指回 `set-ceiling`）。
 - 空闲会话的信箱唤醒不再被会话自己的心跳推迟：Claude Code 在 Stop 之后发的空闲提醒（`Notification`）与离开摘要（`SubagentStop`）仍算「进程在线」，但不再算「有人在活动」，唤醒从最后一次真实活动（Stop、提问等）算起，不再从这些提醒算起。翻看会话列表、离线判定用的仍是最近一次心跳，显示不变。
 
 ### 变更
