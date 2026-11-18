@@ -11,6 +11,12 @@
 
 ## [未发布]
 
+## [0.216.0] - 2026-11-18
+
+### 兼容
+
+- worker 协议升到 v32：托管常驻会话、worker 进程重启后接回会话、升级排空不等空闲会话都要求 server 与 worker 都 ≥ v32。旧 worker 拒收托管会话，其余照常；建议 server 与各 worker 一起升级。
+
 ### 修复
 
 - 服务重启后接回的 ACP 会话，之后回合的 stdout / `acp.jsonl` 不再漏掩授予的 secret：接回时重新取得 secret 值。

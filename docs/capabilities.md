@@ -2,7 +2,7 @@
 
 > 一句话定位：把 codex / claude 等 agent 与普通命令桥接成可追踪、可验收的异步任务（job）的控制平面，提供 CLI / HTTP / MCP / Web 四种入口；自身不内置模型。
 >
-> **适用版本：截至 v0.215.0**（CHANGELOG 最新已发布版本，2026-11-17）。
+> **适用版本：截至 v0.216.0**（CHANGELOG 最新已发布版本，2026-11-18）。
 
 ## 维护说明
 
@@ -54,7 +54,8 @@
 | 只读 job | 只读审查模式 | CLI `job run --read-only` | 未标注 | job-advanced.md「只读 job」 |
 | 只读参考目录 | 给 job 挂只读参考目录，提交时做路径与符号链接范围校验（v0.203.0 新增） | CLI `job run --read-dir`；项目 `read_dirs`；计划待办目录字段 | 未标注（较新） | job-advanced.md「只读参考目录」 |
 | 续接 | 中断后续跑同一 agent 会话；继承旧会话开新会话；运行中追加需求；worktree 已失效时续跑（含自动续跑、待办接续、故障转移与重试）被拒绝、不回落主 checkout，`job rerun` 续跑类 job 沿用其 worktree（v0.214.0） | CLI `job resume`、`job run --from-session`；`job follow-up` 相关命令；MCP `gofer_job_follow_up` | 稳定 | job-advanced.md「中断后续跑」「继承旧会话」 |
-| ACP 持续会话 | `--session` 持续对话，下一轮 `job say`、结束 `job end`；结束后可在 Web 找到并接着对话（会话页 ACP 页签按会话列出，进工作台回看与续接，v0.213.0） | CLI `job say` / `job end`；MCP `gofer_job_say` / `gofer_job_end`；Web 会话页 ACP 页签、工作台 | 未标注 | job-advanced.md「ACP 持续会话」 |
+| ACP 持续会话 | `--session` 持续对话，下一轮 `job say`、结束 `job end`；结束后可在 Web 找到并接着对话（会话页 ACP 页签按会话列出，进工作台回看与续接，v0.213.0）；worker 进程重启（含升级）后用原 job id 接回，serve 重启时停在提问上的会话接回到等待输入、旧提问记为已失效（v0.216.0） | CLI `job say` / `job end`；MCP `gofer_job_say` / `gofer_job_end`；Web 会话页 ACP 页签、工作台 | 未标注 | job-advanced.md「ACP 持续会话」 |
+| 托管常驻会话 | `--hosted` 的持续会话不因空闲结束、没有最长时限，只在 `job end` 或出错时结束；需要协议 ≥ v32 的 worker | CLI `job run --session --hosted`；HTTP / MCP 字段 `hosted`；Web 新建会话「托管」、job 详情与工作台线程「托管」标记 | 实验（v0.216.0） | job-advanced.md「ACP 持续会话」 |
 | 交互 pty | agent 以交互 pty 方式启动，可在 Web 附着终端 | CLI `job run --interactive`（以 `--help` 为准）；Web 工作台 | 未标注 | job-advanced.md「agent 的两种启动方式与交互 pty job」 |
 | 人工验收（needs_review） | `--review` 使 job 停在待验收，一屏看汇报、验收标准、提交、diff、越界文件、发现；通过或打回（可自动续跑） | CLI `job review` / `accept` / `reject --note [--resume]` / `findings [--create-issues]`；Web「待验收」`/review` | 稳定 | [guide/en/features.md](guide/en/features.md#review-and-quality-gates) |
 | 验收标准与范围 | `--acceptance` / `--scope` 注入验收标准与交付约定；独占 job 的目录锁会由 `--scope` 收窄，汇报按约定回写发现与经验 | CLI `job run --acceptance --scope` | 稳定 | job-advanced.md「人工验收、验收标准与改动范围」 |
@@ -63,7 +64,7 @@
 | 工具调用审批 | ACP agent 的 edit / execute 等调用等人批准，只读工具放行 | CLI `job interactions` / `job answer`；MCP `gofer_get_interactions` / `gofer_answer_interaction`；Web 今天 | 未标注 | job-advanced.md「工具调用审批」；[runbook/2026-07-02-web-interaction-answer-runbook.md](runbook/2026-07-02-web-interaction-answer-runbook.md) |
 | 任务书模板 | `-t` / `--var` 渲染模板，项目级或全局 | CLI `template ls` / `template show`、`job run -t` | 未标注 | job-advanced.md「任务书模板」 |
 | 预算、故障转移与重试 | 预算熔断、停滞看门狗、供应商故障转移（继承源 job 的 worktree，被跳过的候选记 `job.fallback_skipped` 事件，v0.214.0）、`--retry` 重试链 | CLI `job retry ls\|cancel`、`agent status` | 未标注 | [runbook/2026-09-22-job-retry-runbook.md](runbook/2026-09-22-job-retry-runbook.md) |
-| 结束通知提交会话 | 长 job 结束时经传话人通知提交方 | CLI `job run --notify` / `--notify-session` | 未标注 | job-advanced.md「job 结束时通知提交会话」 |
+| 结束通知提交会话 | 长 job 结束时经传话人通知提交方；`--notify-session <job-id>` 把结果作为自己某个进行中 ACP 会话的下一轮送达（v0.216.0） | CLI `job run --notify` / `--notify-session`；Web 新建任务「完成后通知」 | 未标注 | job-advanced.md「job 结束时通知提交会话」 |
 | 评论 | 在 job 上留痕；人的评论中 `@agent` 会真的派出 job | CLI `job comment` / `job comments`；MCP `gofer_comment` / `gofer_list_comments` | 未标注 | [runbook/2026-09-23-comments-runbook.md](runbook/2026-09-23-comments-runbook.md) |
 | 凭据与 job 环境 | job 用仅作用于本 job 的凭据，默认清洗父环境中的 token | 配置 `job_env_denylist` / `job_env_allow` | 未标注 | [../skills/gofer-usage/references/operations.md](../skills/gofer-usage/references/operations.md)「job 的环境清洗」；[runbook/2026-09-23-job-credentials-runbook.md](runbook/2026-09-23-job-credentials-runbook.md) |
 | 交付核验 | 启用 `server.delivery_check` 后，job 正常结束且 `--verify` 未失败时，由只读、无工具的核验 agent 对照要求判定；要求来自 `--check-prompt`、prompt 中独占一行的 `<delivery-check>…</delivery-check>` 块、`--acceptance`；不合格按条目自动续接（`max_auto_resumes` 默认 2），用完停在 `needs_review`；核验 agent 出错则保持原状态并记 `check_error`。结论写入 job 评论与事件 `job.delivery_check.*`，`job show` 显示结果；HTTP / MCP / 任务书模板 / 计划待办均可携带要求。默认关闭 | CLI `job run --check-prompt`、`plan add-todo` / `set-todo --check-prompt`；配置 `server.delivery_check` | 实验（v0.204.0 新增，默认关闭） | [job-advanced.md](../skills/gofer-usage/references/job-advanced.md)、[design/2026-10-30-job-check-agent-design.md](design/2026-10-30-job-check-agent-design.md) |
@@ -91,7 +92,7 @@
 | 计划看板 | plan 总览（分段进度条）、自动驾驶看板；详情页任务页签分页；总览默认筛选「进行中 + 受阻」，受阻计划不再从默认列表消失 | Web「计划」 | 变化中（部分 Web 页面） | [design/2026-09-22-plan-autopilot-board-and-container-worker-design.md](design/2026-09-22-plan-autopilot-board-and-container-worker-design.md)、web-console.md |
 | 决策点问人 | agent 阻塞提问，人在 Web 作答 | MCP `gofer_ask_human`；CLI `plan ask` / `decisions` / `answer` | 稳定（随 plan） | plans-workflows.md「决策点问人」 |
 | 推进可靠性 | 推进事件先落库再执行；serve 启动后与每 60 秒扫描补推进：重放残留事件、补派已就绪未派出的待办、补链接「job 已结束但待办仍在进行中」（serve 重启中断的 job 会让 plan 正确进入 blocked）；失败事件最多重试 5 次后丢弃并记审计 | 自动 | 变化中（v0.215.0） | plans-workflows.md |
-| plan 推进引擎（只记录） | 每条计划可开推进引擎；本版只有 `record` 等级：记录每个推进事件上它本来会做的动作（带规则与风险），24 小时内与实际处理比对出一致率与「连续 20 次 ≥ 90%」升级建议；三项预算只计数 | CLI `plan drive on\|off\|status\|report`；HTTP `/v1/plans/{id}/driver`、`/driver/report`；Web 计划详情「推进记录」 | 实验（v0.215.0） | plans-workflows.md、[design/2026-11-16-plan-driver-autonomy-design.md](design/2026-11-16-plan-driver-autonomy-design.md) |
+| plan 推进引擎（只记录） | 每条计划可开推进引擎；本版只有 `record` 等级：记录每个推进事件上它本来会做的动作（带规则与风险），24 小时内与实际处理比对出一致率与「连续 20 次 ≥ 90%」升级建议；三项预算只计数 | CLI `plan drive on\|off\|status\|report`；HTTP `/v1/plans/{id}/driver`、`/driver/report`；Web 计划详情「推进记录」、计划列表等级徽标；`plan drive report --recent N` 列最近动作，被中断的 job 判为重试（v0.216.0） | 实验（v0.215.0） | plans-workflows.md、[design/2026-11-16-plan-driver-autonomy-design.md](design/2026-11-16-plan-driver-autonomy-design.md) |
 
 ## 会话与协作
 
@@ -134,11 +135,11 @@
 
 | 子项 | 说明 | 主要入口 | 稳定程度 | 文档 |
 |---|---|---|---|---|
-| worker 登记与接入 | 管理员登记并发一次性 token，或 worker 自助申请经管理员接受；同一 `worker_id` 两个进程互顶时 server 侧记 `worker.replaced` 事件，`worker show` 与 Web 运行节点页显示最近一次被顶替与期间被拦下的次数（v0.214.0） | CLI `worker add\|remove\|ls\|show\|projects`、`worker init`、`worker join`、`worker doctor`；HTTP `/v1/workers`、`/v1/worker-enroll*`；Web Runners 页「待接受」 | 稳定 | [../skills/gofer-usage/references/worker-config.md](../skills/gofer-usage/references/worker-config.md)、[../skills/gofer-usage/references/setup-recipes.md](../skills/gofer-usage/references/setup-recipes.md) |
+| worker 登记与接入 | 管理员登记并发一次性 token，或 worker 自助申请经管理员接受；同一 `worker_id` 两个进程来回互顶时 server 侧记 `worker.replaced` 事件，`worker show` 与 Web 运行节点页显示最近一次被顶替与期间被拦下的次数（v0.214.0）；重启与升级的单次交接只记 `worker.handover`，不再误报（v0.216.0） | CLI `worker add\|remove\|ls\|show\|projects`、`worker init`、`worker join`、`worker doctor`；HTTP `/v1/workers`、`/v1/worker-enroll*`；Web Runners 页「待接受」 | 稳定 | [../skills/gofer-usage/references/worker-config.md](../skills/gofer-usage/references/worker-config.md)、[../skills/gofer-usage/references/setup-recipes.md](../skills/gofer-usage/references/setup-recipes.md) |
 | roots 与项目映射 | worker 的目录根（roots）与 POLICY / LEGACY 两种模式，路径映射 | 配置 `worker.yaml`；CLI `config validate worker` | 稳定 | worker-config.md；[design/worker-roots-config-reference.md](design/worker-roots-config-reference.md) |
 | 容器 worker | 容器内运行 worker | CLI `worker` | 稳定（随 worker） | [runbook/container-worker.md](runbook/container-worker.md) |
 | 配置重载 | worker / server 不重启重读配置 | CLI `worker reload`、`serve reload`；Web 设置「重新读取文件」 | 稳定 | [../skills/gofer-usage/references/operations.md](../skills/gofer-usage/references/operations.md)「重载配置」 |
-| 自升级 | 从控制台或命令升级整个 worker 舰队，任意 OS / 架构 | CLI `worker upgrade <id>`；HTTP `POST /v1/workers/{id}/upgrade`；Web Runners | 稳定 | operations.md「远程升级 worker」；[runbook/release-and-binary-swap.md](runbook/release-and-binary-swap.md) |
+| 自升级 | 从控制台或命令升级整个 worker 舰队，任意 OS / 架构；排空不等空闲可接回的会话（v0.216.0） | CLI `worker upgrade <id>`；HTTP `POST /v1/workers/{id}/upgrade`；Web Runners | 稳定 | operations.md「远程升级 worker」；[runbook/release-and-binary-swap.md](runbook/release-and-binary-swap.md) |
 | TCP 隧道 | 本机端口转发到 worker 所在网络；SOCKS5 / HTTP CONNECT 代理；同地址转发；预设；UDP | CLI `tunnel forward\|save\|saved\|forget\|check\|ls\|stop`；Web Tunnels | 未标注（运维类稳定项含隧道） | [runbook/tcp-tunnel.md](runbook/tcp-tunnel.md) |
 | 文件传输 | 单文件在 server 与 runner 之间对拷；job 自带文件上传 / 收集；传输暂存区；读写限定在项目目录内，不跟随指向项目外的链接（v0.213.0） | CLI `tool cp`、`tool xfer ls\|show\|rm`、`job run --upload` / `--collect` | 稳定 | [../skills/gofer-usage/references/files-and-wakeup.md](../skills/gofer-usage/references/files-and-wakeup.md) |
 | 工作区附件 | Web 工作台 / 会话抽屉附图；未显式配置存储路径时默认存到项目根 `.gofer/attachments/<日期>` | HTTP `/v1/attachments*` | 未标注 | web-console.md |
@@ -180,7 +181,7 @@
 | 页面 | 作用 | 稳定程度 |
 |---|---|---|
 | 今天 `/today` | 「等我」列表（含完成时机为合并、交付未落地的「待你收尾」）、进行中的计划、正在跑的会话 / job 数；无事时只一句空态 | 稳定 |
-| 工作台 `/workbench` | 会话中枢：ACP 对话、持续会话、交互 PTY、改动与评审，多标签分屏；会话列表默认最近 7 天、「加载更早的会话」分页，`?thread=` 深链可打开更早的会话 | 稳定 |
+| 工作台 `/workbench` | 会话中枢：ACP 对话、持续会话、交互 PTY、改动与评审，多标签分屏；会话列表默认最近 7 天、「加载更早的会话」分页，`?thread=` 深链可打开更早的会话；线程行显示「托管」标记 | 稳定 |
 | 任务 / 待验收 `/review` | job 列表与详情、验收面板、待批准 | 稳定 |
 | 计划 / 工作流 / 定时 `/schedules` | plan 总览与详情（默认筛选「进行中 + 受阻」）；`/workflows` 工作流（模板）列表与详情（YAML 查看 / 编辑、最近执行），执行记录 `/workflows/runs`；定时任务（叠跑策略、次数上限、前置检查、跨轮上下文，v0.214.0） | 计划稳定，工作流变化中 |
 | 会话 | 终端会话列表与抽屉（回复、接管、唤醒、催办）；ACP 页签按会话列出持续会话，「打开会话」进工作台 | 稳定 |
