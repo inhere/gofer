@@ -1,6 +1,8 @@
 package job
 
 import (
+	"bytes"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -88,5 +90,34 @@ func TestRetireWorktreeKeepsLeftoverDirectoryAndRegistration(t *testing.T) {
 	}
 	if out := gitOutIn(t, repo, "branch", "--list", j.WorktreeBranch); out == "" {
 		t.Fatal("branch deleted")
+	}
+}
+
+// TestRetireWorktreeNamesTheCheckoutCheck pins the GUARD itself: keeping a leftover folder is
+// its own decision ("this folder is not the branch's checkout"), not a side effect of the
+// probe further down. Without that check the sweep either keeps the folder for another reason
+// or removes it, so the retention line must name this one.
+func TestRetireWorktreeNamesTheCheckoutCheck(t *testing.T) {
+	s, j, repo := leftoverWorktreeJob(t)
+	// Nothing untracked: only the checkout check can decide this folder is not ours.
+	if err := os.Remove(filepath.Join(j.WorktreePath, "precious.txt")); err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	s.retireWorktree(jobstore.WorktreeRecord{JobID: j.ID, ProjectKey: j.ProjectKey, Path: j.WorktreePath, Branch: j.WorktreeBranch, BaseSHA: j.WorktreeBaseSHA})
+
+	out := logs.String()
+	if !strings.Contains(out, "job.worktree_retained") || !strings.Contains(out, "is not a checkout of the branch") {
+		t.Fatalf("retention did not name the checkout check:\n%s", out)
+	}
+	if !isDir(j.WorktreePath) {
+		t.Fatal("leftover directory deleted")
+	}
+	if list := gitOutIn(t, repo, "worktree", "list", "--porcelain"); !strings.Contains(filepath.ToSlash(list), filepath.ToSlash(filepath.Base(j.WorktreePath))) {
+		t.Fatalf("git registration dropped:\n%s", list)
 	}
 }
