@@ -244,6 +244,13 @@ func collectJoinedWorker(c *gcli.Command, info buildinfo.Info, cli *client.Clien
 func waitJoinDecision(c *gcli.Command, cli *client.Client, enrollID, secret string, deadline time.Time) (client.EnrollPoll, bool, error) {
 	interrupts, stop := workerJoinInterrupts()
 	defer stop()
+	// A terminal gets the per-poll countdown; a piped stdout (a job, the install script)
+	// gets one line when the wait starts and one when it ends — the countdown there is
+	// hundreds of lines nobody reads.
+	interactive := stdoutIsTerminal()
+	if !interactive {
+		c.Printf("waiting for an admin to accept the request; it expires at %s (progress is not printed when the output is not a terminal)\n", formatJoinTime(deadline))
+	}
 	var retry time.Duration
 	for {
 		left := time.Until(deadline)
@@ -265,8 +272,13 @@ func waitJoinDecision(c *gcli.Command, cli *client.Client, enrollID, secret stri
 			if r.err == nil {
 				retry = 0
 				if r.poll.State == jobstore.EnrollPending {
-					c.Printf("waiting for an admin to accept... (%s left)\n", formatJoinDuration(time.Until(deadline)))
+					if interactive {
+						c.Printf("waiting for an admin to accept... (%s left)\n", formatJoinDuration(time.Until(deadline)))
+					}
 					continue
+				}
+				if !interactive {
+					c.Printf("join request finished: %s\n", r.poll.State)
 				}
 				return r.poll, false, nil
 			}
