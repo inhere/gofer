@@ -84,7 +84,7 @@ func TestTurnsSugaAccumulatesDeltasPerTurn(t *testing.T) {
 	if len(recs) != 2 {
 		t.Fatalf("records = %+v, want 2", recs)
 	}
-	if recs[0].Turn != 1 || recs[0].Text != "Hello there" || recs[0].Tools["bash"] != 1 || recs[0].Tokens != 42 {
+	if recs[0].Turn != 1 || recs[0].Text != "Hello\n\n there" || recs[0].Tools["bash"] != 1 || recs[0].Tokens != 42 {
 		t.Fatalf("turn 1 = %+v", recs[0])
 	}
 	if recs[1].Turn != 2 || recs[1].Text != "second" {
@@ -105,7 +105,7 @@ func TestTurnsSugaRetryRestartKeepsOnlyLatestSegment(t *testing.T) {
 		`{"type":"message_delta","text":"full answer"}`,
 		`{"type":"turn_end"}`,
 	})
-	if len(recs) != 1 || recs[0].Text != "before tool. full answer" {
+	if len(recs) != 1 || recs[0].Text != "before tool. \n\nfull answer" {
 		t.Fatalf("records = %+v", recs)
 	}
 	// A restart right after turn_start drops the whole turn text so far.
@@ -127,6 +127,38 @@ func TestTurnsSugaRetryRestartKeepsOnlyLatestSegment(t *testing.T) {
 		`{"type":"turn_end"}`,
 	})
 	if len(recs) != 1 || recs[0].Text != "keep" {
+		t.Fatalf("records = %+v", recs)
+	}
+}
+
+// The text before a tool call and the text after it read as two paragraphs of the same
+// turn: the deltas carry no separator, so the filter puts one break at the boundary — and
+// only one, also when a restart cuts the text after the tool call and it is sent again.
+func TestTurnsSugaBreaksTheTextAtAToolCall(t *testing.T) {
+	recs := runTurns(t, TurnsSuga, nil, []string{
+		`{"type":"turn_start"}`,
+		`{"type":"message_delta","text":"Let me check."}`,
+		`{"type":"tool_call","name":"bash"}`,
+		`{"type":"tool_result","name":"bash"}`,
+		`{"type":"message_delta","text":"Half"}`,
+		`{"type":"retry","restart":true}`,
+		`{"type":"message_delta","text":"Done."}`,
+		`{"type":"tool_call","name":"read"}`,
+		`{"type":"tool_result","name":"read"}`,
+		`{"type":"turn_end"}`,
+	})
+	if len(recs) != 1 || recs[0].Turn != 1 || recs[0].Text != "Let me check.\n\nDone." {
+		t.Fatalf("records = %+v", recs)
+	}
+	// A tool call before any text adds no leading break.
+	recs = runTurns(t, TurnsSuga, nil, []string{
+		`{"type":"turn_start"}`,
+		`{"type":"tool_call","name":"bash"}`,
+		`{"type":"tool_result","name":"bash"}`,
+		`{"type":"message_delta","text":"only"}`,
+		`{"type":"turn_end"}`,
+	})
+	if len(recs) != 1 || recs[0].Text != "only" {
 		t.Fatalf("records = %+v", recs)
 	}
 }

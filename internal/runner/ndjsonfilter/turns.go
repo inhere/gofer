@@ -256,7 +256,16 @@ type sugaTurns struct {
 	segStart int // len(text) at the latest turn_start / tool_result
 	tokens   int64
 	errText  string
+	// sepPending: a tool call came after some text, so the next text of the same turn
+	// starts a new paragraph (the deltas themselves carry no separator); sepUsed: that
+	// break is already in the text, so a restart that cuts it puts it back to pending.
+	sepPending bool
+	sepUsed    bool
 }
+
+// sugaSegmentBreak separates the text before a tool call from the text after it inside
+// one turn record, so the two do not read as one glued sentence.
+const sugaSegmentBreak = "\n\n"
 
 func (s *sugaTurns) observe(typ string, obj map[string]any) {
 	switch typ {
@@ -265,18 +274,29 @@ func (s *sugaTurns) observe(typ string, obj map[string]any) {
 		s.open = true
 	case "message_delta":
 		s.ensureOpen()
-		s.text.add(stringField(obj, "text"))
+		if t := stringField(obj, "text"); t != "" {
+			if s.sepPending {
+				s.text.add(sugaSegmentBreak)
+				s.sepPending, s.sepUsed = false, true
+			}
+			s.text.add(t)
+		}
 	case "tool_call":
 		s.ensureOpen()
 		if s.tools == nil {
 			s.tools = map[string]int{}
 		}
 		s.tools[stringField(obj, "name")]++
+		if s.text.len() > 0 {
+			s.sepPending = true
+		}
 	case "tool_result":
 		s.segStart = s.text.len()
 	case "retry":
 		if v, _ := obj["restart"].(bool); v && s.open {
 			s.text.cut(s.segStart)
+			s.sepPending = (s.sepPending || s.sepUsed) && s.text.len() > 0
+			s.sepUsed = false
 		}
 	case "error":
 		s.ensureOpen()
@@ -321,6 +341,7 @@ func (s *sugaTurns) flush() {
 	_ = s.w.WriteTurn(TurnRecord{Turn: s.turn, Role: "assistant", Text: s.text.buf, Tools: s.tools, Tokens: s.tokens, Error: s.errText, Truncated: s.text.truncated})
 	s.text.reset()
 	s.tools, s.open, s.ended, s.segStart, s.tokens, s.errText = nil, false, false, 0, 0, ""
+	s.sepPending, s.sepUsed = false, false
 }
 
 func (s *sugaTurns) finish() { s.flush() }

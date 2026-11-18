@@ -14,6 +14,7 @@
 ### 修复
 
 - 服务重启后接回的 ACP 会话，之后回合的 stdout / `acp.jsonl` 不再漏掩授予的 secret：接回时重新取得 secret 值。
+- suga 回合里工具调用前后的两段文字在转写（`gofer job transcript`、web 回合列表）中不再粘在一起：工具调用处分段，回合编号不变。
 - worker 上持续会话占着目录锁（`keep_dir_lock`）时，服务端另一个 job 的 `waiting_dir` 占用者现在是该 job 在服务端的 id，而不是 worker 本地 id。
 - worker 上等目录锁的 job 在服务端只显示 `queued`，看不出在等另一个 job。现在显示「等目录锁」（`waiting_dir`）并带占用者，开始执行后转 `running`；worker 上持续会话自己等目录锁时同样如此。
 - `gofer worker upgrade` 不再被空闲会话拖住：等待输入且可接回（agent 声明支持 `session/load`）的会话不计入排空，升级后由服务端接回；正在跑一轮或不可接回的会话仍会等，放弃升级的结果里列出拖住的 job id。
