@@ -71,7 +71,10 @@ const (
 	// v31 adds the optional dispatch.permission_tier (see PermissionTierMinProtocolVersion).
 	// v32 adds the optional dispatch.hosted and outcome.session_end_reason (see
 	// HostedMinProtocolVersion).
-	CurrentProtocolVersion = 32
+	// v33 lists a finished job whose Result is still owed in the resume ack, with the
+	// hub's durable log offsets, so its disconnected-period log tail is re-sent (see
+	// TerminalLogResumeMinProtocolVersion).
+	CurrentProtocolVersion = 33
 )
 
 // UpgradeMinProtocolVersion is the first protocol version that can receive a
