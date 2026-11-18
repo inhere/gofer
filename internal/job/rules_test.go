@@ -16,6 +16,23 @@ import (
 	"github.com/inhere/gofer/internal/tracker"
 )
 
+// TestRulesSectionCarriesProcessHint: the injected rules section tells every job, in
+// both languages, not to end processes by NAME (gofer-opre): `taskkill /IM gofer.exe`
+// or `pkill gofer` also kills the server, workers and other jobs' runners.
+func TestRulesSectionCarriesProcessHint(t *testing.T) {
+	t.Parallel()
+	refs := []RuleRef{{Name: "r"}}
+	bodies := map[string]string{"r": "body"}
+	for _, lang := range []i18n.Lang{i18n.EN, i18n.ZhCN} {
+		got := renderRulesSectionIn(lang, refs, bodies)
+		for _, want := range []string{"taskkill /IM", "pkill", "pid"} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("%s rules section lacks %q:\n%s", lang, want, got)
+			}
+		}
+	}
+}
+
 // TestJobSkipsBrokenTrackerPrime: a stray .gofer/tracker without its config used
 // to reject every agent job submitted from that directory ("tracker prime: open
 // .../config.yaml"). The job runs and simply carries no tracker prime.

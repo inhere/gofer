@@ -100,6 +100,7 @@ gofer job show <id>    # 有自报时多几行：reported: human — 两处接�
 - **每个 job 只报一次**：同一 job 第二次提交被拒（HTTP 409）。续跑 / 重试 / 续接是新 job，各报各的。
 - 只能用该 job 自己的凭据写：`POST /v1/jobs/{id}/result` 只认本 job 的 job 凭据，人的 token 与别的 job 的凭据都 403——所以没人能替它自报。
 - job 注入的规则段开头有一行提示，让它结束前报一次；agent 不报也不算错，只是 job 上没有这份自报。
+- 同一段还有一条通用约束：**不要按进程名结束进程**（`taskkill /IM`、`Get-Process -Name … | Stop-Process`、`pkill` / `killall`），只按 pid 结束自己启动的进程；尤其是 gofer 自己的进程——按名字杀会连带杀掉同一台机上其它 job（gofer-opre）。
 - 哪里看：`job show` 的 `reported:` 行（带理由、`action required` 与 findings），web 任务详情概览的「自报终态」块（决策徽标、理由、「需人处理」、发现与「第 n 次运行上报」），job 事件 `job.result_reported`，HTTP job 字段 `result_decision` / `result_reason` / `result_report_json` / `result_attempt`（见 `docs/reference/http-api.md`）。
 
 ## 诊断：job 为何结束（job diagnose）

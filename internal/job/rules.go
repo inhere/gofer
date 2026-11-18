@@ -222,6 +222,11 @@ func renderRulesSectionIn(lang i18n.Lang, refs []RuleRef, bodies map[string]stri
 	// The job-only injection carries the self-report hint; it sits outside the
 	// tracker-prime budget on purpose.
 	b.WriteString(i18n.T(lang, "prime.rules.result_hint"))
+	b.WriteString("\n")
+	// Nor may a job end processes by NAME (gofer-opre): `taskkill /IM gofer.exe` or
+	// `pkill gofer` kills whatever gofer processes the machine happens to run — the
+	// server, a worker, other jobs' runners — not just the one a job meant.
+	b.WriteString(i18n.T(lang, "prime.rules.process_hint"))
 	b.WriteString("\n\n")
 	for _, ref := range refs {
 		b.WriteString("### ")

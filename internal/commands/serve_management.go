@@ -71,6 +71,10 @@ type nativeServeStatus struct {
 	Supervisor     daemon.ProcessIdentity
 	ApplicationLog string
 	IdentityError  string
+	// LastExit is the last exit of the managed server that nobody asked for
+	// (gofer-opre). A backend that does not supervise the process itself (Linux, where
+	// systemd restarts it) leaves it nil.
+	LastExit *servicemgr.LastExit
 }
 
 type serveStatusOutput struct {
@@ -107,6 +111,9 @@ type serveStatusOutput struct {
 	// AuthToken is where the managed service's auth token comes from and whether
 	// this terminal resolves the same one (gofer-t9md). Never the value itself.
 	AuthToken *serveAuthTokenStatus `json:"auth_token,omitempty"`
+	// LastExit is the last exit of the managed server that nobody asked for, as the
+	// supervisor recorded it (gofer-opre): when, which code, and how long it had been up.
+	LastExit *servicemgr.LastExit `json:"last_exit,omitempty"`
 	// portListening is set when the configured port is not owned by the verified
 	// server: whether anything at all accepts connections there (exit-code input).
 	portListening bool
@@ -439,6 +446,12 @@ func runServeManagedStatus(c *gcli.Command, _ []string) error {
 	if len(out.HealthFailing) > 0 {
 		c.Printf("health_failing: %s\n", strings.Join(out.HealthFailing, ", "))
 	}
+	if e := out.LastExit; e != nil {
+		// gofer-opre: the operator's "why did the server restart" answer, without
+		// digging through <name>.supervisor.log.
+		c.Printf("last_exit: %s exit_code=%d (0x%x) uptime=%s\n", e.At.Format(time.RFC3339), e.ExitCode,
+			uint32(e.ExitCode), (time.Duration(e.UptimeSec) * time.Second).String())
+	}
 	for _, line := range statusFileLines(&out) {
 		c.Printf("%s\n", line)
 	}
@@ -488,6 +501,7 @@ func inspectManagedStatus(ctx context.Context, m *servicemgr.Manager) (serveStat
 	out.ConfigFiles, out.DotenvFiles = statusConfigFiles(spec), loadedDotenvFilesAbs()
 	out.AuthToken = managedAuthTokenStatus(spec)
 	out.ServerPID, out.SupervisorPID = native.Server.PID, native.Supervisor.PID
+	out.LastExit = native.LastExit
 	out.ServerVerified = native.Server.PID > 0 && native.IdentityError == ""
 	out.IdentityError = native.IdentityError
 	out.ApplicationLog = native.ApplicationLog

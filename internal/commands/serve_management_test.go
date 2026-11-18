@@ -115,6 +115,41 @@ func TestServeStatusDoesNotTrustOtherProcessHealth(t *testing.T) {
 	}
 }
 
+// TestServeStatusReportsLastAbnormalExit: the supervisor's note about the last exit
+// nobody asked for reaches `serve status` (and its --json), so "the server restarted,
+// why?" is answered without reading the supervisor log (gofer-opre).
+func TestServeStatusReportsLastAbnormalExit(t *testing.T) {
+	root := t.TempDir()
+	m, err := servicemgr.NewManager(root, "gofer-opre-status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	self, err := daemon.CurrentProcessIdentity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := servicemgr.Spec{SchemaVersion: servicemgr.SpecSchema, Backend: testManagedBackend(), Name: m.Name,
+		Owner: self.Owner, Exe: self.Exe, WorkDir: root, ConfigFile: filepath.Join(root, "config.yaml"), ConfigDir: root,
+		RuntimeDir: filepath.Join(root, "run"), Serve: servicemgr.ServeOptions{Addr: "127.0.0.1:1"}}
+	if err := m.SaveSpec(spec); err != nil {
+		t.Fatal(err)
+	}
+	crashAt := time.Date(2026, 11, 4, 14, 24, 39, 0, time.UTC)
+	lastExit := &servicemgr.LastExit{At: crashAt, ExitCode: 4294967295, PID: 4321, UptimeSec: 90}
+	oldNative := managedNativeStatusRead
+	defer func() { managedNativeStatusRead = oldNative }()
+	managedNativeStatusRead = func(context.Context, *servicemgr.Manager) (nativeServeStatus, error) {
+		return nativeServeStatus{Installed: true, Active: true, Server: self, LastExit: lastExit}, nil
+	}
+	out, err := inspectManagedStatus(context.Background(), m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.LastExit == nil || out.LastExit.ExitCode != 4294967295 || !out.LastExit.At.Equal(crashAt) {
+		t.Fatalf("status last_exit = %+v", out.LastExit)
+	}
+}
+
 func TestServeStatusReadsVersionOnlyFromVerifiedRuntimeStats(t *testing.T) {
 	root := t.TempDir()
 	m, err := servicemgr.NewManager(root, "gofer-t6-version")
