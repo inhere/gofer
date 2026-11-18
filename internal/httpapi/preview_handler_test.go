@@ -1,9 +1,7 @@
 package httpapi
 
 import (
-	"fmt"
 	"math/rand/v2"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -31,7 +29,7 @@ func previewServer(t *testing.T) (*Server, int) {
 	u, _ := url.Parse(app.URL)
 	appPort, _ := strconv.Atoi(u.Port())
 
-	base := freePreviewPort(t)
+	base := previewPortBlock()
 	s := newTestServerCfg(t, config.ServerConfig{
 		Callers: []config.CallerConfig{
 			{ID: "alice", Token: "tok-alice"},
@@ -41,7 +39,7 @@ func previewServer(t *testing.T) (*Server, int) {
 			RequireAnswerCapability: true, RequireAdminCapability: true,
 			RequireAttachCapability: true, RequireTunnelCapability: true,
 		},
-		Preview: config.PreviewConfig{Enabled: true, PortRange: strconv.Itoa(base) + "-" + strconv.Itoa(base+3)},
+		Preview: config.PreviewConfig{Enabled: true, PortRange: strconv.Itoa(base) + "-" + strconv.Itoa(base+previewPoolPorts-1)},
 	})
 	if s.preview == nil {
 		t.Fatal("preview manager not wired")
@@ -212,33 +210,19 @@ func TestPreviewClosedWhenJobEnds(t *testing.T) {
 	}
 }
 
-// freePreviewPort returns the first of four consecutive ports that are free right now.
-func freePreviewPort(t *testing.T) int {
-	t.Helper()
-	// Start at a random block: packages run in parallel and probe-then-close is racy, so
-	// two tests starting from the same fixed base kept colliding on the first block.
-	start := 31000 + rand.IntN(400)*53
-	for i := 0; i < 500; i++ {
-		base := 31000 + (start-31000+i*53)%(60000-31000)
-		var lns []net.Listener
-		ok := true
-		for p := base; p < base+4; p++ {
-			ln, err := net.Listen("tcp", fmt.Sprintf(":%d", p))
-			if err != nil {
-				ok = false
-				break
-			}
-			lns = append(lns, ln)
-		}
-		for _, ln := range lns {
-			_ = ln.Close()
-		}
-		if ok {
-			return base
-		}
-	}
-	t.Fatal("no free port block for the preview pool")
-	return 0
+// previewPoolPorts is how wide a block previewServer hands the manager: wide enough that the
+// few ports another process holds do not exhaust it.
+const previewPoolPorts = 32
+
+// previewPortBlock picks a random block of previewPoolPorts ports for the pool, below the
+// ephemeral ranges an OS hands out (32768+ / 49152+) — the loopback calls these tests make
+// must not land on a preview port. Nothing is bound here: the manager binds the port it
+// hands out and keeps that listener, and skips a port that is busy. Probing the block first
+// (bind, close, hand the number over) was itself the race — the port could be taken again
+// before the lease bound it, which is what `listen tcp :31000: bind: address already in use`
+// in CI was.
+func previewPortBlock() int {
+	return 20000 + rand.IntN(120)*previewPoolPorts
 }
 
 func TestPreviewListDecodesInTheClient(t *testing.T) {

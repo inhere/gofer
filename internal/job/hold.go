@@ -175,6 +175,10 @@ type heldInternals struct {
 	// A registered system job marker (see SystemJobKinds) is a server-side statement — it
 	// must survive a hold / update park, and it must never come from a request body.
 	SystemJob string `json:"system_job,omitempty"`
+	// The schedule dispatcher's run context (run number, previous run, check output) is
+	// json:"-" on the request, so an approved / released run would lose the section the
+	// prompt opens with; it rides the record like the markers above.
+	ScheduleContext *ScheduleContext `json:"schedule_context,omitempty"`
 }
 
 func captureHeldInternals(r *JobRequest) *heldInternals {
@@ -190,6 +194,7 @@ func captureHeldInternals(r *JobRequest) *heldInternals {
 		JobToken: r.JobToken, CredentialExternal: r.CredentialExternal,
 		SystemJob: r.SystemJob,
 	}
+	h.ScheduleContext = r.ScheduleContext
 	if len(r.EnvDenyExtra) > 0 {
 		h.EnvDenyExtra = append([]string(nil), r.EnvDenyExtra...)
 	}
@@ -229,6 +234,7 @@ func (h *heldInternals) restore(r *JobRequest) {
 	r.InitialInput, r.InitialInputQuietMs, r.Stdin = h.InitialInput, h.InitialInputQuietMs, h.Stdin
 	r.JobToken, r.CredentialExternal = h.JobToken, h.CredentialExternal
 	r.SystemJob = h.SystemJob
+	r.ScheduleContext = h.ScheduleContext
 }
 
 // holdPending reports whether this submit must park the job (a held request that is

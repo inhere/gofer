@@ -166,7 +166,7 @@ gofer schedule rotate-token <id>        # 换 webhook 触发 token（旧的立�
 - **结局看退出码**：`0` = 正常提交；`2` = 这一轮跳过（不算失败，也不会触发补跑）；其它退出码或超时 = 这一轮算失败（计入连续失败，可能因此自动暂停）。
 - **不经 shell**：argv 直接执行，`argv[0]` 按 server 进程的 PATH 解析，命令里的 `>`、`|`、变量展开都不会生效（要 shell 就自己写个脚本再调它）。CLI 的 `--precheck` 按空格切参数，参数里带空格时改用 web 表单（一行一个参数）或 HTTP 的 `precheck.argv` 数组。
 - **只在 server 本机执行**，cwd 是项目的执行目录；runner 是 worker / 对端的调度不能设置（会 400）。
-- **输出怎么用**：stdout 末尾 4KB 作为环境变量 `GOFER_PRECHECK_OUTPUT` 传给 job；任务书模板可用 `{{precheck_output}}`。stderr 不保留、正文不进日志与事件（只记退出码、耗时、是否截断）。输出按 job 的 secret 掩码后传递。
+- **输出怎么用**：stdout 末尾 4KB 作为环境变量 `GOFER_PRECHECK_OUTPUT` 传给 job；任务书模板可用 `{{precheck_output}}`。stderr 不保留、正文不进日志与事件（只记退出码、耗时、是否截断）。输出按 job 的 secret 掩码后传递。重跑（`job rerun`）与自动重试**不带**这个变量：检查是给那一轮做的，新的一轮没有自己的检查结论（需要就用 `env_set` 显式给一个值）。
 - **输出没变化就跳过（`--precheck-skip-unchanged`）**：把 stdout 去掉末尾空白后取指纹，与上一次「真正提交了运行」的那次相同就跳过；指纹只在本轮成功提交后更新（检查失败、提交失败都不更新），改了 `precheck.argv` 会清空重新开始。
 - **环境会被剥掉 gofer 凭据**：继承 server 进程环境，但去掉 gofer 自己的 token / 配置变量（`GOFER_*` 与配置里指向凭据的变量，以及 job 环境的 denylist），再叠加计划里存的 env 与本次参数值。
 - **权限**：设置或修改前置检查要 `schedule.precheck`（默认只有根管理员，需要显式授予；不能授予会话、job 凭据也不可用）。清掉前置检查（`--clear-precheck`）不需要这个权限。

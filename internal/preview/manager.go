@@ -119,10 +119,15 @@ func parseRange(v string) (int, int, error) {
 	}
 	return a, b, nil
 }
-func (m *Manager) allocPort() (int, error) {
+
+// allocPort reserves a port of the pool and returns the listener ALREADY bound to it.
+// Keeping the listener is what makes the reservation real: probing a port, closing it and
+// binding it again later leaves a window in which another process takes it, and create's
+// own listen then fails on a port this manager believed free (macOS CI saw exactly that).
+func (m *Manager) allocPort() (net.Listener, int, error) {
 	a, b, e := parseRange(m.cfg.PortRange)
 	if e != nil {
-		return 0, e
+		return nil, 0, e
 	}
 	for p := a; p <= b; p++ {
 		if m.ports[p] {
@@ -130,12 +135,11 @@ func (m *Manager) allocPort() (int, error) {
 		}
 		ln, e := net.Listen("tcp", fmt.Sprintf(":%d", p))
 		if e == nil {
-			ln.Close()
 			m.ports[p] = true
-			return p, nil
+			return ln, p, nil
 		}
 	}
-	return 0, ErrPoolExhausted
+	return nil, 0, ErrPoolExhausted
 }
 
 // Create makes a lease for a job that runs on this server.
@@ -178,27 +182,27 @@ func (m *Manager) create(ctx context.Context, ep endpoint, jobID, caller, host s
 	if m.store == nil {
 		return Lease{}, "", errors.New("preview store unavailable")
 	}
-	p, e := m.allocPort()
+	ln, p, e := m.allocPort()
 	if e != nil {
 		return Lease{}, "", e
 	}
+	// Every refusal below owns the already bound listener and the reserved port.
 	id, e := randomID()
 	if e != nil {
+		_ = ln.Close()
+		delete(m.ports, p)
 		return Lease{}, "", e
 	}
 	tok, e := randomToken()
 	if e != nil {
+		_ = ln.Close()
+		delete(m.ports, p)
 		return Lease{}, "", e
 	}
 	now := time.Now().Unix()
 	rec := jobstore.PreviewRecord{ID: id, TokenHash: jobstore.PreviewTokenHash(tok), JobID: jobID, CallerID: caller, WorkerID: ep.worker, WorkerInstanceID: ep.instance, Port: p, State: "active", CreatedAt: now, ExpiresAt: now + int64(ttl)}
 	if e = m.store.InsertPreview(rec); e != nil {
-		delete(m.ports, p)
-		return Lease{}, "", e
-	}
-	ln, e := net.Listen("tcp", fmt.Sprintf(":%d", p))
-	if e != nil {
-		_ = m.store.UpdatePreviewState(id, "closed", "listen_failed", time.Now().Unix())
+		_ = ln.Close()
 		delete(m.ports, p)
 		return Lease{}, "", e
 	}
