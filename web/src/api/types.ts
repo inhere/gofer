@@ -2303,6 +2303,10 @@ export interface SubmitJobReq {
   // 保持目录锁（R8，仅 --session 持续会话）：默认在等待输入时让出同目录锁，勾选则整段
   // 会话期间都持有（老行为）。
   keep_dir_lock?: boolean
+  // 完成后通知（gofer-j2ak，对齐 CLI 的 --notify-session <job-id>）：notify_session 隐含
+  // 开启 notify，把结果作为该 ACP 会话的下一轮送达；服务端只允许通知调用方自己的会话。
+  notify?: boolean
+  notify_session?: string
   // 可选 plan/todo 归组。todo_id 必须属于 plan_id；后端仍做最终校验。
   plan_id?: string
   todo_id?: string
