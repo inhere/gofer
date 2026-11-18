@@ -43,9 +43,8 @@ func readTurnsFile(t *testing.T, resultDir string) []byte {
 	return b
 }
 
-// A suga job writes turns.jsonl while it runs: the deltas are accumulated, a tool call
-// splits the turn into segments (gofer-z2ia), and a granted secret split across two deltas
-// appears only masked.
+// A suga job writes turns.jsonl while it runs: two turns, deltas accumulated, and a
+// granted secret split across two deltas appears only masked.
 func TestJobSugaWritesMaskedTurnsFile(t *testing.T) {
 	const secret = "ghp_turns_secret_0123456789"
 	t.Setenv("TURNS_TEST_SECRET", secret)
@@ -73,12 +72,7 @@ func TestJobSugaWritesMaskedTurnsFile(t *testing.T) {
 		t.Fatalf("turns.jsonl leaked the secret: %s", b)
 	}
 	lines := splitLogLines(string(b))
-	// turn 1's text, then the counters-only line closing it (the turn ended right after a
-	// tool call, so its text already went out as a segment), then turn 2.
-	if len(lines) != 3 ||
-		!strings.Contains(lines[0], `"text":"the token *** is set"`) || !strings.Contains(lines[0], `"bash":1`) ||
-		!strings.Contains(lines[1], `"tokens":9`) ||
-		!strings.Contains(lines[2], `"text":"second turn"`) {
+	if len(lines) != 2 || !strings.Contains(lines[0], `"text":"the token *** is set"`) || !strings.Contains(lines[0], `"bash":1`) || !strings.Contains(lines[1], `"text":"second turn"`) {
 		t.Fatalf("turns.jsonl = %s", b)
 	}
 }

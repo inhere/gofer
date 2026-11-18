@@ -66,8 +66,7 @@ func TestTurnsClaudeKilledRunWritesAtClose(t *testing.T) {
 	}
 }
 
-// Two suga turns; message_delta rows (dropped by the keep whitelist) are accumulated, and
-// the tool call splits the first turn into two segments.
+// Two suga turns; message_delta rows (dropped by the keep whitelist) are accumulated.
 func TestTurnsSugaAccumulatesDeltasPerTurn(t *testing.T) {
 	recs := runTurns(t, TurnsSuga, nil, []string{
 		`{"type":"turn_start","run_id":"r1"}`,
@@ -82,47 +81,19 @@ func TestTurnsSugaAccumulatesDeltasPerTurn(t *testing.T) {
 		`{"type":"turn_end"}`,
 		`{"type":"result","result":"second"}`,
 	})
-	if len(recs) != 3 {
-		t.Fatalf("records = %+v, want 3 (the tool call splits the first turn)", recs)
-	}
-	if recs[0].Turn != 1 || recs[0].Text != "Hello" || recs[0].Tools["bash"] != 1 || recs[0].Tokens != 0 {
-		t.Fatalf("segment 1 = %+v", recs[0])
-	}
-	if recs[1].Turn != 2 || recs[1].Text != " there" || recs[1].Tokens != 42 {
-		t.Fatalf("segment 2 = %+v", recs[1])
-	}
-	if recs[2].Turn != 3 || recs[2].Text != "second" {
-		t.Fatalf("turn 2 = %+v", recs[2])
-	}
-}
-
-// gofer-z2ia: text on both sides of a tool call is two segments, not one glued run — the
-// deltas carry no separator, so the capture cuts at the tool call instead of inserting one.
-func TestTurnsSugaSplitsTextAtToolCalls(t *testing.T) {
-	recs := runTurns(t, TurnsSuga, nil, []string{
-		`{"type":"turn_start"}`,
-		`{"type":"message_delta","text":"checking the file"}`,
-		`{"type":"tool_call","name":"read"}`,
-		`{"type":"tool_result","name":"read"}`,
-		`{"type":"message_delta","text":"the file has 3 lines"}`,
-		`{"type":"turn_end"}`,
-	})
 	if len(recs) != 2 {
-		t.Fatalf("records = %+v, want two segments", recs)
+		t.Fatalf("records = %+v, want 2", recs)
 	}
-	if recs[0].Text != "checking the file" || recs[0].Tools["read"] != 1 {
-		t.Fatalf("segment 1 = %+v, want the text before the tool call with the tool counted", recs[0])
+	if recs[0].Turn != 1 || recs[0].Text != "Hello there" || recs[0].Tools["bash"] != 1 || recs[0].Tokens != 42 {
+		t.Fatalf("turn 1 = %+v", recs[0])
 	}
-	if recs[1].Text != "the file has 3 lines" {
-		t.Fatalf("segment 2 = %+v, want only the text after the tool call", recs[1])
-	}
-	if recs[0].Turn != 1 || recs[1].Turn != 2 {
-		t.Fatalf("segment turns = %d/%d, want 1/2", recs[0].Turn, recs[1].Turn)
+	if recs[1].Turn != 2 || recs[1].Text != "second" {
+		t.Fatalf("turn 2 = %+v", recs[1])
 	}
 }
 
 // retry{restart:true} re-sends the model call from scratch: only the text since the
-// latest segment boundary (a tool call / tool result / the turn start) is dropped.
+// latest tool_result / turn_start is dropped.
 func TestTurnsSugaRetryRestartKeepsOnlyLatestSegment(t *testing.T) {
 	recs := runTurns(t, TurnsSuga, nil, []string{
 		`{"type":"turn_start"}`,
@@ -134,8 +105,8 @@ func TestTurnsSugaRetryRestartKeepsOnlyLatestSegment(t *testing.T) {
 		`{"type":"message_delta","text":"full answer"}`,
 		`{"type":"turn_end"}`,
 	})
-	if len(recs) != 2 || recs[0].Text != "before tool. " || recs[1].Text != "full answer" {
-		t.Fatalf("records = %+v, want the retried half dropped from the last segment", recs)
+	if len(recs) != 1 || recs[0].Text != "before tool. full answer" {
+		t.Fatalf("records = %+v", recs)
 	}
 	// A restart right after turn_start drops the whole turn text so far.
 	recs = runTurns(t, TurnsSuga, nil, []string{
