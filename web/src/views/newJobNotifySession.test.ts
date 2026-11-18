@@ -17,6 +17,8 @@ describe('new job: notify the session when done', () => {
   })
 
   it('lists only the caller own running sessions as targets', () => {
+    // whoami 异步取到 caller id 后才拉候选，否则首屏候选是空的。
+    expect(newJob).toContain("() => whoami.value?.caller_id ?? ''")
     expect(newJob).toContain("(['awaiting_input', 'running'] as JobStatus[]).map((status) =>")
     expect(newJob).toContain('listJobs({ caller, status, limit: 50 })')
     expect(newJob).toContain('if (!job.session || seen.has(job.id)) continue')

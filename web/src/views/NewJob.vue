@@ -305,6 +305,15 @@ async function loadNotifyTargets(): Promise<void> {
   }
 }
 
+// whoami 是异步取的：拿到 caller id 后再拉通知目标（否则首屏还没身份，候选会是空的）。
+watch(
+  () => whoami.value?.caller_id ?? '',
+  (caller) => {
+    if (caller !== '') void loadNotifyTargets()
+  },
+  { immediate: true },
+)
+
 async function loadMeta() {
   loading.value = true
   loadError.value = ''
@@ -1161,7 +1170,6 @@ onMounted(async () => {
     interactive.value = true
   }
   await loadMeta()
-  void loadNotifyTargets()
   const queryProject = typeof route.query.project === 'string' ? route.query.project : ''
   const queryAgent = typeof route.query.agent === 'string' ? route.query.agent : ''
   const queryRunner = typeof route.query.runner === 'string' ? route.query.runner : ''
