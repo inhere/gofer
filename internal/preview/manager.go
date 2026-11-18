@@ -119,6 +119,7 @@ func parseRange(v string) (int, int, error) {
 	}
 	return a, b, nil
 }
+
 // allocPort reserves a port of the pool and returns the listener ALREADY bound to it.
 // Keeping the listener is what makes the reservation real: probing a port, closing it and
 // binding it again later leaves a window in which another process takes it, and create's
