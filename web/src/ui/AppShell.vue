@@ -20,7 +20,7 @@ import Wire from './Wire.vue'
 import LangToggle from './LangToggle.vue'
 import Icon from './Icon.vue'
 import { navIcon } from './icon'
-import { PanelLeftClose, PanelLeftOpen, Plus, Search, Sparkles } from '@lucide/vue'
+import { PanelLeftClose, PanelLeftOpen, Search, Sparkles } from '@lucide/vue'
 import { listRunners } from '../api/client'
 import { getMetaCached, onMetaInvalidated } from '../api/metaCache'
 import { liveStatus } from '../api/live'
@@ -309,10 +309,6 @@ onUnmounted(() => {
             ><Icon :icon="Sparkles" size="sm" /> {{ updateLatest }}</RouterLink
           >
           <NeedsMeButton />
-          <RouterLink v-if="!readOnly" to="/new" class="new-job" :title="t('act.newJob')" active-class="new-job--active">
-            <Icon :icon="Plus" size="sm" />
-            <span class="new-job-label">{{ t('act.newJob') }}</span>
-          </RouterLink>
           <QuickCapture />
           <!-- 收集箱入口：只在有未处理条目时出现（设计稿 2026-11-01 §4.3） -->
           <RouterLink
@@ -670,24 +666,6 @@ onUnmounted(() => {
   margin-left: auto;
   min-width: 0;
 }
-.new-job {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  background: var(--accent);
-  color: var(--accent-ink);
-  border: 1px solid var(--accent);
-  border-radius: var(--r-ctl);
-  padding: 5px 10px;
-  font-size: var(--fs-sm);
-  font-weight: 600;
-  white-space: nowrap;
-  text-decoration: none;
-  flex: none;
-}
-.new-job:hover {
-  background: var(--accent-hover);
-}
 .readonly-badge {
   border: 1px solid var(--run);
   color: var(--run);
@@ -842,9 +820,6 @@ onUnmounted(() => {
     padding: 0;
   }
   .side-group-title {
-    display: none;
-  }
-  .new-job-label {
     display: none;
   }
 }

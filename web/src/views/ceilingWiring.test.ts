@@ -14,6 +14,7 @@ const app = raw(import.meta.glob('../ui/AppShell.vue', { eager: true, query: '?r
 const permissions = raw(
   import.meta.glob('./settings/Permissions.vue', { eager: true, query: '?raw', import: 'default' }),
 )
+const board = raw(import.meta.glob('./Board.vue', { eager: true, query: '?raw', import: 'default' }))
 const whoamiStore = raw(import.meta.glob('../store/whoami.ts', { eager: true, query: '?raw', import: 'default' }))
 const gate = raw(import.meta.glob('../utils/permissionGate.ts', { eager: true, query: '?raw', import: 'default' }))
 const composer = raw(
@@ -80,9 +81,13 @@ describe('新建会话 / workflow 向导按上限收窄', () => {
 })
 
 describe('只读上限：写入口消失 + 顶栏标记 + 权限页摘要', () => {
-  it('顶栏挂「只读」标记，新建 job 入口收起', () => {
+  it('顶栏挂「只读」标记，新建 job 入口在任务列表页头并随之收起', () => {
     expect(app).toContain('data-testid="readonly-badge"')
-    expect(app).toContain('v-if="!readOnly" to="/new"')
+    // gofer-iwiy：新建任务不再占主菜单位置，入口移到 /jobs 页头；/new 路由保留。
+    expect(app).not.toContain('to="/new"')
+    expect(board).toContain('v-if="!embedded && !readOnly"')
+    expect(board).toContain('to="/new"')
+    expect(board).toContain('data-test="jobs-new"')
   })
   it('plan / workflow / schedule / 会话的创建入口与表单都收起', () => {
     expect(plans).toContain('v-if="!readOnly" class="create-toggle mono"')

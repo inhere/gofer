@@ -15,6 +15,7 @@ import StatusPill from '../ui/StatusPill.vue'
 import { chipItems } from '../ui/filterChips'
 import { setJobsSplitPreference } from '../store/jobsSplit'
 import { useListReturn } from '../ui/useListReturn'
+import { useWhoami } from '../store/whoami'
 import { listJobs, listPlans, listProjects } from '../api/client'
 import { createLiveTopic } from '../utils/useLiveTopic'
 import { fmtDuration, jobDurationSec } from '../api/time'
@@ -23,6 +24,8 @@ import { isCountedStatus, statusCountSince, STATUS_COUNT_LIMIT } from '../utils/
 
 const route = useRoute()
 const router = useRouter()
+// 只读上限下没有写入口：页头的新建任务按钮随之收起（与原先顶栏入口同一判定）。
+const readOnly = useWhoami().readOnly
 
 // 并排模式：由详情宿主页（JobsView）传入，列表只占左列。
 const props = withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false })
@@ -489,6 +492,14 @@ onUnmounted(() => {
         >{{ t('jobs.h.summaryFilters', { n: activeFilterCount }) }}</span>
       </p>
       <div class="head-actions mono">
+        <!-- 新建任务的入口在这里（issue gofer-iwiy）：主菜单用得不多的写入口移到任务列表页头。 -->
+        <RouterLink
+          v-if="!embedded && !readOnly"
+          to="/new"
+          class="head-btn head-btn--primary"
+          :title="t('act.newJob')"
+          data-test="jobs-new"
+        >{{ t('act.newJob') }}</RouterLink>
         <button
           v-if="embedded"
           class="head-btn"
@@ -761,6 +772,17 @@ onUnmounted(() => {
 .head-btn:hover:not(:disabled) {
   color: var(--accent);
   border-color: var(--accent);
+}
+.head-btn--primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+  text-decoration: none;
+}
+.head-btn.head-btn--primary:hover {
+  background: var(--accent-hover);
+  color: var(--accent-ink);
+  border-color: var(--accent-hover);
 }
 .head-btn:disabled {
   color: var(--ink-3);
