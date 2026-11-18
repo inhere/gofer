@@ -460,7 +460,7 @@ func startJoinedWorker(c *gcli.Command, id string) error {
 	if runtime.GOOS == "windows" {
 		// Windows has no -d here (G013): print the foreground command instead of
 		// pretending to have started a daemon.
-		c.Printf("background start (-d) is not supported on Windows: run `gofer worker` in the foreground (or as a login task); stop with `gofer worker stop %s`\n", id)
+		c.Printf("background start (-d) is not supported on Windows: run `gofer worker` in the foreground, or register the user-level logon task with `gofer worker service register --start`; stop with `gofer worker stop %s`\n", id)
 		return nil
 	}
 	exe, err := os.Executable()

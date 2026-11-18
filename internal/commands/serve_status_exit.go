@@ -83,14 +83,26 @@ func classifyServeStatus(out serveStatusOutput) (state string, code int) {
 // serveStatusExitError carries a non-zero verdict as a coded error: gcli turns an
 // errorx.ErrorCoder into the process exit code, so the command never os.Exits.
 func serveStatusExitError(state string, code int) error {
-	if code == serveStatusExitOK {
-		return nil
-	}
-	return errorx.Failf(code, "serve status: state=%s", state)
+	return statusVerdictError("serve status", state, code)
 }
 
 // serveStatusCheckError gives a failed check (no manager, unreadable spec or native
 // registration) the documented exit code 1 instead of gcli's generic error code.
 func serveStatusCheckError(err error) error {
-	return errorx.Failf(serveStatusExitCheck, "serve status: %v", err)
+	return statusCheckError("serve status", err)
+}
+
+// statusVerdictError / statusCheckError are the labelled forms of the two above: a command
+// that shares the `serve status` scale and exit codes (worker service status) names ITSELF in
+// the message, so its operator is not told that `serve status` failed when the worker
+// registration is the thing being inspected.
+func statusVerdictError(label, state string, code int) error {
+	if code == serveStatusExitOK {
+		return nil
+	}
+	return errorx.Failf(code, "%s: state=%s", label, state)
+}
+
+func statusCheckError(label string, err error) error {
+	return errorx.Failf(serveStatusExitCheck, "%s: %v", label, err)
 }

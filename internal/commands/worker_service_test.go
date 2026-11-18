@@ -3,10 +3,13 @@
 package commands
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gookit/goutil/errorx"
 
 	"github.com/inhere/gofer/internal/config"
 )
@@ -78,6 +81,31 @@ func TestClassifyWorkerServiceReusesServeStatusScale(t *testing.T) {
 		if state != tc.want || code != tc.code {
 			t.Errorf("%+v classified as %s/%d, want %s/%d", tc.state, state, code, tc.want, tc.code)
 		}
+	}
+}
+
+// TestWorkerServiceStatusNamesItself (gofer-e8qy): the exit codes and the state names are the
+// `serve status` scale, but the message must name THIS command — a worker operator was told
+// `serve status: ...` for a worker registration.
+func TestWorkerServiceStatusNamesItself(t *testing.T) {
+	err := workerServiceStatusVerdictError(serveStatusStateDown, serveStatusExitDown)
+	if err == nil {
+		t.Fatal("a non-zero verdict must return an error")
+	}
+	assertCodedExit(t, err)
+	if got := err.Error(); !strings.Contains(got, "worker service status: state=stopped") || strings.Contains(got, "serve status") {
+		t.Fatalf("verdict error = %q, want `worker service status: state=stopped`", got)
+	}
+	if coder, ok := err.(errorx.ErrorCoder); !ok || coder.Code() != serveStatusExitDown {
+		t.Fatalf("the shared exit code must survive: %v", err)
+	}
+	if err := workerServiceStatusVerdictError(serveStatusStateOK, serveStatusExitOK); err != nil {
+		t.Fatalf("a running worker must not be an error, got %v", err)
+	}
+	check := workerServiceStatusCheckError(errors.New("no worker.yaml"))
+	assertCodedExit(t, check)
+	if got := check.Error(); !strings.Contains(got, "worker service status: no worker.yaml") || strings.Contains(got, "serve status") {
+		t.Fatalf("check error = %q, want the worker wording", got)
 	}
 }
 

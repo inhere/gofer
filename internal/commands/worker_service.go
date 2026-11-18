@@ -205,15 +205,15 @@ func runWorkerServiceAction(c *gcli.Command, action string) error {
 func runWorkerServiceStatus(c *gcli.Command, _ []string) error {
 	configDir, err := config.ConfigDir()
 	if err != nil {
-		return serveStatusCheckError(err)
+		return workerServiceStatusCheckError(err)
 	}
 	id, err := workerServiceID(configDir)
 	if err != nil {
-		return serveStatusCheckError(err)
+		return workerServiceStatusCheckError(err)
 	}
 	m, err := workerServiceManager(configDir, id)
 	if err != nil {
-		return serveStatusCheckError(err)
+		return workerServiceStatusCheckError(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -221,7 +221,7 @@ func runWorkerServiceStatus(c *gcli.Command, _ []string) error {
 	// check: the platform reports it through the state.
 	state, err := workerServiceStatusNative(ctx, m)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return serveStatusCheckError(err)
+		return workerServiceStatusCheckError(err)
 	}
 	if errors.Is(err, os.ErrNotExist) {
 		state = workerServiceState{Name: m.Name}
@@ -231,7 +231,7 @@ func runWorkerServiceStatus(c *gcli.Command, _ []string) error {
 		if err := json.NewEncoder(os.Stdout).Encode(workerServiceJSON{workerServiceState: state, Verdict: name, ExitCode: code}); err != nil {
 			return err
 		}
-		return serveStatusExitError(name, code)
+		return workerServiceStatusVerdictError(name, code)
 	}
 	c.Printf("name=%s registered=%t native=%s active=%t pid=%d verified=%t\n",
 		state.Name, state.Registered, state.NativeState, state.Active, state.PID, state.Verified)
@@ -239,7 +239,18 @@ func runWorkerServiceStatus(c *gcli.Command, _ []string) error {
 		c.Printf("detail: %s\n", state.Detail)
 	}
 	c.Printf("state=%s\n", name)
-	return serveStatusExitError(name, code)
+	return workerServiceStatusVerdictError(name, code)
+}
+
+// workerServiceStatusCheckError / workerServiceStatusVerdictError are the `serve status`
+// error helpers under this command's own name: the scale and the exit codes are shared, the
+// message must not tell a worker operator that `serve status` failed.
+func workerServiceStatusCheckError(err error) error {
+	return statusCheckError("worker service status", err)
+}
+
+func workerServiceStatusVerdictError(state string, code int) error {
+	return statusVerdictError("worker service status", state, code)
 }
 
 type workerServiceJSON struct {
