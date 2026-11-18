@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/inhere/gofer/internal/util"
 	"github.com/inhere/gofer/internal/wsproto"
 )
 
@@ -120,7 +121,7 @@ type lostJob struct {
 func (p pendingRecovery) resumeEntries(withCursors, withTerminal bool) []wsproto.ResumeJob {
 	n := len(p.resumed)
 	if withTerminal {
-		n += len(p.terminal)
+		n = util.CapSum(len(p.resumed), len(p.terminal))
 	}
 	if n == 0 {
 		return nil
