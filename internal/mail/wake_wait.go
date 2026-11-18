@@ -61,8 +61,9 @@ func wakeWaitReason(a jobstore.AgentSession) string {
 func wakeWaitEarliest(a jobstore.AgentSession, now time.Time, st Settings) time.Time {
 	switch a.State {
 	case jobstore.SessionIdle, jobstore.SessionOffline:
-		if a.LastSeenAt > 0 {
-			return time.Unix(a.LastSeenAt, 0).Add(st.WakeIdle)
+		// The same anchor WakeDue uses: real activity, not the last hook beat.
+		if at := a.ActivityAt(); at > 0 {
+			return time.Unix(at, 0).Add(st.WakeIdle)
 		}
 	}
 	return time.Time{}

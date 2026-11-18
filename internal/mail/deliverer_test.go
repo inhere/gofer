@@ -145,6 +145,45 @@ func TestWakeDueTable(t *testing.T) {
 	}
 }
 
+// TestWakeDueIgnoresSilentBeats: the idle clock is the session's last REAL activity
+// (ActivityAt), not its last hook beat. Claude Code keeps beating after a Stop (the
+// idle-prompt Notification, the away summary's SubagentStop); those beats must not
+// postpone a wake, while a real prompt moves the anchor again (gofer-sera).
+func TestWakeDueIgnoresSilentBeats(t *testing.T) {
+	now := time.Unix(1_760_000_000, 0)
+	idle := 5 * time.Minute
+	cases := []struct {
+		name    string
+		session jobstore.AgentSession
+		want    bool
+	}{
+		{"silent beats after the Stop do not postpone the wake",
+			jobstore.AgentSession{State: jobstore.SessionIdle, LastActivityAt: now.Add(-6 * time.Minute).Unix(), LastSeenAt: now.Add(-10 * time.Second).Unix()}, true},
+		{"a fresh real activity holds the wake",
+			jobstore.AgentSession{State: jobstore.SessionIdle, LastActivityAt: now.Add(-time.Minute).Unix(), LastSeenAt: now.Add(-time.Hour).Unix()}, false},
+		{"a row from before the column falls back to last_seen_at",
+			jobstore.AgentSession{State: jobstore.SessionIdle, LastSeenAt: now.Add(-6 * time.Minute).Unix()}, true},
+		{"a row from before the column with a fresh beat waits",
+			jobstore.AgentSession{State: jobstore.SessionIdle, LastSeenAt: now.Add(-time.Minute).Unix()}, false},
+	}
+	letters := []jobstore.Mail{{ID: 1}}
+	st := Settings{WakeIdle: idle}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := WakeDue(tc.session, letters, now, idle); got != tc.want {
+				t.Fatalf("WakeDue = %v, want %v", got, tc.want)
+			}
+			// The reported "earliest wake" must agree with the decision above, or the log
+			// keeps promising a wake time that the sweep will not honour.
+			earliest := wakeWaitEarliest(tc.session, now, st)
+			fromActivity := tc.session.LastActivityAt > 0
+			if fromActivity && !earliest.Equal(time.Unix(tc.session.LastActivityAt, 0).Add(idle)) {
+				t.Fatalf("earliest = %v, want activity + idle", earliest)
+			}
+		})
+	}
+}
+
 func TestTickWakesIdleSessionAndRateLimits(t *testing.T) {
 	f := newFixture(t)
 	f.sessionSeenAt(t, "sess-idle", "claude", jobstore.SessionIdle, 10*time.Minute)

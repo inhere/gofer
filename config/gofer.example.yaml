@@ -472,7 +472,8 @@ wakeup:
 mail:
   # 投递器多久扫一次(秒)。未写 = 30。
   # tick_sec: 30
-  # idle / offline 会话的 last_seen_at 早于多久(秒)才发唤醒提示(急件在 idle 时不看这个)。未写 = 300。
+  # idle / offline 会话的最后一次真实活动早于多久(秒)才发唤醒提示(急件在 idle 时不看这个)。未写 = 300。
+  # 真实活动不含 Stop 之后的空闲提醒(Notification)与离开摘要(SubagentStop)这类心跳。
   # wake_idle_sec: 300
   # 同一会话两次唤醒的最短间隔(秒)。未写 = 600。
   # wake_interval_sec: 600
