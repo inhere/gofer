@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	yaml "github.com/goccy/go-yaml"
 
@@ -821,6 +822,11 @@ func (c *Core) storedCallerView(cfg *config.Config, row jobstore.StoredCaller,
 		out.State = config.CallerStateSuperseded
 	case row.DisabledAt != 0:
 		out.State = config.CallerStateDisabled
+	case row.ExpiresAt != 0 && row.ExpiresAt <= time.Now().Unix():
+		// The token is refused from this second on (httpapi's callerTokenExpired), so the
+		// list must not keep calling it active: this is the ONE place the state is derived,
+		// which is why the CLI and the console agree.
+		out.State = config.CallerStateExpired
 	}
 	if lim, err := config.DecodeCallerLimits(row.LimitsJSON); err == nil {
 		out.MaxConcurrentJobs, out.RateLimit, out.RateBurst = lim.MaxConcurrentJobs, lim.RateLimit, lim.RateBurst

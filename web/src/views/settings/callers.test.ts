@@ -34,6 +34,8 @@ import {
   quotaText,
   rotateQueryId,
   splitPatterns,
+  stateText,
+  stateTone,
 } from '../../utils/callers'
 import type { CallerView } from '../../api/types'
 
@@ -151,6 +153,15 @@ describe('行的可用动作', () => {
   it('配额写成一行的紧凑形式（0 = 用默认）', () => {
     expect(quotaText(view({ max_concurrent_jobs: 2, rate_limit: 1.5, rate_burst: 4 }))).toBe('2 / 1.5 / 4')
     expect(quotaText(view())).toBe('- / - / -')
+  })
+
+  // gofer-dfqx：过期用户显示「已过期」（灰），不是「有效」。
+  it('过期用户不显示为有效', () => {
+    expect(stateText('expired')).not.toBe(stateText('active'))
+    expect(stateTone('expired')).toBe('off')
+    expect(stateTone('active')).toBe('ok')
+    expect(stateTone('disabled')).toBe('off')
+    expect(stateTone('superseded')).toBe('warn')
   })
 })
 

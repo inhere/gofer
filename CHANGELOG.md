@@ -21,6 +21,7 @@
 - plan 推进引擎把被中断的 job（gofer 自己在 job 运行中途停了，例如 serve 重启）当 agent 失败记成「交给人工」；这类失败与 agent 无关，现在记为新规则 `failure_interrupted_retry` 的「重试」，报告里能单独看到这一类。
 - `gofer worker join` 的输出不是终端时（安装脚本经 job / 管道运行）不再每秒刷一行倒计时（曾刷出约 900 行 `0s left`）：只在开始等时说一次、得到结果时说一次；终端里的倒计时不变。
 - `worker join` / `worker init` 收尾的启动提示不再说「Windows 登录自启任务仅服务端有脚本」，改为直接给命令 `gofer worker service register --start`；`gofer worker service status` 的报错也不再沿用 `serve status` 的字样（退出码不变）。
+- `gofer auth caller ls` 对已过期的入库调用方显示 `expired` 而不是 `active`（web 用户页同口径显示「已过期」）；token 本来就已经 401，只是列表没跟上。状态仍由服务端同一处算，CLI / HTTP / web 三处不再各判一次。
 
 ### 新增
 

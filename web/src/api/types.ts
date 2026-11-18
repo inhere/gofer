@@ -1064,7 +1064,7 @@ export interface CallerView {
   name?: string
   // file = 配置文件里声明的（操作员自己的条目），db = 控制台新建、存在数据库里的。
   source: string
-  // active | disabled | superseded（被同 id 的文件用户接管，需要先轮换才能启用）。
+  // active | disabled | expired | superseded（被同 id 的文件用户接管，需要先轮换才能启用）。
   state: string
   token_set: boolean
   // token_hint 形如 `gct_…a1b2`：只够区分两个 token，拿不回原值。

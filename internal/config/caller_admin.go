@@ -27,6 +27,10 @@ const (
 	// CallerStateDisabled: a stored caller switched off — it authenticates nothing, and no
 	// new work of its owner starts.
 	CallerStateDisabled = "disabled"
+	// CallerStateExpired: a stored caller whose token reached its expiry — the credential is
+	// refused (401) and no new work of its owner starts, like a disabled one, but the row is
+	// NOT switched off: rotating the token and setting a new expiry is what brings it back.
+	CallerStateExpired = "expired"
 	// CallerStateSuperseded: a stored caller a same-id configuration-file entry (or a worker
 	// binding) has taken over: the file wins, the row stays visible so an operator can rotate
 	// and enable it again after the file entry is gone.
@@ -105,7 +109,7 @@ type CallerView struct {
 	Name string `json:"name,omitempty"`
 	// Source is CallerSourceFile ("" is rendered as file too) or CallerSourceDB.
 	Source string `json:"source"`
-	// State is active | disabled | superseded.
+	// State is active | disabled | expired | superseded.
 	State    string `json:"state"`
 	TokenSet bool   `json:"token_set"`
 	// TokenHint is `gct_…<last four>` for a stored caller: enough to tell two tokens apart,

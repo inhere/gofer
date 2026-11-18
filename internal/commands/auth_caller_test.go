@@ -216,6 +216,30 @@ func TestAuthCallerFileWriteNotesCommentLoss(t *testing.T) {
 	}
 }
 
+// TestAuthCallerListPrintsExpiredState (gofer-dfqx): `auth caller ls` prints the state the
+// server derived — an expired token is not `active` — and never re-derives it locally.
+func TestAuthCallerListPrintsExpiredState(t *testing.T) {
+	isolateAgentSessionEnv(t)
+	isolateCallerFlags(t)
+	t.Setenv(i18n.EnvLanguageVar, string(i18n.EN))
+	stub := &callerStubServer{body: map[string]any{"callers": []any{map[string]any{
+		"id": "old", "source": "db", "state": "expired", "token_set": true, "expires_at": 1700000000,
+	}}}}
+	srv := httptest.NewServer(stub.handler())
+	t.Cleanup(srv.Close)
+
+	var code int
+	out := captureOutput(t, func() {
+		code = NewApp("test").Run([]string{"auth", "caller", "ls", "--server", srv.URL, "--token", "tok-root"})
+	})
+	if code != 0 {
+		t.Fatalf("caller ls exit code=%d, out=%s", code, out)
+	}
+	if !strings.Contains(out, "expired") || strings.Contains(out, " active ") {
+		t.Fatalf("the list must show the server's expired state, out=%s", out)
+	}
+}
+
 // TestAuthCallerRepairNeedsOffline: the repair is the one caller command that does not go
 // through the server, so the flag that says so is required.
 func TestAuthCallerRepairNeedsOffline(t *testing.T) {
