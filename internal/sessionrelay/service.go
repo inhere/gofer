@@ -676,6 +676,10 @@ func (s *Service) heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 	}
 	// A sub-agent beat is bookkeeping, not a session event: keep last_event.
 	subagentBeat := in.Event == EventSubagentStart || in.Event == EventSubagentStop
+	// Silent beats prove the CLI is alive but not that anybody is working: the idle
+	// reminder Notification and the away summary's SubagentStop arrive AFTER a Stop and
+	// refreshed last_seen_at, which postponed every idle wake by minutes (gofer-sera).
+	silentBeat := in.Event == EventNotification || in.Event == EventSubagentStop
 	touchEvent := in.Event
 	if subagentBeat {
 		touchEvent = ""
@@ -701,7 +705,7 @@ func (s *Service) heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 		PeerName: in.PeerName, PeerNameSource: in.PeerNameSource, PeerStatus: in.PeerStatus, PeerMessaging: in.PeerMessaging,
 		PeerSocket:   in.PeerSocket,
 		ProgressText: in.ProgressText, ProgressAt: in.ProgressAt, ClearProgress: in.ClearProgress,
-		Cwd: in.Cwd,
+		Cwd: in.Cwd, Silent: silentBeat,
 		// gofer-fv6a: the Stop hook announces the park it is entering, and a human-input
 		// event means the terminal is back at the person, so nothing is parked any more.
 		StopParkUntil: stopParkUntil(s.now().Unix(), in, human || in.Event == EventInterrupt || in.Event == EventSessionEnd),

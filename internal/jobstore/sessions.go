@@ -316,6 +316,13 @@ type AgentSession struct {
 	LastMessage string
 	LastEvent   string
 	LastSeenAt  int64
+	// LastActivityAt (gofer-sera) is when a human or the agent last did something REAL
+	// (unix seconds), as opposed to LastSeenAt, which EVERY hook beat stamps — a
+	// Notification (Claude Code's idle reminder, its generic permission notice) or the
+	// away summary's SubagentStop included. The idle rules measure a session's silence
+	// from ActivityAt, so those beats cannot postpone a wake. 0 = never recorded (a row
+	// from before the column existed); ActivityAt then falls back to LastSeenAt.
+	LastActivityAt int64
 	StartedAt   int64
 	EndedAt     int64
 	// IdleSec is the system input idle time (seconds) the hook reported last;
@@ -400,7 +407,7 @@ const selectSessionCols = `SELECT session_id, COALESCE(agent,''), COALESCE(proje
   COALESCE(tmux_pane,''), COALESCE(caller_id,''), state, COALESCE(relay_mode,'auto'),
   COALESCE(idle_sec,-1), COALESCE(last_human_at,0), turn_no,
   COALESCE(last_message,''),
-  COALESCE(last_event,''), last_seen_at, started_at, COALESCE(ended_at,0),
+  COALESCE(last_event,''), last_seen_at, COALESCE(last_activity_at,0), started_at, COALESCE(ended_at,0),
   COALESCE(handed_off_job_id,''), COALESCE(handed_off_at,0), COALESCE(peer_name,''),
   COALESCE(peer_name_source,''), COALESCE(peer_status,''), COALESCE(peer_messaging,0), COALESCE(peer_socket,''), COALESCE(progress_text,''), COALESCE(progress_at,0),
   COALESCE(last_cwd,''), COALESCE(usage_json,''), COALESCE(usage_at,0),
@@ -415,7 +422,7 @@ func scanSession(sc rowScanner) (AgentSession, error) {
 	err := sc.Scan(&a.SessionID, &a.Agent, &a.ProjectKey, &a.Runner, &a.Cwd, &a.Title,
 		&a.Transcript, &a.TmuxPane, &a.CallerID, &a.State, &a.RelayMode,
 		&a.IdleSec, &a.LastHumanAt, &a.TurnNo, &a.LastMessage,
-		&a.LastEvent, &a.LastSeenAt, &a.StartedAt, &a.EndedAt,
+		&a.LastEvent, &a.LastSeenAt, &a.LastActivityAt, &a.StartedAt, &a.EndedAt,
 		&a.HandedOffJobID, &a.HandedOffAt, &a.PeerName, &a.PeerNameSource, &a.PeerStatus, &a.PeerMessaging, &a.PeerSocket,
 		&a.ProgressText, &a.ProgressAt, &a.LastCwd, &a.UsageJSON, &a.UsageAt,
 		&a.RefusedCallerID, &a.RefusedAt, &a.Topic, &scopeJSON, &a.TopicSource, &a.TopicAt, &a.HumanPrompts,
@@ -649,11 +656,11 @@ func (s *Store) upsertAgentSession(in AgentSession, requireOwner bool) (AgentSes
 		// 随机值」), minted by the database so it cannot collide with the value a rotation wrote.
 		const q = `INSERT INTO agent_sessions
   (session_id, agent, project_key, runner, cwd, title, transcript, tmux_pane, caller_id, state,
-	   relay_mode, turn_no, last_message, last_event, last_seen_at, started_at, last_human_at, ended_at,
+	   relay_mode, turn_no, last_message, last_event, last_seen_at, last_activity_at, started_at, last_human_at, ended_at,
 	   peer_name, peer_status, peer_messaging, peer_name_source, peer_socket, incarnation)
-	  VALUES (?,?,?,?,?,?,?,?,?,?,?,0,NULL,?,?,?,?,NULL,?,?,?,?,?, lower(hex(randomblob(8))))`
+	  VALUES (?,?,?,?,?,?,?,?,?,?,?,0,NULL,?,?,?,?,?,NULL,?,?,?,?,?, lower(hex(randomblob(8))))`
 		_, err = s.writeSessionRow(sid, in.PeerSocket, in.Runner, q, []any{sid, in.Agent, in.ProjectKey, in.Runner, in.Cwd, in.Title,
-			in.Transcript, in.TmuxPane, in.CallerID, state, relayMode, in.LastEvent, now, now, in.LastHumanAt,
+			in.Transcript, in.TmuxPane, in.CallerID, state, relayMode, in.LastEvent, now, now, now, in.LastHumanAt,
 			in.PeerName, in.PeerStatus, in.PeerMessaging, in.PeerNameSource, in.PeerSocket})
 		if err == nil {
 			notifyChange = true
@@ -698,7 +705,7 @@ func (s *Store) upsertAgentSession(in AgentSession, requireOwner bool) (AgentSes
 	// An ended session re-registering under the same id comes back to `running` — and gets a new
 	// incarnation, so the grants of the life that ended stop applying (design §4).
 	q := `UPDATE agent_sessions SET agent=?, project_key=?, runner=?, cwd=?, title=?,
-	  transcript=?, tmux_pane=?, caller_id=?, state=?, last_event=?, last_human_at=?, last_seen_at=?, ended_at=NULL,
+	  transcript=?, tmux_pane=?, caller_id=?, state=?, last_event=?, last_human_at=?, last_seen_at=?, last_activity_at=?, ended_at=NULL,
 	  peer_name=?, peer_status=?, peer_messaging=?, peer_name_source=?, peer_socket=?, ` + rotateIncarnationOnRevive
 	if in.CallerID != "" && (existing.CallerID == "" || existing.CallerID == in.CallerID) {
 		// The owner reported: whatever an earlier wrong-identity beat left behind is
@@ -710,7 +717,7 @@ func (s *Store) upsertAgentSession(in AgentSession, requireOwner bool) (AgentSes
 		runner, pick(in.Cwd, existing.Cwd), pick(in.Title, existing.Title),
 		pick(in.Transcript, existing.Transcript), pick(in.TmuxPane, existing.TmuxPane),
 		pick(in.CallerID, existing.CallerID),
-		state, pick(in.LastEvent, existing.LastEvent), humanAt, now,
+		state, pick(in.LastEvent, existing.LastEvent), humanAt, now, now,
 		peerName, peerStatus, peerMessaging, peerNameSource, peerSocket, state, sid})
 	if err == nil {
 		notifyChange = true
@@ -776,6 +783,25 @@ type SessionHeartbeat struct {
 	// watched jobs (gofer-fv6a), unix seconds; nil leaves the stored value alone.
 	// 0 clears it (the hook is no longer in its wait loop).
 	StopParkUntil *int64
+	// Silent marks a beat that proves the process is ALIVE but proves nobody and no
+	// agent did anything (gofer-sera): Claude Code's Notification idle reminder, the
+	// away summary's SubagentStop. It still stamps last_seen_at (presence, ordering)
+	// but leaves last_activity_at alone, so the idle rules keep measuring silence
+	// from the last real activity instead of from the reminder.
+	Silent bool
+}
+
+// ActivityAt is the moment the idle rules measure a session's silence from (unix
+// seconds): the last REAL activity, NOT the last hook beat. A Claude Code session keeps
+// beating after its Stop — the idle-prompt Notification, the away summary's SubagentStop —
+// and anchoring a wake (mail's WakeDue) on those beats postponed it by minutes while
+// nobody was working (gofer-sera). Rows written before last_activity_at existed read back
+// 0 and fall back to LastSeenAt, i.e. their previous behaviour.
+func (a AgentSession) ActivityAt() int64 {
+	if a.LastActivityAt > 0 {
+		return a.LastActivityAt
+	}
+	return a.LastSeenAt
 }
 
 // TouchAgentSession applies a hook heartbeat: refreshes last_seen_at and
@@ -790,6 +816,12 @@ func (s *Store) TouchAgentSession(sid string, hb SessionHeartbeat) (AgentSession
 	now := s.unixNow()
 	sets := []string{"last_seen_at=?"}
 	args := []any{now}
+	if !hb.Silent {
+		// A beat that carries no real activity (Silent) still proves the process is alive
+		// (last_seen_at), but it must not push the idle clock later: see LastActivityAt.
+		sets = append(sets, "last_activity_at=?")
+		args = append(args, now)
+	}
 	if hb.Event != "" {
 		sets = append(sets, "last_event=?")
 		args = append(args, hb.Event)

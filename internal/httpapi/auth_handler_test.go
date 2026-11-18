@@ -288,8 +288,8 @@ func TestAuthGrantLifecycleAndOrphan(t *testing.T) {
 	}
 	var activated authGrantView
 	decode(t, resp, &activated)
-	if activated.State != grantStateActive || !activated.Active {
-		t.Fatalf("activated grant = %+v, want active", activated)
+	if activated.State != grantStateActive || !activated.Active || !activated.Effective {
+		t.Fatalf("activated grant = %+v, want active and effective", activated)
 	}
 	if !s.effective("alice", "").Has(grant) {
 		t.Errorf("activate must put the grant back in force")

@@ -295,6 +295,9 @@ auth caller set-ceiling	help	Replaces what the caller may reach. The whole ceili
 not restricted — EXCEPT runners: with no --ceiling-runner the caller may NOT use the machine
 runner (local), only remote workers.
 
+The quota (concurrency / submit rate) is NOT part of the ceiling: change it with
+"gofer auth caller set-limits".
+
 A caller declared in the configuration file has its ceiling written to that file (the server
 re-renders the `server:` block, so comments there are lost, like every other server-field
 write); a stored caller's ceiling is written to the database and applies at once.
@@ -317,6 +320,9 @@ auth caller set-limits	desc	Replace a caller's quota (concurrency / submit rate)
 auth caller set-limits	help	Replaces the caller's quota overrides. A value left out means "take the server.governance
 default", so setting only --rate-limit clears the other two. A raised concurrency limit applies
 to the next job without a restart.
+
+The ceiling (which projects / runners / agents the caller may reach) is a separate setting:
+change it with "gofer auth caller set-ceiling".
 
   gofer auth caller set-limits ci --max-concurrent-jobs 4 --rate-limit 2
 auth caller set-limits	examples	

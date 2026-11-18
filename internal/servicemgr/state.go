@@ -2,9 +2,12 @@ package servicemgr
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"time"
 
 	"github.com/inhere/gofer/internal/daemon"
 )
@@ -20,6 +23,48 @@ type State struct {
 	NativeInvocationID string                 `json:"native_invocation_id,omitempty"`
 	Supervisor         daemon.ProcessIdentity `json:"supervisor,omitempty"`
 	Server             daemon.ProcessIdentity `json:"server,omitempty"`
+	// LastExit (gofer-opre) is the last exit of the supervised server that NOBODY asked
+	// for (a requested stop or a recorded upgrade drain is not one). A server that dies
+	// from a `taskkill /IM gofer.exe` used to leave nothing behind but a line in the
+	// supervisor log; `serve status` reads this and says when and with which code.
+	LastExit *LastExit `json:"last_exit,omitempty"`
+}
+
+// LastExit is one abnormal end of the supervised server process.
+type LastExit struct {
+	// At is when the supervisor saw the process end.
+	At time.Time `json:"at"`
+	// ExitCode is what the process returned. Windows reports the raw DWORD, so a crash
+	// killed mid-teardown shows up as 4294967295 (0xffffffff).
+	ExitCode int `json:"exit_code"`
+	// PID / UptimeSec describe the incarnation that ended (how long it had been up).
+	PID       int   `json:"pid,omitempty"`
+	UptimeSec int64 `json:"uptime_sec,omitempty"`
+}
+
+// ExitCodeOf turns the error exec.Cmd.Wait returns into the process exit code: 0 for a
+// clean exit, -1 when the process was signalled/debug-stopped and had no code.
+func ExitCodeOf(err error) int {
+	if err == nil {
+		return 0
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+	return -1
+}
+
+// noteLastExit records an exit the operator did not ask for on the state (gofer-opre):
+// a non-zero code ends up as LastExit so `serve status` can say when and how the server
+// died. A requested stop proves the end was intended, and 0 is a clean exit, so neither
+// is written (and neither clears what an earlier crash recorded — the note is history
+// of the last ABNORMAL end, not of the last end).
+func noteLastExit(state *State, pid int, exitCode int, uptime time.Duration, now time.Time) {
+	if exitCode == 0 || state.StopRequested {
+		return
+	}
+	state.LastExit = &LastExit{At: now, ExitCode: exitCode, PID: pid, UptimeSec: int64(uptime / time.Second)}
 }
 
 func (s State) Validate() error {

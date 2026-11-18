@@ -84,7 +84,7 @@ worker 连着 server 时把 job 的审批事件镜像、结果摘要（Outcome�
 ```bash
 gofer serve register -c <config.yaml> [--name gofer-serve] [--exe <binary>] [--work-dir <dir>] [--start]
 gofer serve start|stop|restart|status|uninstall [--name <name>]
-gofer serve status --json                 # 原生入口、受管进程身份、端口归属、健康、运行版本、auth_token（token 来源与掩码）、config_files / dotenv_files
+gofer serve status --json                 # 原生入口、受管进程身份、端口归属、健康、运行版本、auth_token（token 来源与掩码）、config_files / dotenv_files、last_exit
 gofer serve logs [--lines N] [--follow] [--journal]
 gofer serve upgrade --binary <预构建二进制> [--name <name>] [--no-wait] [--drain-timeout 5m]
 gofer serve upgrade status <upgrade_id> [--json]
@@ -93,6 +93,7 @@ gofer serve upgrade status <upgrade_id> [--json]
 - 登记默认不启动，`--start` 登记后启动并核对进程、端口与健康。
 - **`serve status` 的退出码**（可直接用在脚本与监控里，参照 LSB status）：`0` 正常（登记、进程活、端口属于它、健康、运行版本与登记版本一致）、`1` 检查本身出错（读配置 / spec 失败，也是通用的错误码）、`3` 未运行（已登记但进程不在或端口没人监听）、`4` 部件故障（进程在但健康是 `unreachable` / `http_<code>` / `unverified`，端口被别的进程占，`/v1/stats` 鉴权不符，运行版本与登记版本不一致，或 **server 自检有故障项**——这时文本输出会列出项名，如 `health_failing: storage`）、`5` 待配置（连 spec 都没有，即从未登记受管 server）。`--json` 多两个字段：`state`（`running` / `stopped` / `degraded` / `unconfigured`）与 `exit_code`；文本输出最后一行是 `state=…`。老脚本把 `serve status` 当「总是成功」的探针时要改：现在它按真实状态返回非零。
 - **token 从哪来（注册后登录 401 先看这里）**：服务方式运行时不继承注册终端的环境，只读 `<config-dir>/.env` 与 config.yaml；Windows 上还会继承启动账户的持久环境变量（用户级 / 机器级），而它压过 `.env`——旧的 `GOFER_TOKEN` 留在用户级环境里时，改 `.env` 完全无效。因此注册前在终端 `export` 的 token 服务看不到——`register` 会比对并警告（不阻止注册；持久环境变量压过 `.env` 时单独一段并给出删除 / 改值命令），`serve status` / `--json` 的 `auth_token`（`service` / `current_process` / `match`，以及 `persistent_env` / `unread_dotenv`）给出来源与掩码（`len=<长度> <前两位>**<末位>`，不含 token 值），版本查询 401 时直接告诉你 CLI 用的 `GOFER_SERVER_TOKEN` 与服务端那份不一致。要两边一致就把 token 写进 `<config-dir>/.env`（并清掉持久环境里的旧值）；细则见 [server-config.md](server-config.md) 的 server 一节。
+- **「serve 刚重启过，为什么」看 `last_exit`**：受管 server 的 supervisor 在进程**非正常退出**（退出码非 0，且没人要求停）时记一条 `last_exit: <时间> exit_code=<十进制> (0x<十六进制>) uptime=<活了多久>`（`--json` 字段 `last_exit`，带 `at` / `exit_code` / `pid` / `uptime_sec`），下一次 `serve status` 直接给出来；主动 `stop` / 升级重启不算。Windows 计划任务由 supervisor 记；Linux 由 systemd 重启，这条不填（看 `serve logs --journal`）。supervisor 自己的日志仍在 `<config-dir>/run/<name>.supervisor.log`。
 - Linux：默认 `--scope system`，必须显式 `--run-as <user>`；`--scope user` 用当前账号的 user manager。不会自动 sudo、开 linger 或提权。
 - Windows：用当前交互账号的登录计划任务；`--elevated`（需已提权）与 `--adopt`（接管已验证的旧任务）仅 Windows 可用。受管进程不保留 cmd 窗口，日志用 `gofer serve logs` 看。
 - 受管 server 始终以配置文件路径启动，pid 与默认日志在配置文件所在目录的 `run/`。具名实例（`--name`）用于隔离测试或迁移，要分开配置目录和端口。

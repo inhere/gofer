@@ -158,13 +158,18 @@ func Supervise(ctx context.Context, specPath string) error {
 			writeLog("server started pid=%d", identity.PID)
 			waitErr := cmd.Wait()
 			out.Close()
+			exitCode := ExitCodeOf(waitErr)
 			_, _ = m.mutateWindowsState(func(state *State) error {
 				if state.Server == identity {
 					state.Server = daemon.ProcessIdentity{}
 				}
+				// A requested stop — or an upgrade asking for the restart — is not an abnormal
+				// exit (see noteLastExit); the note is what `serve status` shows.
+				noteLastExit(state, identity.PID, exitCode, time.Since(started), time.Now())
 				return nil
 			})
-			writeLog("server exited pid=%d uptime=%s error=%v", identity.PID, time.Since(started).Round(time.Millisecond), waitErr)
+			writeLog("server exited pid=%d uptime=%s exit_code=%d (%#x) error=%v", identity.PID,
+				time.Since(started).Round(time.Millisecond), exitCode, uint32(exitCode), waitErr)
 			if time.Since(started) < fastFailure {
 				failures++
 			} else {

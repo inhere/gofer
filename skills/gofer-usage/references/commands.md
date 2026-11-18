@@ -278,7 +278,7 @@ gofer serve stop | reload -c <config>
 gofer serve register -c <config> [--start] | start | stop | restart | status [--json] | logs | uninstall | upgrade --binary <file>
 ```
 
-`serve status` 的退出码可直接用于脚本与监控：`0` 正常、`1` 检查本身出错、`3` 未运行、`4` 部件故障、`5` 待配置（各档判据见 [operations.md](operations.md)「受管 server 服务」）。`--json` 额外给 `state`（`running` / `stopped` / `degraded` / `unconfigured`）与 `exit_code`，文本输出末行是 `state=…`；`doctor` 复用同一份检查但行为不变。
+`serve status` 的退出码可直接用于脚本与监控：`0` 正常、`1` 检查本身出错、`3` 未运行、`4` 部件故障、`5` 待配置（各档判据见 [operations.md](operations.md)「受管 server 服务」）。`--json` 额外给 `state`（`running` / `stopped` / `degraded` / `unconfigured`）、`exit_code` 与（有过异常退出时）`last_exit`，文本输出末行是 `state=…`；`doctor` 复用同一份检查但行为不变。
 
 受管服务与升级见 [operations.md](operations.md)「受管 server 服务」。
 

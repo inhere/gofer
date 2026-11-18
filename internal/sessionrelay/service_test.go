@@ -727,6 +727,50 @@ func TestStopClaimsOnlyExactSourceSessionForSameCaller(t *testing.T) {
 	}
 }
 
+// TestHeartbeatSilentBeatsKeepActivityAnchor: after a Stop, the CLI's idle reminder
+// (Notification) and its away summary (SubagentStop) prove nothing happened — they must
+// refresh last_seen_at (the session is alive) but NOT the idle clock that mail's wake
+// reads. A real prompt moves it again (gofer-sera).
+func TestHeartbeatSilentBeatsKeepActivityAnchor(t *testing.T) {
+	s := newSvc(t)
+	clock := time.Unix(1_760_000_000, 0)
+	s.store.SetClock(func() time.Time { return clock })
+	_, err := s.Register(RegisterInput{SessionID: "sid-anchor", Agent: "claude", ProjectKey: "p"})
+	assert.NoErr(t, err)
+
+	clock = clock.Add(10 * time.Second)
+	a, err := s.Heartbeat("sid-anchor", HeartbeatInput{Event: EventStop})
+	assert.NoErr(t, err)
+	assert.Eq(t, clock.Unix(), a.LastActivityAt)
+	stopAt := a.LastActivityAt
+
+	// 14:49 and 14:51 in the report: neither may move the anchor.
+	clock = clock.Add(61 * time.Second)
+	a, err = s.Heartbeat("sid-anchor", HeartbeatInput{Event: EventNotification, LastMessage: "idle reminder"})
+	assert.NoErr(t, err)
+	assert.Eq(t, stopAt, a.LastActivityAt)
+	assert.Eq(t, clock.Unix(), a.LastSeenAt)
+
+	clock = clock.Add(2 * time.Minute)
+	a, err = s.Heartbeat("sid-anchor", HeartbeatInput{Event: EventSubagentStop, SubagentDelta: -1})
+	assert.NoErr(t, err)
+	assert.Eq(t, stopAt, a.LastActivityAt)
+	assert.Eq(t, clock.Unix(), a.LastSeenAt)
+
+	// A real prompt is activity again: the anchor follows it.
+	clock = clock.Add(time.Minute)
+	a, err = s.Heartbeat("sid-anchor", HeartbeatInput{Event: EventUserPromptSubmit})
+	assert.NoErr(t, err)
+	assert.Eq(t, clock.Unix(), a.LastActivityAt)
+	assert.True(t, a.ActivityAt() > stopAt)
+
+	// A sub-agent START is the agent working, not a reminder: it counts.
+	clock = clock.Add(time.Minute)
+	a, err = s.Heartbeat("sid-anchor", HeartbeatInput{Event: EventSubagentStart, SubagentDelta: 1})
+	assert.NoErr(t, err)
+	assert.Eq(t, clock.Unix(), a.LastActivityAt)
+}
+
 func TestHeartbeatAddsUsageDelta(t *testing.T) {
 	s := newSvc(t)
 	_, err := s.Register(RegisterInput{SessionID: "sid-usage", Agent: "claude", ProjectKey: "p"})

@@ -40,7 +40,8 @@ import (
 const (
 	// DefaultTick is how often the deliverer sweeps.
 	DefaultTick = 30 * time.Second
-	// DefaultWakeIdle is the idle age (now - last_seen_at) a session needs before it is woken.
+	// DefaultWakeIdle is the idle age (now - the session's last REAL activity, see
+	// jobstore.AgentSession.ActivityAt) a session needs before it is woken.
 	DefaultWakeIdle = 5 * time.Minute
 	// DefaultWakeInterval is the minimum gap between two wakes of one session.
 	DefaultWakeInterval = 10 * time.Minute
@@ -352,8 +353,9 @@ func (d *Deliverer) letterOrigin(m jobstore.Mail) string {
 // WakeDue is the wake condition for a session with pending letters (设计「送达点」): the
 // session is idle or offline (a running session injects at its next turn start anyway;
 // waiting_reply waits for a person; ended / handed_off / needs_attention are not woken), and
-// its last_seen_at is older than idle — except that an URGENT letter wakes an idle session
-// at once. The per-session wake interval is the caller's (wakeAllowed).
+// its last REAL activity (ActivityAt — not the last hook beat, which an idle reminder bumps)
+// is older than idle — except that an URGENT letter wakes an idle session at once. The
+// per-session wake interval is the caller's (wakeAllowed).
 func WakeDue(a jobstore.AgentSession, letters []jobstore.Mail, now time.Time, idle time.Duration) bool {
 	if len(letters) == 0 {
 		return false
@@ -369,7 +371,8 @@ func WakeDue(a jobstore.AgentSession, letters []jobstore.Mail, now time.Time, id
 	default:
 		return false
 	}
-	return a.LastSeenAt <= 0 || now.Unix()-a.LastSeenAt >= int64(idle/time.Second)
+	seenAt := a.ActivityAt()
+	return seenAt <= 0 || now.Unix()-seenAt >= int64(idle/time.Second)
 }
 
 // wakeAllowed applies the per-session wake interval and books the attempt: a wake that fails

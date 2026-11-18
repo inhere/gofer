@@ -46,7 +46,7 @@ func managedJournalFollow(context.Context, *servicemgr.Manager, int, io.Writer) 
 func managedNativeStatus(_ context.Context, m *servicemgr.Manager) (nativeServeStatus, error) {
 	status, err := m.WindowsStatus()
 	return nativeServeStatus{Installed: status.Registered, Active: status.TaskState == 4, NativeState: fmt.Sprint(status.TaskState),
-		Server: status.Server, Supervisor: status.Supervisor, IdentityError: status.IdentityError}, err
+		Server: status.Server, Supervisor: status.Supervisor, IdentityError: status.IdentityError, LastExit: status.LastExit}, err
 }
 func managedNativeExists(_ context.Context, m *servicemgr.Manager) (bool, error) {
 	return m.WindowsTaskExists()

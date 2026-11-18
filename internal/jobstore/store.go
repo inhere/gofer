@@ -545,6 +545,11 @@ var schemaStmts = []string{
   last_message TEXT,
   last_event   TEXT,
   last_seen_at INTEGER NOT NULL,
+  -- last_activity_at (gofer-sera): when a human or the agent last did something REAL, as
+  -- opposed to last_seen_at, which every hook beat stamps (an idle reminder / away summary
+  -- included). The idle rules measure silence from here. additive, old rows read back 0
+  -- (migrateAgentSessions adds the column; ActivityAt falls back to last_seen_at).
+  last_activity_at INTEGER NOT NULL DEFAULT 0,
   started_at   INTEGER NOT NULL,
   ended_at     INTEGER,
   handed_off_job_id TEXT,
@@ -2496,6 +2501,10 @@ func (s *Store) migrateAgentSessions() error {
 		// terminal is handled. A pre-column row reads back 'auto' (COALESCE), the mode
 		// that only types into a confirmed-empty input area.
 		{"inject_mode", "ALTER TABLE agent_sessions ADD COLUMN inject_mode TEXT NOT NULL DEFAULT 'auto'"},
+		// last_activity_at (gofer-sera): the last REAL activity, which the idle rules
+		// measure from. A pre-column row reads back 0 via COALESCE, and ActivityAt then
+		// falls back to last_seen_at — the pre-column behaviour, unchanged.
+		{"last_activity_at", "ALTER TABLE agent_sessions ADD COLUMN last_activity_at INTEGER NOT NULL DEFAULT 0"},
 	} {
 		if _, ok := cols[col.name]; ok {
 			continue

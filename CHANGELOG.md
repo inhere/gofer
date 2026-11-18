@@ -14,10 +14,22 @@
 ### 修复
 
 - worker 上的 job 在与 server 断线期间输出并结束，重连后状态与结果正确，但断线期间写出的 stdout / stderr 尾部丢失。现在重连确认时 server 把已结束、结果未确认的 job 也列入，带上已落盘的日志偏移，worker 先补传日志尾再补传结果，不重复已有部分。
+- `gofer auth grants activate` 的响应里 `effective` 不再恒为 `false`：激活后的响应与列表同口径给出真实状态（`active` / `effective`），自动化不必再读一次。
+- `gofer auth caller ls` 的 NAME 列在调用方没有显示名时显示 `-`，不再回落成 token 提示（看着像一个名字）；要提示可看 `--json` 的 `token_hint`。
+- `gofer auth caller set-ceiling --help` 说清配额不在上限里、要用 `set-limits`（`set-limits --help` 反向指回 `set-ceiling`）。
+- 空闲会话的信箱唤醒不再被会话自己的心跳推迟：Claude Code 在 Stop 之后发的空闲提醒（`Notification`）与离开摘要（`SubagentStop`）仍算「进程在线」，但不再算「有人在活动」，唤醒从最后一次真实活动（Stop、提问等）算起，不再从这些提醒算起。翻看会话列表、离线判定用的仍是最近一次心跳，显示不变。
 
 ### 兼容
 
 - worker 协议升到 v33：上述日志尾补传要求 server 与 worker 都 ≥ v33；旧 worker 行为不变（断线期间的日志尾仍会丢），无新增必填字段。
+
+### 变更
+
+- **job 注入的规则段多一条通用约束：不要按进程名结束进程**（`taskkill /IM`、`Get-Process -Name … | Stop-Process`、`pkill` / `killall`）——按名字杀会连带杀掉同一台机上正在跑的其它 job，包括 gofer 自己的服务与 worker；只按 pid 结束自己启动的进程。中英两份都加了。
+
+### 新增
+
+- **受管 server 的异常退出可查**：supervisor 遇到「非正常退出」（退出码非 0，且没人要求停）时记一条，`gofer serve status` 多一行 `last_exit: <时间> exit_code=<十进制> (0x<十六进制>) uptime=<活了多久>`，`--json` 多 `last_exit`（`at` / `exit_code` / `pid` / `uptime_sec`）；不再只靠 `serve logs` / supervisor 日志里的 `exit_code=` 一行。主动 `stop` 与升级重启不算异常退出。Linux 由 systemd 重启、不填这项。
 
 ## [0.216.0] - 2026-11-18
 

@@ -28,6 +28,9 @@ type WindowsStatus struct {
 	Server         daemon.ProcessIdentity
 	ServerVerified bool
 	IdentityError  string
+	// LastExit is the last exit of the supervised server that nobody asked for
+	// (gofer-opre); nil = never, or the last one was a requested stop.
+	LastExit *LastExit
 }
 
 var windowsNativeRegister = registerScheduledTask
@@ -412,6 +415,7 @@ func (m *Manager) WindowsStatus() (WindowsStatus, error) {
 	state, err := m.LoadState()
 	if err == nil {
 		status.StopRequested = state.StopRequested
+		status.LastExit = state.LastExit
 		if state.Supervisor.PID > 0 && sameLiveProcess(state.Supervisor) {
 			status.Supervisor = state.Supervisor
 		}
