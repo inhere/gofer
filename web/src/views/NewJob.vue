@@ -37,6 +37,7 @@ import {
 import { linkJobAfterSubmit, newJobPrefill, readFromItemQuery, workItemLink } from '../utils/dispatch'
 import { useWhoami } from '../store/whoami'
 import { getAgentsCached, getMetaCached } from '../api/metaCache'
+import { listJobs } from '../api/client'
 import { fromSessionFormError, readFromSessionQuery, withFromSession } from '../utils/fromSession'
 import { DIR_LOCK_HINT, formatLockPaths, parseLockPaths } from '../utils/lockPaths'
 import { defaultProject, rememberProject } from '../ui/projectFilter'
@@ -46,6 +47,7 @@ import SearchSelect from '../ui/SearchSelect.vue'
 import type { SearchOption } from '../ui/searchSelect'
 import type {
   JobBudget,
+  JobStatus,
   JobUpload,
   MetaAgent,
   MetaProject,
@@ -74,7 +76,7 @@ const workers = ref<MetaWorker[]>([])
 // 调用方上限（ceiling，上限）：本人 token 的范围上界，判定语义见 utils/ceiling.ts。
 // 没有上限（未配置 / 旧 server）时 ceil 为 null，下面每条判定都放行；ceilingReadOnly 时不可提交。
 // （readOnly 这个名字被本页的「只读 job」开关占了，故这里叫 ceilingReadOnly。）
-const { holds, ceiling: ceil, readOnly: ceilingReadOnly } = useWhoami()
+const { holds, ceiling: ceil, readOnly: ceilingReadOnly, whoami } = useWhoami()
 
 // 表单字段
 const projectKey = ref('')
@@ -99,6 +101,14 @@ const timeoutSec = ref<number | null>(null)
 const sync = ref(false)
 const interactive = ref(false)
 const continuousSession = ref(false)
+// 完成后通知（gofer-j2ak）：把结果作为某个进行中 ACP 会话的下一轮送达（--notify-session）。
+// 服务端只允许通知调用方自己的会话，所以候选只取本调用方的会话 job。
+const notifySession = ref('')
+interface NotifyTarget {
+  jobId: string
+  label: string
+}
+const notifyTargets = ref<NotifyTarget[]>([])
 const idleTimeoutSec = ref<number | null>(null)
 const maxSessionSec = ref<number | null>(null)
 // 只读 job（bd h-aii-0ql3）：审查/分析类任务，agent 不能写文件。
@@ -263,6 +273,46 @@ const redactedPlaceholder = '***REDACTED***'
 const promptRedacted = computed(() => isRebuild.value && prompt.value.includes(redactedPlaceholder))
 const commandRedacted = computed(() => isRebuild.value && command.value.includes(redactedPlaceholder))
 const cwdRedacted = computed(() => isRebuild.value && cwd.value.includes(redactedPlaceholder))
+
+// loadNotifyTargets 取本调用方还在进行中（运行 / 等输入）的 ACP 会话 job，作为「完成后通知」
+// 的下拉候选。通知目标是会话的 job id（--notify-session <job-id>），故用 listJobs 按状态取。
+async function loadNotifyTargets(): Promise<void> {
+  const caller = whoami.value?.caller_id ?? ''
+  if (caller === '') {
+    notifyTargets.value = []
+    return
+  }
+  try {
+    const pages = await Promise.all(
+      (['awaiting_input', 'running'] as JobStatus[]).map((status) =>
+        listJobs({ caller, status, limit: 50 }),
+      ),
+    )
+    const seen = new Set<string>()
+    const targets: NotifyTarget[] = []
+    for (const page of pages) {
+      for (const job of page.jobs ?? []) {
+        if (!job.session || seen.has(job.id)) continue
+        seen.add(job.id)
+        const label = [job.id, job.title, job.agent].filter((part) => (part ?? '') !== '').join(' · ')
+        targets.push({ jobId: job.id, label })
+      }
+    }
+    notifyTargets.value = targets
+    if (notifySession.value !== '' && !seen.has(notifySession.value)) notifySession.value = ''
+  } catch {
+    notifyTargets.value = []
+  }
+}
+
+// whoami 是异步取的：拿到 caller id 后再拉通知目标（否则首屏还没身份，候选会是空的）。
+watch(
+  () => whoami.value?.caller_id ?? '',
+  (caller) => {
+    if (caller !== '') void loadNotifyTargets()
+  },
+  { immediate: true },
+)
 
 async function loadMeta() {
   loading.value = true
@@ -914,6 +964,11 @@ async function onSubmit() {
     if (readOnly.value) {
       req.read_only = true
     }
+    // 完成后通知（gofer-j2ak）：notify_session 隐含开启通知，目标必须是调用方自己的会话。
+    if (notifySession.value !== '') {
+      req.notify = true
+      req.notify_session = notifySession.value
+    }
     const readDirList = readDirsSupported.value ? parseReadDirs(readDirs.value) : []
     if (readDirList.length > 0) {
       req.read_dirs = readDirList
@@ -1538,6 +1593,19 @@ watch(interactive, (on) => {
               <input id="nj-max-session" v-model.number="maxSessionSec" class="control" type="number" min="1" :placeholder="t('newjob.placeholder.unlimited')" />
             </div>
           </template>
+
+          <!-- 完成后通知（gofer-j2ak）：对齐 CLI 的 --notify-session <job-id>，候选是本调用方
+               还在进行中的 ACP 会话；可留空。 -->
+          <div class="field span2">
+            <label class="label" for="nj-notify-session">{{ t('newjob.field.notifySession') }}</label>
+            <select id="nj-notify-session" v-model="notifySession" class="control" data-test="nj-notify-session">
+              <option value="">{{ t('newjob.notify.none') }}</option>
+              <option v-for="target in notifyTargets" :key="target.jobId" :value="target.jobId">
+                {{ target.label }}
+              </option>
+            </select>
+            <p class="field-hint">{{ t('newjob.notify.hint') }}</p>
+          </div>
 
           <!-- 只读：agent 不能写文件（cli-agent 追加沙箱参数 / acp-agent set_mode）。 -->
           <div class="field span2">
