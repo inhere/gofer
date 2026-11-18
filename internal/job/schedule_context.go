@@ -44,28 +44,29 @@ const (
 const schedulePrevReplyMax = 2048
 
 // ScheduleContext is what the schedule dispatcher knows about this run, carried on the
-// request in memory only (never in request_json): the prompt section is rendered from it
-// at submit time, in the job's language.
+// request in memory only (never in request_json, but in the hold record of a run that
+// parked, so approval re-renders the prompt section): the prompt section is rendered
+// from it at submit time, in the job's language.
 type ScheduleContext struct {
-	ScheduleID string
-	Name       string
+	ScheduleID string `json:"schedule_id,omitempty"`
+	Name       string `json:"name,omitempty"`
 	// Run is this run's number when the timer started it (the timer runs submitted so far
 	// plus one); for a run-now or webhook run it is the timer runs submitted so far.
-	Run     int
-	Trigger string
+	Run     int    `json:"run,omitempty"`
+	Trigger string `json:"trigger,omitempty"`
 	// Prev is the schedule's latest earlier job; nil on the first run.
-	Prev *SchedulePrevRun
+	Prev *SchedulePrevRun `json:"prev,omitempty"`
 	// PrecheckOutput is the (masked) output of the schedule's pre-run check, "" = none.
-	PrecheckOutput string
+	PrecheckOutput string `json:"precheck_output,omitempty"`
 }
 
 // SchedulePrevRun is the previous job of a schedule.
 type SchedulePrevRun struct {
-	JobID   string
-	Status  string
-	EndedAt int64
+	JobID   string `json:"job_id,omitempty"`
+	Status  string `json:"status,omitempty"`
+	EndedAt int64  `json:"ended_at,omitempty"`
 	// Reply is the end of the previous run's last reply (masked, at most 2KB), "" = none.
-	Reply string
+	Reply string `json:"reply,omitempty"`
 }
 
 // attachScheduleContext fills the request's schedule context and, with it, the

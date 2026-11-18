@@ -281,3 +281,36 @@ func TestScheduleHeldRunKeepsLinkThroughApproval(t *testing.T) {
 		t.Fatalf("after approval: schedule = %q / %q", final.ScheduleID, final.ScheduleTrigger)
 	}
 }
+
+// A held agent run reaches approval with its schedule context: the prompt of the approved
+// run still opens with the scheduled-run section (the context is not in request_json, so it
+// rides the hold record), naming the same run the run itself was submitted as.
+func TestScheduleHeldRunKeepsPromptSectionThroughApproval(t *testing.T) {
+	s, root := newTemplateService(t)
+	rec := contextSchedule(t, s, "sch-hold-ctx", jobstore.ScheduleContextOn,
+		JobRequest{Agent: "fake", Prompt: "check the repo", Language: "en", Hold: true})
+	id, err := s.ScheduleDispatcher().FireTimer(nil, getSchedule(t, s, rec.ID))
+	if err != nil || id == "" {
+		t.Fatalf("FireTimer: id=%q err=%v", id, err)
+	}
+	if held, _, _ := s.meta.GetJob(id); held.Status != StatusAwaitingApproval {
+		t.Fatalf("held run = %s, want %s", held.Status, StatusAwaitingApproval)
+	}
+	if _, err := s.ApproveJob(id, "tester", ""); err != nil {
+		t.Fatalf("ApproveJob: %v", err)
+	}
+	final, _ := s.Wait(id)
+	if final.Status != StatusDone {
+		t.Fatalf("approved run = %s (%s), want done", final.Status, final.Error)
+	}
+	out := jobStdout(t, root, id)
+	if !strings.HasPrefix(out, "## Scheduled run") || !strings.Contains(out, "run 1 of that schedule") {
+		t.Fatalf("approved run prompt lacks the scheduled-run section:\n%s", out)
+	}
+	if i, j := strings.Index(out, "## Scheduled run"), strings.Index(out, "check the repo"); i != 0 || j < 0 {
+		t.Fatalf("the task text must follow the section:\n%s", out)
+	}
+	if req := templateRequest(t, final); req.Env[EnvScheduleRun] != "1" {
+		t.Fatalf("approved run env = %v, want the schedule variables", req.Env)
+	}
+}
