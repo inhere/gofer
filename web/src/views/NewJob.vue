@@ -1594,7 +1594,8 @@ watch(interactive, (on) => {
             </div>
           </template>
 
-          <!-- 只读：agent 不能写文件（cli-agent 追加沙箱参数 / acp-agent set_mode）。 -->
+          <!-- 完成后通知（gofer-j2ak）：对齐 CLI 的 --notify-session <job-id>，候选是本调用方
+               还在进行中的 ACP 会话；可留空。 -->
           <div class="field span2">
             <label class="label" for="nj-notify-session">{{ t('newjob.field.notifySession') }}</label>
             <select id="nj-notify-session" v-model="notifySession" class="control" data-test="nj-notify-session">
