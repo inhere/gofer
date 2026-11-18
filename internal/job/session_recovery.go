@@ -114,6 +114,7 @@ func (s *Service) resumeLocalSession(rec jobstore.JobRecord) error {
 			return fmt.Errorf("reload secrets: %w", serr)
 		}
 		runReq.Mask = secretMaskFunc(secretValues)
+		entry.secretValues = secretValues // gofer-byvi: stdout / acp.jsonl writers read it from the entry
 	}
 	if request.Steward {
 		if serr := applyStewardRun(&runReq); serr != nil {
