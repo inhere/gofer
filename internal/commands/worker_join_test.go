@@ -517,6 +517,71 @@ func TestWorkerJoinWarnsOnNonLoopbackPlainHTTP(t *testing.T) {
 	}
 }
 
+// joinPendingThenAccept answers "pending" to the first acceptAt-1 polls and the accepted
+// request after that, so one run really polls several times.
+func joinPendingThenAccept(acceptAt int, id, token string) func(int) client.EnrollPoll {
+	return func(n int) client.EnrollPoll {
+		if n < acceptAt {
+			return client.EnrollPoll{State: "pending"}
+		}
+		return client.EnrollPoll{State: "accepted", WorkerID: id, WorkerToken: token, CollectUntil: time.Now().Add(time.Minute).Unix()}
+	}
+}
+
+// TestWorkerJoinNonTerminalPrintsOneWaitLine (gofer-bg9g): the install script runs join from
+// a job, so stdout is a pipe; the per-poll countdown then wrote one line per poll (about 900
+// lines of "0s left" in the reported run). A piped run prints the wait once and the outcome
+// once, a terminal keeps the countdown it always had.
+func TestWorkerJoinNonTerminalPrintsOneWaitLine(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		tty  bool
+	}{
+		{"pipe", false},
+		{"terminal", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			joinTestConfigDir(t)
+			root := t.TempDir()
+			srv := newJoinTestServer(t, "w-n", "tok-n", []map[string]string{{"key": "p-a", "host_path": slashPath(root)}})
+			srv.decide = joinPendingThenAccept(4, "w-n", "tok-n") // three pending polls, then accepted
+			oldTerminal := stdoutIsTerminal
+			t.Cleanup(func() { stdoutIsTerminal = oldTerminal })
+			stdoutIsTerminal = func() bool { return tc.tty }
+
+			c, _ := workerJoinCmd(t)
+			workerJoinOpts.server = srv.srv.URL
+			workerJoinOpts.roots = []string{root + "=" + root}
+			workerJoinOpts.yes = true
+
+			var err error
+			out := captureOutput(t, func() { err = runWorkerJoin(c, buildinfo.Info{}) })
+			if err != nil {
+				t.Fatalf("worker join: %v\noutput:\n%s", err, out)
+			}
+			waits := strings.Count(out, "waiting for an admin")
+			finished := strings.Count(out, "join request finished")
+			if tc.tty {
+				if waits != 3 || finished != 0 {
+					t.Fatalf("a terminal wants one countdown line per pending poll (3) and no pipe summary, got waits=%d finished=%d:\n%s",
+						waits, finished, out)
+				}
+				return
+			}
+			if waits != 1 || finished != 1 {
+				t.Fatalf("a piped run wants exactly one wait line and one result line, got waits=%d finished=%d:\n%s",
+					waits, finished, out)
+			}
+			if strings.Contains(out, "waiting for an admin to accept... ") {
+				t.Fatalf("a piped run must not print the per-poll countdown:\n%s", out)
+			}
+			if !strings.Contains(out, "join request finished: accepted") {
+				t.Fatalf("the result line must name the decision:\n%s", out)
+			}
+		})
+	}
+}
+
 // TestWorkerJoinReportsDisabledEnrollment: the feature is off by default, and the 404 the
 // anonymous routes answer with says exactly that — join must translate it instead of
 // reporting a bare "not found".

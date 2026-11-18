@@ -95,11 +95,13 @@ export function quotaText(v: CallerView): string {
   return `${dash(v.max_concurrent_jobs)} / ${dash(v.rate_limit)} / ${dash(v.rate_burst)}`
 }
 
-// stateText / stateTone：行的状态（active / disabled / superseded）。
+// stateText / stateTone：行的状态（active / disabled / expired / superseded）。
 export function stateText(state: string): string {
   switch (state) {
     case 'disabled':
       return t('settings.callers.state.disabled')
+    case 'expired':
+      return t('settings.callers.state.expired')
     case 'superseded':
       return t('settings.callers.state.superseded')
     default:
@@ -109,6 +111,7 @@ export function stateText(state: string): string {
 
 export function stateTone(state: string): 'ok' | 'off' | 'warn' {
   if (state === 'disabled') return 'off'
+  if (state === 'expired') return 'off'
   if (state === 'superseded') return 'warn'
   return 'ok'
 }

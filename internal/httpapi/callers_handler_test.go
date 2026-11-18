@@ -209,6 +209,45 @@ func TestCallerAdminDisableThroughCoreIsImmediate(t *testing.T) {
 	_ = resp.Body.Close()
 }
 
+// TestCallerAdminListShowsExpiredState (gofer-dfqx): a stored caller whose token is past its
+// expiry was listed as `active` although the token gets a 401. The state is derived in ONE
+// place (core's storedCallerView), so the HTTP list, the CLI list and the console agree.
+func TestCallerAdminListShowsExpiredState(t *testing.T) {
+	s, cr, _ := callerAdminServer(t)
+	created, status := addCaller(t, s, map[string]any{
+		"id": "old", "ceiling": map[string]any{"projects": []string{"self"}},
+	})
+	assert.Eq(t, http.StatusCreated, status)
+	resp := do(t, s, http.MethodGet, "/v1/projects", created.Token, nil)
+	assert.Eq(t, http.StatusOK, resp.StatusCode, "the fresh token authenticates")
+	_ = resp.Body.Close()
+
+	// Push the expiry into the past through the store the server re-merges from.
+	_, err := cr.UpdateCallers(func(_ *config.Config, tx jobstore.CallerTx) error {
+		row, ok, err := tx.GetCaller("old")
+		if err != nil || !ok {
+			return fmt.Errorf("read the row: %v (found=%t)", err, ok)
+		}
+		row.ExpiresAt = tx.Now() - 60
+		return tx.UpdateCallerTx(row)
+	})
+	assert.NoErr(t, err)
+
+	resp = do(t, s, http.MethodGet, "/v1/projects", created.Token, nil)
+	assert.Eq(t, http.StatusUnauthorized, resp.StatusCode, "an expired token authenticates nothing")
+	_ = resp.Body.Close()
+
+	var listed callersView
+	decode(t, do(t, s, http.MethodGet, "/v1/callers", "tok-root", nil), &listed)
+	state := ""
+	for _, v := range listed.Callers {
+		if v.ID == "old" {
+			state = v.State
+		}
+	}
+	assert.Eq(t, config.CallerStateExpired, state, "an expired caller must not be listed as active")
+}
+
 // TestCallerAdminOnlyRootMayManage: the route gate requires auth.manage (the root's own
 // permission) and every handler repeats the caller-kind half, so a plain caller, a worker token
 // and a job credential all get a 403 — on the reads as well.

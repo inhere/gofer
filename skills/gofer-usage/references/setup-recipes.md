@@ -109,6 +109,7 @@ gofer worker join --server <server-addr> [--id <提议 id>] [--labels <标签>] 
 ③ 管理员：web → Runners 页「待接受」区核对来源与主机信息 → 输入 worker 终端上的配对码 → 定 worker id、项目、标签 → 接受。接受后 join 自动领取 token、写 `worker.yaml` 与 `<config-dir>/.env`、跑 doctor；带 `--start` 时接着在后台启动 worker（Windows 上改为打印前台命令）。
 
 - 配对码只在 worker 终端上显示（web 不显示），这正是防冒名的一步：以终端上的码为准。
+- 输出不是终端时（装机器人的脚本经 job / 管道运行 join）不刷倒计时：只在开始等时说一次、等到结果时说一次，日志不会堆成几百行。
 - 项目由接受时的人选择（发送方没有 `--project`）。
 - 被拒绝 / 超时 / 被同一来源的新申请顶替 / Ctrl-C 放弃都会打印原因并非零退出，重新接入再跑一次即可。
 - 接受后 worker 机器上的后续步骤（写配置、doctor）失败时 token 已在 `.env`、worker 已在 server 上登记，按提示跑 `gofer worker init --server <server-addr> --id <worker-id> --yes` 收尾。
