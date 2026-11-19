@@ -26,9 +26,11 @@
 ### 变更
 
 - **job 注入的规则段多一条通用约束：不要按进程名结束进程**（`taskkill /IM`、`Get-Process -Name … | Stop-Process`、`pkill` / `killall`）——按名字杀会连带杀掉同一台机上正在跑的其它 job，包括 gofer 自己的服务与 worker；只按 pid 结束自己启动的进程。中英两份都加了。
+- **工作台「需要你」与「等我」同口径**：终端会话回合现在也要等满 5 分钟宽限期、且没人监督才进「需要你」（之前一开回合就进）；`awaiting_input` 的线程不再一律归「需要你」，只有服务端判定要人处理（`attention` 为真）的才进，其余是汇报，归空闲 / 活跃。工作台线程多一个只读字段 `attention`。
 
 ### 新增
 
+- **托管 ACP / suga 会话进「等我」**：会话（`--session`）一轮结束后，若最后一条消息的末行单独写了 `[needs-reply]`、会话停在 `awaiting_input` 且已等满 5 分钟，就以「会话等回复」卡（`acp_reply`，答复类）进入 today / 收件箱 / 顶栏「等我」；没带标记的回合只是汇报，不进。标记由服务端从该轮输出读出并记在 `job.awaiting_input` 事件上，从展示的输出里去掉，服务重启后结论不变。会话的第一轮 gofer 会带上同一条约定告诉 agent 怎么写标记。
 - **受管 server 的异常退出可查**：supervisor 遇到「非正常退出」（退出码非 0，且没人要求停）时记一条，`gofer serve status` 多一行 `last_exit: <时间> exit_code=<十进制> (0x<十六进制>) uptime=<活了多久>`，`--json` 多 `last_exit`（`at` / `exit_code` / `pid` / `uptime_sec`）；不再只靠 `serve logs` / supervisor 日志里的 `exit_code=` 一行。主动 `stop` 与升级重启不算异常退出。Linux 由 systemd 重启、不填这项。
 
 ## [0.216.0] - 2026-11-18

@@ -139,6 +139,7 @@ gofer job end <job-id>                   # 结束会话并释放目录锁
 ```
 
 - 状态：一轮结束停在 `awaiting_input`，`say` 回到 `running`；`end` 或空闲到期为 `done`，`cancel` 为 `cancelled`，agent 进程异常退出为 `failed`。
+- **需要人回复的约定**：会话的第一轮 gofer 会在 prompt 前带一行约定——需要人回答才能继续时，在该轮最后一条消息的末行单独写 `[needs-reply]`（大小写敏感、整行匹配）；只是汇报完成时不要写。标记不会出现在会话输出里，服务端把它记在该轮的 `job.awaiting_input` 事件上（`needs_reply: true`）；带标记、停在 `awaiting_input` 且等满 5 分钟的会话才进入 web 的「等我」，没带标记的只是汇报，不算。
 - 超时：`--timeout` 限每一轮；`--idle-timeout` 限等下一条消息（0 = 1800 秒）；`--max-session` 限整个会话（0 = 不限）。`--prompt` 可省，直接等第一条 `say`。
 - **托管（`--hosted`，HTTP / MCP 同名字段 `hosted`）**：要长期挂着的会话（一直开着的终端、监督别的 job 的会话、收结果的会话）加它 —— 不按空闲结束、不限最长时长，只在 `job end`、agent 自己退出或出错时结束。它与 `--idle-timeout` / `--max-session` 同用会被拒（`400`，`--idle-timeout 0` 仍然只是默认 1800 秒）。状态里记 `hosted`，`job show` 多一行 `hosted: true`，web 任务详情显示「托管」；`job resume` 续接时继承托管。web「新建会话」默认勾选托管，取消勾选才按空闲时限结束。
 - 每轮计时会为人工审批让路：一轮里停下等人作答（工具调用审批，job 处于 `pending_interaction`）的时间**不计入**这一轮的 `--timeout`，答完继续计时，所以开了 `approval` 的会话不会因为人回得慢被判 turn timed out。暂停 / 恢复各记一条 job 事件（`job.turn_timeout_paused` / `job.turn_timeout_resumed`，详情带本轮预算 `timeout_sec`、已用 `used_sec`、剩余 `remaining_sec`、欠着的 `interaction_id`）。审批自己的 `timeout_sec` + `on_timeout` 仍然兜底，等待有上限；`--max-session` 与 job 总时限按墙上时间算，不暂停。
