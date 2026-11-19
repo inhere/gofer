@@ -154,6 +154,9 @@ type Options struct {
 	MCPCalls []string
 	// ImageCapable makes initialize advertise promptCapabilities.image=true.
 	ImageCapable bool
+	// FinalTail, when set, is sent as one more agent-message chunk after the turn's last
+	// text: the place an agent writes the needs-reply marker line.
+	FinalTail string
 	// RecordBlocks makes every session/prompt log one stderr line describing the
 	// content blocks it received, in order: `acptest: prompt-blocks text|image/png:3`
 	// (image blocks as mimeType:decoded-byte-length).
@@ -383,6 +386,12 @@ func parseArgs(args []string) (Options, error) {
 			o.IgnoreStdinEOF = true
 		case "--echo-prompt":
 			o.EchoPrompt = true
+		case "--final-tail":
+			if i+1 >= len(args) {
+				return o, fmt.Errorf("--final-tail needs a value")
+			}
+			i++
+			o.FinalTail = args[i]
 		case "--image-capable":
 			o.ImageCapable = true
 		case "--record-blocks":
@@ -739,6 +748,9 @@ func (s *server) runTurn(msg *rpcMsg, stop chan struct{}) {
 		}
 	}
 	s.update(map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]any{"type": "text", "text": TextDone}})
+	if s.opts.FinalTail != "" {
+		s.update(map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]any{"type": "text", "text": s.opts.FinalTail}})
+	}
 
 	reason := s.opts.StopReason
 	if reason == "" {

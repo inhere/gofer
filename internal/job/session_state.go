@@ -64,6 +64,11 @@ func (s *Service) configureResidentACP(entry *jobEntry, request *runner.ACPReque
 		return nil
 	}
 	request.OnTurnEnd = func(reason string) error { return s.endSessionTurn(entry, reason) }
+	request.OnTurnNeedsReply = func(needs bool) {
+		entry.mu.Lock()
+		entry.turnNeedsReply = needs
+		entry.mu.Unlock()
+	}
 	request.OnAwaitInput = func() error {
 		if err := s.awaitSessionInput(entry); err != nil {
 			return err
@@ -75,10 +80,11 @@ func (s *Service) configureResidentACP(entry *jobEntry, request *runner.ACPReque
 		return nil
 	}
 	request.TurnNote = func() string {
+		note := s.needsReplyConvention(entry)
 		if hold := entry.dirHold.Load(); hold != nil {
-			return hold.takeNote()
+			return note + hold.takeNote()
 		}
-		return ""
+		return note
 	}
 }
 
@@ -155,11 +161,11 @@ func (s *Service) awaitSessionInput(entry *jobEntry) error {
 		entry.mu.Unlock()
 		return err
 	}
+	needsReply := entry.turnNeedsReply
+	entry.turnNeedsReply = false
 	entry.mu.Unlock()
 	s.scheduleSessionReply(entry)
-	s.recordEvent(snap.ID, EventJobAwaitingInput, map[string]any{
-		"turn_no": snap.TurnNo, "idle_deadline_at": snap.IdleDeadlineAt,
-	})
+	s.recordEvent(snap.ID, EventJobAwaitingInput, awaitingInputDetail(snap, needsReply))
 	slog.Info("job.awaiting_input", "event", "job.awaiting_input", "job_id", snap.ID,
 		"turn_no", snap.TurnNo, "idle_deadline_at", snap.IdleDeadlineAt)
 	// A child receipt that had to wait for this turn is delivered now (and the batch

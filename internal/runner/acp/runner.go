@@ -312,6 +312,7 @@ func runResident(ctx context.Context, req runner.Request, client *acp.Client, h 
 		sessionCtx, cancel = context.WithTimeout(ctx, remaining)
 		defer cancel()
 	}
+	h.setNeedsReplyHold()
 	prompt := req.ACP.Prompt
 	var images []runner.ImageInput
 	turn := req.ACP.InitialTurnNo
@@ -413,6 +414,9 @@ func runResident(ctx context.Context, req runner.Request, client *acp.Client, h 
 					return result
 				}
 			}
+			if req.ACP.OnTurnNeedsReply != nil {
+				req.ACP.OnTurnNeedsReply(h.takeNeedsReply())
+			}
 		}
 		if req.ACP.OnAwaitInput != nil && !skipAwait {
 			if err := req.ACP.OnAwaitInput(); err != nil {
@@ -485,6 +489,7 @@ func (h *handler) resetTurn() {
 	h.toolEvents = map[string]string{}
 	h.toolCalls, h.thoughts, h.permissions, h.permissionsAuto = 0, 0, 0, 0
 	h.stdoutWrote, h.stdoutSep, h.stdoutLast = false, false, 0
+	h.held, h.turnNeedsReply = "", false
 	h.mu.Unlock()
 }
 
@@ -656,6 +661,12 @@ type handler struct {
 	stdoutWrote bool
 	stdoutSep   bool
 	stdoutLast  byte
+	// needsReplyHold turns on the needs-reply marker hold of a resident session (see
+	// needs_reply.go); held is the text kept back, turnNeedsReply the verdict of the turn
+	// that just ended. Guarded by mu.
+	needsReplyHold bool
+	held           string
+	turnNeedsReply bool
 	// usage is the token/cost tally the agent reported through usage_update events
 	// (SUP-01 E), merged as they arrive; nil when it reported none. Guarded by mu.
 	usage *runner.Usage
@@ -674,7 +685,7 @@ func (h *handler) SessionUpdate(_ string, u acp.Update) {
 		// here (the agent moved on to speaking) and the message block is separated from
 		// the code before it.
 		h.flushThought()
-		text := chunkText(u.MessageChunk)
+		text := h.holdMarker(chunkText(u.MessageChunk))
 		h.writeStdout(text)
 		h.addMessage(text)
 	case acp.UpdateAgentThoughtChunk:
@@ -684,6 +695,7 @@ func (h *handler) SessionUpdate(_ string, u acp.Update) {
 		if u.ToolCall == nil {
 			return
 		}
+		h.releaseHeld()
 		h.flushMessage()
 		h.flushThought()
 		h.events.write(toolCallEvent(u.ToolCall, h.events.clip))
@@ -692,6 +704,7 @@ func (h *handler) SessionUpdate(_ string, u acp.Update) {
 		if u.Plan == nil {
 			return
 		}
+		h.releaseHeld()
 		h.flushMessage()
 		h.flushThought()
 		entries := make([]map[string]any, 0, len(u.Plan.Entries))
@@ -773,6 +786,7 @@ func (h *handler) detailBoundaryLocked() {
 // buffer. Called once the prompt turn is over (also on a failed/cancelled turn: the
 // text that did arrive must end its own block).
 func (h *handler) endTurn() {
+	h.finishTurnMarker()
 	h.flushMessage()
 	h.flushThought()
 	h.mu.Lock()

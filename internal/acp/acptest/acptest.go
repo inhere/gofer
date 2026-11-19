@@ -73,6 +73,9 @@ func CmdArgs(o Options) []string {
 	if o.IgnoreStdinEOF {
 		args = append(args, "--ignore-stdin-eof")
 	}
+	if o.FinalTail != "" {
+		args = append(args, "--final-tail", o.FinalTail)
+	}
 	if o.EchoPrompt {
 		args = append(args, "--echo-prompt")
 	}

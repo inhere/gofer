@@ -497,6 +497,13 @@ type jobEntry struct {
 	// job, in creation order. Guarded by mu (shared with result, so a status
 	// flip and an interaction edit never race). P9.
 	interactions []*interactionRec
+
+	// turnNeedsReply is the runner's verdict on the turn that just ended: its final message
+	// carried the needs-reply marker. awaitSessionInput records it on the job.awaiting_input
+	// event and clears it; needsReplyTaught is set once the convention text went out.
+	// Guarded by mu.
+	turnNeedsReply   bool
+	needsReplyTaught bool
 	// adopted, when non-nil, is the RECOV-01 R4 adoption handle that drives this job:
 	// the entry was rebuilt from the store by a serve process that did NOT start it, so
 	// there is no execute/Run goroutine behind it. Set once at creation under Service.mu
