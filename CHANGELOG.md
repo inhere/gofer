@@ -25,6 +25,7 @@
 
 ### 变更
 
+- **「等我」通知统一由服务端发、进门发一次、再提醒一次、不带正文**：终端会话回合不再一开回合就推送，而是进入「等我」（超过宽限期、没人监督、agent 标记要回复）时发一次，托管 ACP 会话同理；超过 `server.notification.reminder_after_min`（默认 30 分钟，0 = 不再提醒）仍没处理再提醒一次，之后不再重复，重启不重发也不漏发。桌面通知、webhook、Web Push 同口径，只带会话名（有 seat 用 seat 名）与类别，如「周报 在等你回答」，不再带回合正文；Web Push 的 tag 是主体 key，点击直达该会话的工作台线程。事件名统一为 `session.awaiting_reply`（原 `session.waiting` 事件取消）；ACP 会话原来按 `session_reply_delay_sec` 发的延迟推送停了（事件仍记在时间线上），改由「等我」判定后统一发。
 - **job 注入的规则段多一条通用约束：不要按进程名结束进程**（`taskkill /IM`、`Get-Process -Name … | Stop-Process`、`pkill` / `killall`）——按名字杀会连带杀掉同一台机上正在跑的其它 job，包括 gofer 自己的服务与 worker；只按 pid 结束自己启动的进程。中英两份都加了。
 - **工作台「需要你」与「等我」同口径**：终端会话回合现在也要等满 5 分钟宽限期、且没人监督才进「需要你」（之前一开回合就进）；`awaiting_input` 的线程不再一律归「需要你」，只有服务端判定要人处理（`attention` 为真）的才进，其余是汇报，归空闲 / 活跃。工作台线程多一个只读字段 `attention`。
 

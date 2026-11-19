@@ -115,9 +115,10 @@ claude hook 每次心跳都会 best-effort 读 Claude 配置目录（`$CLAUDE_CO
 ## 3.1 手机提醒（可选）
 
 会话等在那里时想让手机响一下，配一个钉钉/飞书群机器人即可，见
-[`im-notification.md`](im-notification.md)。要点：事件名 `session.waiting` 必须
-显式写进 webhook 的 `events`（默认订阅集不含它），并配 `server.web_base_url`
-让消息里带一条直达会话抽屉的链接。
+[`im-notification.md`](im-notification.md)。要点：回合进入「等我」（超过宽限期、没人监督、
+agent 标记要回复）时才发通知，事件名 `session.awaiting_reply`（在默认订阅集里），只发一次，
+30 分钟没处理再提醒一次；配 `server.web_base_url` 让消息里带一条直达该会话的链接。通知只含
+会话名与类别，不含回合正文。
 
 ## 3.2 终端会话用量（N2 §A，OBS-14）
 
@@ -150,7 +151,7 @@ web：会话抽屉输入框上方的「催办」区块（列出 / 新建 / 暂�
 - **调度**：server 每 30s 扫描持久化表 `session_nudges`（和 schedule / wakeup 一样是 server 内部 sweeper，不依赖外部 cron）。`every`：到 `next_run_at` 就发，之后按间隔顺延（不补发错过的）。`stalled`：见下。
 - **停滞判定**：会话 `running`，或 `idle` 但关联的工作项未结（状态不是 done / dropped / parked）；并且「最后进展」距今 ≥ 阈值。最后进展 = `last_seen_at`（任何 hook 心跳，含 Stop / 子 agent 起止 / 提示）、`progress_at`（进行中文本）、`usage_at`（用量有增长，N2 §A 的 `usage_delta` 触发）三者中最近的一个，并且不早于该 nudge 创建 / 上次发送的时刻——所以有进展不会催，同一次停滞每个阈值周期只催一次。`needs_attention` / `waiting_reply` 不算停滞（人在等或该人处理）。
 - **送达**：与 web「发消息给会话」同一条阶梯：会话在等回复 → 直接作答该 turn；否则传话人（Claude SendMessage）；无 Claude 地址的 agent 走 deliver_command / tmux。结果记入会话 outbox（operator 为 `gofer-nudge:<nudge-id>`，在会话对话流里和普通 web 消息一起显示）。`offline` 的会话跳过且不计失败；`ended` / `handed_off` 的会话，以及到了 `--until` 的 nudge，自动变为 `ended`。
-- **失败处理**：不重试轰炸。同一个 nudge 连续 3 次送达失败 → 自动 `paused`，记 `pause_reason` / `last_error`，并发通知事件 `session.nudge_paused`；成功一次失败计数清零。**该事件不在默认通知集**，要手机收到请把它写进 webhook 的 `events`（同 `session.waiting`，见 3.1）。会话恢复可达后用 `nudge resume`（或 web「恢复」）清零继续。
+- **失败处理**：不重试轰炸。同一个 nudge 连续 3 次送达失败 → 自动 `paused`，记 `pause_reason` / `last_error`，并发通知事件 `session.nudge_paused`；成功一次失败计数清零。**该事件不在默认通知集**，要手机收到请把它写进 webhook 的 `events`（见 3.1）。会话恢复可达后用 `nudge resume`（或 web「恢复」）清零继续。
 - **权限**：只有人（user / admin caller，且是会话属主或持有 `can_answer`）能创建与管理。worker token 与所有 job 凭证（member / leader / steward）都是 403——**管家不拍板**，不替人设定时器去打断一个正在工作的会话；steward 对 nudges 连读也不行。
 - **注意**：催办文本会被目标 agent 当作「另一个会话转达的消息」（传话人路径）或终端输入（tmux 路径）读到，不是你本人的授权——别在里面放需要审批的指令。
 
