@@ -2,6 +2,8 @@ package notify
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/inhere/gofer/internal/config"
@@ -218,5 +220,29 @@ func TestMatchEventHooksIgnoresNotificationSwitches(t *testing.T) {
 	}
 	if got := hookNames(MatchEventHooks(cfg.Server.EventHooks, "job.terminal", "p")); len(got) != 1 {
 		t.Errorf("hooks => %v, want [h]", got)
+	}
+}
+
+// A webhook written before the rename (events: [session.waiting]) still receives the
+// session.awaiting_reply event once the config is loaded.
+func TestMatchWebhooksRetiredSessionWaitingStillDelivers(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "cfg.yaml")
+	if err := os.WriteFile(p, []byte(`projects:
+  demo:
+    host_path: /tmp/demo
+server:
+  notification:
+    webhooks:
+      - url: https://example.com/hook
+        events: [session.waiting]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := config.Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := MatchWebhooks(cfg.Server.Notification, "session.awaiting_reply", "demo"); len(got) != 1 {
+		t.Fatalf("matched %d webhooks, want 1", len(got))
 	}
 }
