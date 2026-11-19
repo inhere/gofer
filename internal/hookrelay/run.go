@@ -463,7 +463,7 @@ func (r *runner) register(event string) (client.AgentSession, error) {
 	a, err := r.api.RegisterSession(client.SessionRegister{
 		SessionID: r.p.SessionID, Agent: r.p.Agent, ProjectKey: r.opts.ProjectKey,
 		Runner: r.opts.Runner, Cwd: r.p.Cwd, Transcript: r.p.TranscriptPath,
-		TmuxPane: r.opts.TmuxPane, Event: event, PeerName: peer.Name,
+		TmuxPane: r.opts.TmuxPane, Event: event, Source: r.p.Source, PeerName: peer.Name,
 		PeerStatus: peer.Status, PeerMessaging: peer.Messaging, PeerNameSource: peer.NameSource,
 		PeerSocket: peer.Socket,
 	})

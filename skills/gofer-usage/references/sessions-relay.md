@@ -334,6 +334,6 @@ gofer session screen <sid> [-n 50] [--json]
 - `gofer seat ls` 看自己项目的位置（`-p` 换项目、`--archived`、`--all` 需要 `seat.manage.others`）；名字跨项目用 `name@project`。
 - `gofer seat add <name> --purpose "审查 PR" --charter "..."`：`--charter` 可写正文，也可写 `@docs/xxx.md` 指向仓库里的文件（每次启动重新读，改文件即生效）；`--charter-template flow` 直接套内置的「设计 → 评审 → 计划 → 实施 → 验证」约定（源文件 `docs/examples/templates/seat-charter-flow.md`）。`--kind acp` 是 gofer 的托管会话 job，`--cwd` 指定目录。
 - `gofer seat bind <name>`：把当前目录的会话放进去（`--ref` 指定别的会话，`--replace` 从正坐着的会话手里接过）。**位置被占时会 409 并提示加 `--replace`**；成功后若该 agent 没装 relay hook 会警告——章程是 hook 注入的，没 hook 就注不进去（`gofer init hooks`）。
-- **章程注入**：坐在某个 seat 上的会话，每次 SessionStart（启动 / 续接 / 压缩）都会收到一节「常驻会话：<名字>（<用途>）」加章程正文；位置换到新会话后，新会话第一次启动额外收到一次续接告知（含最近的 work report / 计划交接），之后不再重复。
+- **章程注入**：坐在某个 seat 上的会话，每次 SessionStart（启动 / 续接 / 压缩）都会收到一节「常驻会话：<名字>（<用途>）」加章程正文（章程只出现这一次）；位置换到新会话后，新会话第一次启动额外收到一次续接告知（含最近的 work report / 计划交接），之后不再重复。续接告知只在来源是**全新会话**（`source=startup`）时说「之前的对话不在上下文里」，`resume` / `compact` 起的中性措辞，不声称上下文丢失。
 - `gofer seat open <name>`：打印回这个位置要敲的命令和**在哪台机器上敲**（`--shell sh|ps` 选写法；命令是给人敲的，不含 job 用的 `global_args`）；位置空着或不能续时给「新开」命令；`acp` 类给工作台线程，会话已结束时提示 `gofer seat open <name> --restart`。
 - `gofer seat set <name> --purpose/--charter/--agent`（`-` 清空）、`gofer seat rm <name>`（归档，名字重新可用，历史保留）、`gofer seat unbind <name>`（让出位置，会话仍注册着）。

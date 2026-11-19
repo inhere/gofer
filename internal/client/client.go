@@ -2862,6 +2862,9 @@ type SessionRegister struct {
 	Transcript     string `json:"transcript,omitempty"`
 	TmuxPane       string `json:"tmux_pane,omitempty"`
 	Event          string `json:"event,omitempty"`
+	// Source is the SessionStart source the agent reported (startup|resume|clear|compact);
+	// the server keys the seat notice's wording on it. Empty when the agent reports none.
+	Source         string `json:"source,omitempty"`
 	PeerName       string `json:"peer_name,omitempty"`
 	PeerNameSource string `json:"peer_name_source,omitempty"`
 	PeerStatus     string `json:"peer_status,omitempty"`

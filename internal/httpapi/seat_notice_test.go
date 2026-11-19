@@ -67,8 +67,13 @@ func TestSeatContinuationNoticeOnceOnRegistration(t *testing.T) {
 		t.Fatalf("the session view handed out the continuation text: %q", got)
 	}
 	first := registerSessionPost(t, s, "sess-notice-a")
-	if !strings.Contains(first, "dev") || !strings.Contains(first, "be careful") {
-		t.Fatalf("first registration = %q, want the seat name and its charter", first)
+	if !strings.Contains(first, "dev") || !strings.Contains(first, "pr review") {
+		t.Fatalf("first registration = %q, want the seat name and its purpose", first)
+	}
+	// The seat block the hook renders carries the charter; the notice that rides it must not paste
+	// the same text again.
+	if strings.Contains(first, "be careful") {
+		t.Fatalf("first registration = %q, the charter is rendered by the seat block, not repeated by the notice", first)
 	}
 
 	// The second registration does not repeat it, and another read in between does not re-arm it.
