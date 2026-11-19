@@ -933,6 +933,9 @@ func validate(cfg *Config) error {
 		if n.SessionReplyDelaySec != nil && *n.SessionReplyDelaySec < 0 {
 			return fmt.Errorf("server.notification.session_reply_delay_sec must be >= 0")
 		}
+		if n.ReminderAfterMin != nil && *n.ReminderAfterMin < 0 {
+			return fmt.Errorf("server.notification.reminder_after_min must be >= 0")
+		}
 		for i, w := range n.Webhooks {
 			if w.MaxTextRunes < 0 {
 				return fmt.Errorf("server.notification.webhooks[%d].max_text_runes must be >= 0", i)
