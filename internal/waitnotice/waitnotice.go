@@ -54,6 +54,8 @@ type Store interface {
 	MarkWaitingNotified(id, at int64) error
 	MarkWaitingReminded(id, at int64) error
 	ClearWaitingNotice(id, at int64) error
+	WaitingNoticesInitialized() (bool, error)
+	MarkWaitingNoticesInitialized(at int64) error
 }
 
 // Scanner runs the comparison. ReminderAfter is read on every pass (0 = no reminder) so a
@@ -103,6 +105,13 @@ func (s *Scanner) Sweep() error {
 			firstErr = err
 		}
 	}
+	// The first scan on a database only records what already waits, without telling anyone:
+	// turns that piled up before the notices existed are not pushed all at once.
+	init, err := s.Store.WaitingNoticesInitialized()
+	if err != nil {
+		return fmt.Errorf("waitnotice: read init mark: %w", err)
+	}
+	silent := !init
 	seen := make(map[string]struct{}, len(subjects))
 	for _, sub := range subjects {
 		if _, dup := seen[sub.Key]; dup {
@@ -118,6 +127,8 @@ func (s *Scanner) Sweep() error {
 			}
 		}
 		switch {
+		case row.NotifiedAt == 0 && silent:
+			note(s.Store.MarkWaitingNotified(row.ID, at))
 		case row.NotifiedAt == 0:
 			s.Sender.Send(Notice{Subject: sub})
 			note(s.Store.MarkWaitingNotified(row.ID, at))
@@ -130,6 +141,9 @@ func (s *Scanner) Sweep() error {
 		if _, still := seen[key]; !still {
 			note(s.Store.ClearWaitingNotice(row.ID, at))
 		}
+	}
+	if silent && firstErr == nil {
+		note(s.Store.MarkWaitingNoticesInitialized(at))
 	}
 	return firstErr
 }

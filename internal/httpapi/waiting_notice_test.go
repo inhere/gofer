@@ -44,6 +44,10 @@ func newWaitNoticeServer(t *testing.T) (*Server, *recPush) {
 	}, func(cfg *config.Config) {
 		cfg.Projects["p1"] = config.ProjectConfig{HostPath: cfg.Storage.Root, AllowedAgents: []string{"exec"}, AllowedRunners: []string{"local"}, AllowExec: true}
 	})
+	// the first scan on a database is silent; these tests are about the scans after it
+	if err := s.jobs.Meta().MarkWaitingNoticesInitialized(time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
 	push := &recPush{}
 	s.SetWebPush(push)
 	return s, push

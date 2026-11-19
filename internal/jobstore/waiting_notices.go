@@ -91,3 +91,24 @@ func (s *Store) stampWaitingNotice(q string, at, id int64) error {
 	}
 	return nil
 }
+
+// waitingNoticesInitKey marks that the waiting-notice scan has run once on this database.
+const waitingNoticesInitKey = "waiting_notices_initialized"
+
+// WaitingNoticesInitialized reports whether the first scan has already recorded the subjects
+// that were waiting when the table came into use.
+func (s *Store) WaitingNoticesInitialized() (bool, error) {
+	v, err := s.GetWorkKV(waitingNoticesInitKey)
+	return v != "", err
+}
+
+// MarkWaitingNoticesInitialized sets the mark once; later calls keep it.
+func (s *Store) MarkWaitingNoticesInitialized(at int64) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if _, err := s.db.Exec(`INSERT INTO work_kv(k, v) VALUES (?,?) ON CONFLICT(k) DO NOTHING`,
+		waitingNoticesInitKey, fmt.Sprint(at)); err != nil {
+		return fmt.Errorf("jobstore: mark waiting notices initialized: %w", err)
+	}
+	return nil
+}

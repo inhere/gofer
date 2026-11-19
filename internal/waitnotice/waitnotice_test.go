@@ -55,6 +55,9 @@ func newRig(t *testing.T) *rig {
 	r := &rig{src: &fakeSource{}, out: &fakeSender{}, clk: &clock{t: time.Unix(1_800_000_000, 0)}, remind: 30 * time.Minute}
 	r.path = filepath.Join(t.TempDir(), "gofer.db")
 	r.st = openStore(t, r.path)
+	if err := r.st.MarkWaitingNoticesInitialized(r.clk.now().Unix()); err != nil {
+		t.Fatal(err)
+	}
 	r.rebuild()
 	return r
 }
@@ -245,5 +248,37 @@ func TestUnreadableListClearsNothing(t *testing.T) {
 	}
 	if open, _ := r.st.ListOpenWaitingNotices(); len(open) != 1 {
 		t.Fatalf("a failed read must not clear rows: %+v", open)
+	}
+}
+
+// The first scan on a database records what already waits and tells nobody; later entries
+// are told as usual, and the mark survives a reopen.
+func TestFirstScanIsSilentThenNotifies(t *testing.T) {
+	r := newRig(t)
+	r.path = filepath.Join(t.TempDir(), "fresh.db")
+	r.st = openStore(t, r.path) // a database that never ran the scan
+	r.rebuild()
+	r.src.set(sub("session:old"))
+	r.sweep(t)
+	if len(r.out.got) != 0 {
+		t.Fatalf("the first scan told about a backlog: %+v", r.out.got)
+	}
+	if open, _ := r.st.ListOpenWaitingNotices(); len(open) != 1 || open[0].NotifiedAt == 0 {
+		t.Fatalf("the backlog must be recorded as notified: %+v", open)
+	}
+	r.src.set(sub("session:old"), sub("session:new"))
+	r.sweep(t)
+	if len(r.out.got) != 1 || r.out.got[0].Key != "session:new" {
+		t.Fatalf("a later entry must be told: %+v", r.out.got)
+	}
+	// reopened: an entered but unnotified subject is still sent
+	if _, _, err := r.st.EnterWaitingNotice("u1", "session:half", "answer", r.clk.now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	r.src.set(sub("session:old"), sub("session:new"), sub("session:half"))
+	r.reopen(t)
+	r.sweep(t)
+	if len(r.out.got) != 2 || r.out.got[1].Key != "session:half" {
+		t.Fatalf("after a reopen the unnotified subject must be sent: %+v", r.out.got)
 	}
 }
