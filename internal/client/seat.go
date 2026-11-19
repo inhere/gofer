@@ -165,14 +165,19 @@ func (c *Client) UnbindSeat(id string) (Seat, error) {
 	return out, err
 }
 
-// SeatOpenPlan returns how to open a seat; restart also starts an ended ACP seat's session.
-func (c *Client) SeatOpenPlan(id string, restart bool) (SeatOpenPlan, error) {
-	path := seatPath(id) + "/open-plan"
-	if restart {
-		path += "?restart=1"
-	}
+// SeatOpenPlan returns how to open a seat. It only reads: an ended ACP session comes back as
+// NeedsRestart, and RestartSeat starts it again.
+func (c *Client) SeatOpenPlan(id string) (SeatOpenPlan, error) {
 	var out SeatOpenPlan
-	err := c.doJSON(http.MethodGet, path, nil, &out)
+	err := c.doJSON(http.MethodGet, seatPath(id)+"/open-plan", nil, &out)
+	return out, err
+}
+
+// RestartSeat starts the ended ACP session of an acp seat again from its original session id
+// and moves the seat to the new job (needs job.submit).
+func (c *Client) RestartSeat(id string) (SeatOpenPlan, error) {
+	var out SeatOpenPlan
+	err := c.doJSON(http.MethodPost, seatPath(id)+"/restart", nil, &out)
 	return out, err
 }
 

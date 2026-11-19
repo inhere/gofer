@@ -1584,6 +1584,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/seats/{id}/bind", s.handleSeatBind)
 		r.POST("/seats/{id}/unbind", s.handleSeatUnbind)
 		r.GET("/seats/{id}/open-plan", s.handleSeatOpenPlan)
+		r.POST("/seats/{id}/restart", s.handleSeatRestart)
 		r.GET("/inbox", s.handleInbox)
 		r.GET("/inbox/rules", s.handleInboxRules)
 		r.POST("/inbox/state", s.handleInboxState)

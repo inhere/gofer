@@ -470,23 +470,19 @@ type seatOpenPlanView struct {
 	JobID         string `json:"job_id,omitempty"`
 }
 
-// GET /v1/seats/{id}/open-plan: how to get back into the seat. restart=1 also starts an ended
-// ACP seat's session again (a side effect, so it is opt-in).
+// GET /v1/seats/{id}/open-plan: how to get back into the seat. Read only: an ended ACP
+// session is reported as needs_restart, starting it again is POST /v1/seats/{id}/restart.
 func (s *Server) handleSeatOpenPlan(c *rux.Context) {
 	svc, x, ok := s.loadSeat(c)
 	if !ok {
 		return
 	}
-	p, err := svc.OpenPlan(c.Req.Context(), x.ID, seat.OpenOptions{Restart: c.Query("restart") == "1"})
+	p, err := svc.OpenPlan(x.ID)
 	if err != nil {
 		writeError(c, seatStatus(err), "seat open plan failed", err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, seatOpenPlanView{
-		SeatID: p.SeatID, Kind: p.Kind, Runner: p.Runner, Cwd: p.Cwd, Resumable: p.Resumable, Alive: p.Alive,
-		Reason: p.Reason, Sh: p.Sh, PowerShell: p.PowerShell, NewSh: p.NewSh, NewPowerShell: p.NewPowerShell,
-		ThreadID: p.ThreadID, NeedsRestart: p.NeedsRestart, Restarted: p.Restarted, JobID: p.JobID,
-	})
+	c.JSON(http.StatusOK, openPlanView(p))
 }
 
 // GET /v1/sessions/{sid}/seat-candidates: the seats a terminal session could be bound to.
@@ -524,4 +520,29 @@ func (s *Server) handleSeatCandidates(c *rux.Context) {
 		out = append(out, seatViewOf(st))
 	}
 	c.JSON(http.StatusOK, map[string]any{"seats": out})
+}
+
+func openPlanView(p seat.OpenPlan) seatOpenPlanView {
+	return seatOpenPlanView{
+		SeatID: p.SeatID, Kind: p.Kind, Runner: p.Runner, Cwd: p.Cwd, Resumable: p.Resumable, Alive: p.Alive,
+		Reason: p.Reason, Sh: p.Sh, PowerShell: p.PowerShell, NewSh: p.NewSh, NewPowerShell: p.NewPowerShell,
+		ThreadID: p.ThreadID, NeedsRestart: p.NeedsRestart, Restarted: p.Restarted, JobID: p.JobID,
+	}
+}
+
+// POST /v1/seats/{id}/restart starts the ended ACP session of an acp seat again from its
+// original session id and moves the seat to the new job. It submits a job, so the route needs
+// job.submit (the gate enforces it, session grants included) on top of owning the seat; a seat
+// that has no ended session to restart is 400.
+func (s *Server) handleSeatRestart(c *rux.Context) {
+	svc, x, ok := s.loadSeat(c)
+	if !ok {
+		return
+	}
+	p, err := svc.Restart(c.Req.Context(), x.ID)
+	if err != nil {
+		writeError(c, seatStatus(err), "restart seat failed", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, openPlanView(p))
 }

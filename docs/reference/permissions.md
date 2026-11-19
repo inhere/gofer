@@ -316,6 +316,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `PATCH` | `/v1/seats/{id}` | `InHandler(deny)` | `seat.manage.others` | — | `Resource(seat)` | 写 |
 | `POST` | `/v1/seats/{id}/bind` | `InHandler(deny)` | `seat.manage.others` | — | `Resource(seat)` | 写 |
 | `GET` | `/v1/seats/{id}/open-plan` | `InHandler(deny)` | `seat.manage.others` | — | `Resource(seat)` | 读 |
+| `POST` | `/v1/seats/{id}/restart` | `Require` | `job.submit` | — | `Resource(seat)` | 写 |
 | `POST` | `/v1/seats/{id}/unbind` | `InHandler(deny)` | `seat.manage.others` | — | `Resource(seat)` | 写 |
 | `DELETE` | `/v1/server/restart` | `Require` | `config.write` | — | `NoProject` | 写 |
 | `GET` | `/v1/server/restart` | `Require` | `config.read` | — | `NoProject` | 读 |

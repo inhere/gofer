@@ -172,7 +172,7 @@ func TestOpenPlanOmitsGlobalArgsAndUsesHostPath(t *testing.T) {
 	if _, err := e.svc.Bind(x.ID, "s1", false, "user"); err != nil {
 		t.Fatal(err)
 	}
-	p, err := e.svc.OpenPlan(context.Background(), x.ID, OpenOptions{})
+	p, err := e.svc.OpenPlan(x.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestOpenPlanOmitsGlobalArgsAndUsesHostPath(t *testing.T) {
 	if _, err := e.svc.Update(y.ID, jobstore.SeatPatch{Agent: strptr("claude")}); err != nil {
 		t.Fatal(err)
 	}
-	vp, _ := e.svc.OpenPlan(context.Background(), y.ID, OpenOptions{})
+	vp, _ := e.svc.OpenPlan(y.ID)
 	if vp.Resumable || vp.Reason != ReasonVacant || vp.NewSh == "" {
 		t.Fatalf("vacant plan = %+v", vp)
 	}
@@ -219,11 +219,14 @@ func TestOpenPlanRestartsEndedACPSession(t *testing.T) {
 	if _, err := e.svc.Bind(x.ID, "job-old", false, "user"); err != nil {
 		t.Fatal(err)
 	}
-	p, _ := e.svc.OpenPlan(context.Background(), x.ID, OpenOptions{})
+	p, _ := e.svc.OpenPlan(x.ID)
 	if !p.NeedsRestart || p.Restarted || len(e.rs.calls) != 0 {
-		t.Fatalf("without the opt-in nothing is restarted: %+v", p)
+		t.Fatalf("OpenPlan only reads, nothing is restarted: %+v", p)
 	}
-	p, err = e.svc.OpenPlan(context.Background(), x.ID, OpenOptions{Restart: true})
+	if _, err := e.svc.Restart(context.Background(), "seat-none"); !errors.Is(err, jobstore.ErrSeatNotFound) {
+		t.Fatalf("restart of an unknown seat: %v", err)
+	}
+	p, err = e.svc.Restart(context.Background(), x.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

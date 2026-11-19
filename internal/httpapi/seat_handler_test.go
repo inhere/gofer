@@ -187,3 +187,90 @@ func TestSeatCandidatesOverHTTP(t *testing.T) {
 		t.Fatalf("candidates = %d %s", status, resp)
 	}
 }
+
+// seedEndedACPSeat creates an acp seat of caller whose job has ended.
+func seedEndedACPSeat(t *testing.T, s *Server, caller string) jobstore.Seat {
+	t.Helper()
+	st := s.jobs.Meta()
+	now := time.Now().Unix()
+	if err := st.UpsertJob(jobstore.JobRecord{
+		ID: "acp-old-" + caller, ProjectKey: "p1", Agent: "exec", Runner: "local", Status: "done", SessionID: "acp-sess-" + caller,
+		Cwd: ".", ResultDir: t.TempDir(), StartedAt: now, EndedAt: now, UpdatedAt: now, CallerID: caller,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	x, err := st.CreateSeat(jobstore.Seat{CallerID: caller, ProjectKey: "p1", Name: "acp-" + caller, Kind: jobstore.SeatKindACP, Agent: "exec"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.BindSeat(x.ID, "acp-old-"+caller, false, "user"); err != nil {
+		t.Fatal(err)
+	}
+	return x
+}
+
+func jobCount(t *testing.T, s *Server) int {
+	t.Helper()
+	rows, err := s.jobs.Meta().ListJobs(jobstore.ListQuery{Limit: 500})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(rows)
+}
+
+func TestSeatOpenPlanIsReadOnly(t *testing.T) {
+	s := newCeilingServer(t)
+	grantAll(s)
+	x := seedEndedACPSeat(t, s, "plain")
+	before := jobCount(t, s)
+	for _, path := range []string{"/v1/seats/" + x.ID + "/open-plan", "/v1/seats/" + x.ID + "/open-plan?restart=1"} {
+		status, resp := seatReq(t, s, ceilTokPlain, "", "GET", path, nil)
+		if status != 200 || !strings.Contains(resp, `"needs_restart":true`) || strings.Contains(resp, `"restarted"`) {
+			t.Fatalf("GET %s = %d %s", path, status, resp)
+		}
+	}
+	if after := jobCount(t, s); after != before {
+		t.Fatalf("GET open-plan submitted a job: %d -> %d", before, after)
+	}
+	got, _, _ := s.jobs.Meta().GetSeat(x.ID)
+	if got.CurrentRef != "acp-old-plain" {
+		t.Fatalf("GET open-plan moved the seat to %q", got.CurrentRef)
+	}
+}
+
+func TestSeatRestartNeedsJobSubmit(t *testing.T) {
+	s := newCeilingServer(t)
+	plain := seedEndedACPSeat(t, s, "plain")
+	ro := seedEndedACPSeat(t, s, "ro")
+	before := jobCount(t, s)
+
+	// the seat's owner without job.submit is refused
+	s.setDBGrants(nil)
+	status, resp := seatReq(t, s, ceilTokPlain, "", "POST", "/v1/seats/"+plain.ID+"/restart", nil)
+	if status != http.StatusForbidden || !strings.Contains(resp, "job.submit") {
+		t.Fatalf("restart without job.submit = %d %s, want 403 naming it", status, resp)
+	}
+	// a read-only caller is refused even with every permission
+	grantAll(s)
+	status, resp = seatReq(t, s, ceilTokRO, "", "POST", "/v1/seats/"+ro.ID+"/restart", nil)
+	if status != http.StatusForbidden || !strings.Contains(resp, "read-only") {
+		t.Fatalf("restart by a read-only caller = %d %s", status, resp)
+	}
+	if after := jobCount(t, s); after != before {
+		t.Fatalf("a refused restart submitted a job: %d -> %d", before, after)
+	}
+	// with job.submit the request reaches the restart (the fixture's exec agent is no ACP agent,
+	// so the submit itself is refused later, but never with a permission error)
+	status, resp = seatReq(t, s, ceilTokPlain, "", "POST", "/v1/seats/"+plain.ID+"/restart", nil)
+	if status == http.StatusForbidden {
+		t.Fatalf("restart with job.submit refused: %d %s", status, resp)
+	}
+	// a seat with nothing to restart is a client error
+	vacant, err := s.jobs.Meta().CreateSeat(jobstore.Seat{CallerID: "plain", ProjectKey: "p1", Name: "vacant"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status, _ := seatReq(t, s, ceilTokPlain, "", "POST", "/v1/seats/"+vacant.ID+"/restart", nil); status != http.StatusBadRequest {
+		t.Fatalf("restart of a vacant seat = %d, want 400", status)
+	}
+}

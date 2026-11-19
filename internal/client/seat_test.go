@@ -43,8 +43,11 @@ func TestSeatClientRoutes(t *testing.T) {
 	if _, err := c.UnbindSeat("seat-1"); err != nil {
 		t.Fatal(err)
 	}
-	if p, err := c.SeatOpenPlan("seat-1", true); err != nil || !p.Resumable {
+	if p, err := c.SeatOpenPlan("seat-1"); err != nil || !p.Resumable {
 		t.Fatalf("open plan = %+v %v", p, err)
+	}
+	if p, err := c.RestartSeat("seat-1"); err != nil || !p.Resumable {
+		t.Fatalf("restart = %+v %v", p, err)
 	}
 	if cands, err := c.SeatCandidates("s1"); err != nil || len(cands) != 1 {
 		t.Fatalf("candidates = %+v %v", cands, err)
@@ -56,7 +59,7 @@ func TestSeatClientRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{"GET /v1/seats?all=1&project=p", "PATCH /v1/seats/seat-1", "POST /v1/seats/seat-1/bind", "POST /v1/seats/seat-1/unbind",
-		"GET /v1/seats/seat-1/open-plan?restart=1", "GET /v1/sessions/s1/seat-candidates", "POST /v1/seats", "DELETE /v1/seats/seat-1"}
+		"GET /v1/seats/seat-1/open-plan", "POST /v1/seats/seat-1/restart", "GET /v1/sessions/s1/seat-candidates", "POST /v1/seats", "DELETE /v1/seats/seat-1"}
 	if len(calls) != len(want) {
 		t.Fatalf("calls = %v", calls)
 	}

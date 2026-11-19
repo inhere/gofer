@@ -50,16 +50,10 @@ type OpenPlan struct {
 	JobID                   string
 }
 
-// OpenOptions controls OpenPlan.
-type OpenOptions struct {
-	// Restart starts an ended ACP seat's session again (a side effect, so it is opt-in).
-	Restart bool
-}
-
 // OpenPlan builds the plan for opening a seat. It does NOT reuse the takeover preview of the
 // session relay: that one prepares a gofer-run pty job (global args, takeover preconditions,
 // the server's own path view), while this renders what a person types in their own terminal.
-func (s *Service) OpenPlan(ctx context.Context, id string, opts OpenOptions) (OpenPlan, error) {
+func (s *Service) OpenPlan(id string) (OpenPlan, error) {
 	x, err := s.Get(id)
 	if err != nil {
 		return OpenPlan{}, err
@@ -71,7 +65,7 @@ func (s *Service) OpenPlan(ctx context.Context, id string, opts OpenOptions) (Op
 		}
 	}
 	if x.Kind == jobstore.SeatKindACP {
-		return s.openACP(ctx, x, plan, opts)
+		return s.openACP(x, plan)
 	}
 	agentKey, sessionID := x.Agent, ""
 	if x.CurrentRef != "" {
@@ -118,7 +112,7 @@ type agentCfg struct {
 	ok  bool
 }
 
-func (s *Service) openACP(ctx context.Context, x jobstore.Seat, plan OpenPlan, opts OpenOptions) (OpenPlan, error) {
+func (s *Service) openACP(x jobstore.Seat, plan OpenPlan) (OpenPlan, error) {
 	if x.CurrentRef == "" {
 		plan.Reason = ReasonVacant
 		return plan, nil
@@ -138,8 +132,28 @@ func (s *Service) openACP(ctx context.Context, x jobstore.Seat, plan OpenPlan, o
 		return plan, nil
 	}
 	plan.NeedsRestart, plan.Reason = true, ReasonNeedsRestart
-	if !opts.Restart {
-		return plan, nil
+	return plan, nil
+}
+
+// Restart starts the ended ACP session of an acp seat again, from the original session id, and
+// moves the seat to the new job. It is the only part of opening a seat that has a side effect
+// (it submits a job), so it is separate from OpenPlan, which only reads. A seat that is not an
+// acp seat, is vacant, or whose job still runs is jobstore.ErrSeatInvalid.
+func (s *Service) Restart(ctx context.Context, id string) (OpenPlan, error) {
+	x, err := s.Get(id)
+	if err != nil {
+		return OpenPlan{}, err
+	}
+	plan, err := s.OpenPlan(id)
+	if err != nil {
+		return OpenPlan{}, err
+	}
+	if x.Kind != jobstore.SeatKindACP || !plan.NeedsRestart {
+		return OpenPlan{}, fmt.Errorf("%w: seat %s has no ended session to restart", jobstore.ErrSeatInvalid, x.ID)
+	}
+	rec, _, err := s.store.GetJob(x.CurrentRef)
+	if err != nil {
+		return OpenPlan{}, err
 	}
 	if s.d.Restarter == nil {
 		return OpenPlan{}, fmt.Errorf("seat: this server cannot restart ACP sessions")
