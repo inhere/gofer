@@ -94,6 +94,7 @@ export const INBOX_KINDS: readonly string[] = [
   'interaction',
   'decision',
   'relay',
+  'acp_reply',
   'permission',
   'review',
   'approval',

@@ -2352,6 +2352,8 @@ export interface WorkbenchThread {
   status: WorkbenchStatus
   raw_status?: string
   stalled?: boolean
+  // 服务端结论：这个线程现在要人处理（与「等我」同口径）。「需要你」分组按它，不按 status。
+  attention?: boolean
   title: string
   project_key: string
   agent?: string

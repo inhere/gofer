@@ -35,6 +35,8 @@ type WorkerInflightJob struct {
 	IdleDeadlineAt int64
 	SessionID      string
 	SessionImages  bool
+	// NeedsReply: the turn that ended carried the needs-reply marker (see wsproto.Status).
+	NeedsReply bool
 }
 
 // ReconcileSessionState applies the worker's authoritative resident-session
@@ -278,10 +280,10 @@ type AdoptedJob struct {
 // OnSessionStatus applies a later v13 status frame to an adopted job. The hub
 // invokes this on the single read loop, so it shares the same persisted-event
 // deduplication path as the initial register.inflight snapshot.
-func (a *AdoptedJob) OnSessionStatus(status, sessionStatus string, turnNo int, idleDeadlineAt int64, sessionImages bool) {
+func (a *AdoptedJob) OnSessionStatus(status, sessionStatus string, turnNo int, idleDeadlineAt int64, sessionImages, needsReply bool) {
 	a.s.applyRemoteSessionState(a.entry, WorkerInflightJob{
 		JobID: a.jobID, Status: status, SessionStatus: sessionStatus,
-		TurnNo: turnNo, IdleDeadlineAt: idleDeadlineAt, SessionImages: sessionImages,
+		TurnNo: turnNo, IdleDeadlineAt: idleDeadlineAt, SessionImages: sessionImages, NeedsReply: needsReply,
 	}, false)
 }
 

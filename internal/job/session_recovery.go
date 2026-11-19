@@ -230,7 +230,7 @@ func (s *Service) applyRemoteSessionState(entry *jobEntry, state WorkerInflightJ
 		// 看到新 turn 时续期). Same extension the local turn start makes.
 		s.extendSessionCredential(snap)
 	}
-	s.reconcileSessionEvents(snap.ID, snap.TurnNo, status, snap.IdleDeadlineAt, replayed)
+	s.reconcileSessionEvents(snap.ID, snap.TurnNo, status, snap.IdleDeadlineAt, state.NeedsReply, replayed)
 	if status == StatusAwaitingInput {
 		// The worker side's counterpart of awaitSessionInput: a child receipt waiting for
 		// this session is delivered here, and the batch it just worked through is
@@ -239,7 +239,7 @@ func (s *Service) applyRemoteSessionState(entry *jobEntry, state WorkerInflightJ
 	}
 }
 
-func (s *Service) reconcileSessionEvents(jobID string, turnNo int, status string, idleDeadlineAt int64, replayed bool) {
+func (s *Service) reconcileSessionEvents(jobID string, turnNo int, status string, idleDeadlineAt int64, needsReply, replayed bool) {
 	expected := []string{EventJobTurnStarted}
 	switch status {
 	case StatusAwaitingInput:
@@ -257,8 +257,11 @@ func (s *Service) reconcileSessionEvents(jobID string, turnNo int, status string
 			continue
 		}
 		detail := map[string]any{"turn_no": turnNo}
-		if eventType == EventJobAwaitingInput && idleDeadlineAt > 0 {
-			detail["idle_deadline_at"] = idleDeadlineAt
+		if eventType == EventJobAwaitingInput {
+			detail = awaitingInputDetail(JobResult{TurnNo: turnNo, IdleDeadlineAt: idleDeadlineAt}, needsReply)
+			if idleDeadlineAt <= 0 {
+				delete(detail, "idle_deadline_at")
+			}
 		}
 		if replayed {
 			detail["replayed"] = true

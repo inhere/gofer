@@ -18,7 +18,7 @@ func TestProjectJobThreadCarriesHosted(t *testing.T) {
 	}}
 
 	got := map[string]Thread{}
-	for _, item := range projectThreads(snapshot, 0, nil) {
+	for _, item := range projectThreads(snapshot, 0, nil, 1000000) {
 		got[item.thread.ID] = item.thread
 	}
 	hosted, ok := got["s:sid-hosted"]

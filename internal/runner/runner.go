@@ -388,6 +388,10 @@ type ACPRequest struct {
 	// operator's `agents.<k>.acp.claude_settings_env`; the value is read on the
 	// EXECUTING machine (the runner is where the ACP process starts).
 	ClaudeSettingsEnv bool
+	// OnTurnNeedsReply is called after OnTurnEnd with whether the turn's final message
+	// ended with the needs-reply marker line (the runner has already left that line out
+	// of the logs).
+	OnTurnNeedsReply func(bool)
 }
 
 // SessionCommand is one message or a graceful end for a resident ACP job.

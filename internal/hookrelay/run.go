@@ -17,6 +17,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/msgprefix"
+	"github.com/inhere/gofer/internal/needsreply"
 )
 
 // API is the hub surface the runner needs; *client.Client satisfies it.
@@ -1055,7 +1056,7 @@ func (r *runner) lastMessage() (msg string, needsReply bool) {
 	if full == "" {
 		return noMessageFallback(r.lang()), false
 	}
-	body, needs := splitNeedsReply(full)
+	body, needs := needsreply.Split(full)
 	if strings.TrimSpace(body) == "" {
 		return noMessageFallback(r.lang()), needs
 	}

@@ -20,7 +20,7 @@ func newDrainClient(t *testing.T, hubProto int) *Client {
 
 func addSession(cl *Client, id, status string, reloadable bool) {
 	cl.inflightCreate(id)
-	cl.inflightSetSession(id, 2, status, false)
+	cl.inflightSetSession(id, 2, status, false, false)
 	cl.inflightSetReloadable(id, reloadable)
 }
 

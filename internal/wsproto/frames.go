@@ -660,6 +660,10 @@ type InflightJob struct {
 	TurnNo         int    `json:"turn_no,omitempty"`
 	SessionStatus  string `json:"session_status,omitempty"`
 	IdleDeadlineAt int64  `json:"idle_deadline_at,omitempty"`
+	// NeedsReply is true while the session waits in awaiting_input and the turn it just
+	// ended carried the needs-reply marker. Optional and additive (no version bump): the
+	// hub records it on the job.awaiting_input event it writes for this turn.
+	NeedsReply bool `json:"needs_reply,omitempty"`
 	// SessionImages (v25) is the session's promptCapabilities.image, re-reported on
 	// reconnect so a restarted host relearns it.
 	SessionImages bool `json:"session_images,omitempty"`
@@ -960,6 +964,9 @@ type Status struct {
 	TurnNo         int    `json:"turn_no,omitempty"`
 	IdleDeadlineAt int64  `json:"idle_deadline_at,omitempty"`
 	SessionStatus  string `json:"session_status,omitempty"`
+	// NeedsReply (additive, no version bump) is the needs-reply marker verdict of the turn
+	// that just ended; see InflightJob.NeedsReply.
+	NeedsReply bool `json:"needs_reply,omitempty"`
 	// SessionID is the agent's session id once the worker has opened it, so the
 	// host can offer `job resume` even if the worker dies before its Result frame.
 	SessionID string `json:"session_id,omitempty"`

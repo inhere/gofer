@@ -169,6 +169,7 @@ export function cardLink(card: TodayCard): string {
   const r = card.refs
   switch (card.kind) {
     case 'relay':
+    case 'acp_reply':
     case 'permission':
     case 'interaction':
       if (r.thread_id) return `/workbench?thread=${encodeURIComponent(r.thread_id)}`

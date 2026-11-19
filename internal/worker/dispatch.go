@@ -584,6 +584,7 @@ func (cl *Client) streamLocalJob(ctx context.Context, localID, resultDir, remote
 	// A whole turn can run between two ticks (awaiting → running → awaiting), so a
 	// report is due when the status OR the turn changed.
 	lastSessionStatus, lastSessionTurn, lastSessionImages := "", -1, false
+	lastSessionNeeds := false
 	// lastSessionEpoch is the connection the last session Status frame went out on.
 	// It belongs to the "already reported" state because that frame is per-CONNECTION
 	// state: the hub dedupes session statuses per connection (workerConn.sessionStatusSeen),
@@ -637,17 +638,22 @@ func (cl *Client) streamLocalJob(ctx context.Context, localID, resultDir, remote
 				// reports it, and the hub decides resume-vs-wait-for-Result on it.
 				cl.inflightSetStatus(remoteJobID, cur.Status)
 				if cur.Session {
-					cl.inflightSetSession(remoteJobID, cur.TurnNo, cur.Status, cur.SessionImages)
+					needsReply := false
+					if nr, ok := cl.jobs.(interface{ AwaitingNeedsReply(string) bool }); ok {
+						needsReply = nr.AwaitingNeedsReply(localID)
+					}
+					cl.inflightSetSession(remoteJobID, cur.TurnNo, cur.Status, cur.SessionImages, needsReply)
 					cl.inflightSetReloadable(remoteJobID, cl.sessionReloadable(cur))
 					if cur.Status != lastSessionStatus || cur.TurnNo != lastSessionTurn ||
-						cur.SessionImages != lastSessionImages || cl.connEpochNow() != lastSessionEpoch {
+						cur.SessionImages != lastSessionImages || needsReply != lastSessionNeeds || cl.connEpochNow() != lastSessionEpoch {
 						epoch, err := cl.writeFrameEpoch(ctx, wsproto.TypeStatus, remoteJobID, wsproto.Status{
 							JobID: remoteJobID, Status: cur.Status, StartedAt: cur.StartedAt,
 							TurnNo: cur.TurnNo, IdleDeadlineAt: cur.IdleDeadlineAt, SessionStatus: cur.Status,
-							SessionID: cur.SessionID, SessionImages: cur.SessionImages,
+							SessionID: cur.SessionID, SessionImages: cur.SessionImages, NeedsReply: needsReply,
 						})
 						if err == nil {
 							lastSessionStatus, lastSessionTurn, lastSessionImages = cur.Status, cur.TurnNo, cur.SessionImages
+							lastSessionNeeds = needsReply
 							lastSessionEpoch = epoch
 						}
 					}

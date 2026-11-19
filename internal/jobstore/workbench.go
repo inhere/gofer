@@ -117,6 +117,9 @@ type WorkbenchSnapshot struct {
 	OpenPlanDecisions   []PlanDecision
 	DecisionPlans       []Plan
 	Prefs               []WorkbenchThreadPref
+	// AwaitingTurns holds, per managed session job in awaiting_input whose ended turn
+	// carries the needs-reply marker, that turn (see ListMarkedAwaitingTurns).
+	AwaitingTurns map[string]AwaitingTurn
 }
 
 // UpsertWorkbenchThreadPref replaces one caller/thread preference row.
@@ -326,7 +329,12 @@ func (s *Store) loadWorkbenchShared(callerID string) (WorkbenchSnapshot, error) 
 	if err != nil {
 		return WorkbenchSnapshot{}, err
 	}
+	awaiting, err := s.ListMarkedAwaitingTurns()
+	if err != nil {
+		return WorkbenchSnapshot{}, err
+	}
 	return WorkbenchSnapshot{
+		AwaitingTurns:       awaiting,
 		PendingInteractions: pending,
 		StalledJobIDs:       stalled,
 		RelayDecisions:      relayDecisions,

@@ -40,7 +40,7 @@ func (a *jobAdopter) AdoptAfterRestart(workerID, instanceID string, inflight []w
 	for _, f := range inflight {
 		inf = append(inf, job.WorkerInflightJob{
 			JobID: f.JobID, Status: f.Status, TurnNo: f.TurnNo,
-			SessionStatus: f.SessionStatus, IdleDeadlineAt: f.IdleDeadlineAt, SessionImages: f.SessionImages,
+			SessionStatus: f.SessionStatus, IdleDeadlineAt: f.IdleDeadlineAt, SessionImages: f.SessionImages, NeedsReply: f.NeedsReply,
 		})
 	}
 	backend := job.AdoptBackend{
@@ -86,7 +86,7 @@ func (a *jobAdopter) ReconcileSessionState(workerID string, inflight []wsproto.I
 	for _, f := range inflight {
 		states = append(states, job.WorkerInflightJob{
 			JobID: f.JobID, Status: f.Status, TurnNo: f.TurnNo,
-			SessionStatus: f.SessionStatus, IdleDeadlineAt: f.IdleDeadlineAt, SessionImages: f.SessionImages,
+			SessionStatus: f.SessionStatus, IdleDeadlineAt: f.IdleDeadlineAt, SessionImages: f.SessionImages, NeedsReply: f.NeedsReply,
 		})
 	}
 	a.jobs.ReconcileSessionState(workerID, states)
@@ -120,7 +120,7 @@ func (s *adoptSink) OnInteraction(action string, interaction json.RawMessage) {
 }
 
 func (s *adoptSink) OnSessionStatus(status wsproto.Status) {
-	s.aj.OnSessionStatus(status.Status, status.SessionStatus, status.TurnNo, status.IdleDeadlineAt, status.SessionImages)
+	s.aj.OnSessionStatus(status.Status, status.SessionStatus, status.TurnNo, status.IdleDeadlineAt, status.SessionImages, status.NeedsReply)
 }
 
 // OnJobEvent records a worker-raised job event on the adopted job (SUP-01 G) — an

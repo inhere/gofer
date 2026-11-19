@@ -26,11 +26,13 @@
 ### 变更
 
 - **job 注入的规则段多一条通用约束：不要按进程名结束进程**（`taskkill /IM`、`Get-Process -Name … | Stop-Process`、`pkill` / `killall`）——按名字杀会连带杀掉同一台机上正在跑的其它 job，包括 gofer 自己的服务与 worker；只按 pid 结束自己启动的进程。中英两份都加了。
+- **工作台「需要你」与「等我」同口径**：终端会话回合现在也要等满 5 分钟宽限期、且没人监督才进「需要你」（之前一开回合就进）；`awaiting_input` 的线程不再一律归「需要你」，只有服务端判定要人处理（`attention` 为真）的才进，其余是汇报，归空闲 / 活跃。工作台线程多一个只读字段 `attention`。
 
 ### 新增
 
 - **常驻会话（seat）名册的服务端**：`/v1/seats*` 管理「长期的人手位置」——名字、用途、章程、所在项目与目录，当前坐在里面的终端会话或 ACP 会话。支持创建 / 编辑 / 归档 / 删除、绑定与解绑（并发绑定同一空位只有一个成功）、绑定候选、「怎么打开」（给人在自己终端里敲的命令，主机路径、不带 job 用的 `global_args`，sh 与 PowerShell 两种写法；已结束的 ACP 会话可按原会话 id 重启）。会话重新登记、结束都不丢位置，会话被删除时位置自动清空并留记录；会话视图多一个 `seat`。读写他人的位置需要新权限 `seat.manage.others`（默认只有根管理员，不可授予会话）。字段见 `docs/reference/http-api.md`。
 - **受管 server 的异常退出可查**：supervisor 遇到「非正常退出」（退出码非 0，且没人要求停）时记一条，`gofer serve status` 多一行 `last_exit: <时间> exit_code=<十进制> (0x<十六进制>) uptime=<活了多久>`，`--json` 多 `last_exit`（`at` / `exit_code` / `pid` / `uptime_sec`）；不再只靠 `serve logs` / supervisor 日志里的 `exit_code=` 一行。主动 `stop` 与升级重启不算异常退出。Linux 由 systemd 重启、不填这项。
+- **托管 ACP / suga 会话进「等我」**：会话（`--session`）一轮结束后，若最后一条消息的末行单独写了 `[needs-reply]`、会话停在 `awaiting_input` 且已等满 5 分钟，就以「会话等回复」卡（`acp_reply`，答复类）进入 today / 收件箱 / 顶栏「等我」；没带标记的回合只是汇报，不进。标记由服务端从该轮输出读出并记在 `job.awaiting_input` 事件上，从展示的输出里去掉，服务重启后结论不变。会话的第一轮 gofer 会带上同一条约定告诉 agent 怎么写标记。
 
 ## [0.216.0] - 2026-11-18
 
