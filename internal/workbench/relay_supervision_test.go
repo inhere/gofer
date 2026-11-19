@@ -22,29 +22,29 @@ func TestProjectRelayThreadSupervising(t *testing.T) {
 	alone := func(jobstore.AgentSession) sessionrelay.Supervision { return sessionrelay.Supervision{} }
 
 	t.Run("marked and supervised is working with counts", func(t *testing.T) {
-		p := projectRelayThread("r:s1", session(jobstore.SessionWaitingReply), jobstore.WorkbenchThreadPref{}, turn(true), supervised)
+		p := projectRelayThread("r:s1", session(jobstore.SessionWaitingReply), jobstore.WorkbenchThreadPref{}, turn(true), supervised, 1000000)
 		assert.Eq(t, StatusWorking, p.thread.Status)
 		assert.True(t, p.attention == nil)
 		assert.Eq(t, &Supervising{Jobs: 2, Watches: 1}, p.thread.Supervising)
 	})
 	t.Run("unmarked turn is idle", func(t *testing.T) {
-		p := projectRelayThread("r:s1", session(jobstore.SessionWaitingReply), jobstore.WorkbenchThreadPref{}, turn(false), alone)
+		p := projectRelayThread("r:s1", session(jobstore.SessionWaitingReply), jobstore.WorkbenchThreadPref{}, turn(false), alone, 1000000)
 		assert.Eq(t, StatusIdle, p.thread.Status)
 		assert.True(t, p.attention == nil)
 	})
 	t.Run("marked and alone stays blocked with attention", func(t *testing.T) {
-		p := projectRelayThread("r:s1", session(jobstore.SessionWaitingReply), jobstore.WorkbenchThreadPref{}, turn(true), alone)
+		p := projectRelayThread("r:s1", session(jobstore.SessionWaitingReply), jobstore.WorkbenchThreadPref{}, turn(true), alone, 1000000)
 		assert.Eq(t, StatusBlocked, p.thread.Status)
 		assert.True(t, p.attention != nil)
 		assert.True(t, p.thread.Supervising == nil)
 	})
 	t.Run("no open turn but waiting_reply keeps the old behaviour", func(t *testing.T) {
-		p := projectRelayThread("r:s1", session(jobstore.SessionWaitingReply), jobstore.WorkbenchThreadPref{}, nil, supervised)
+		p := projectRelayThread("r:s1", session(jobstore.SessionWaitingReply), jobstore.WorkbenchThreadPref{}, nil, supervised, 1000000)
 		assert.Eq(t, StatusBlocked, p.thread.Status)
 		assert.True(t, p.attention != nil)
 	})
 	t.Run("nil lookup counts as not supervised", func(t *testing.T) {
-		p := projectRelayThread("r:s1", session(jobstore.SessionWaitingReply), jobstore.WorkbenchThreadPref{}, turn(true), nil)
+		p := projectRelayThread("r:s1", session(jobstore.SessionWaitingReply), jobstore.WorkbenchThreadPref{}, turn(true), nil, 1000000)
 		assert.Eq(t, StatusBlocked, p.thread.Status)
 	})
 }

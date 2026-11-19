@@ -180,6 +180,11 @@ type Thread struct {
 	Relay               *RelaySummary     `json:"relay,omitempty"`
 	// Supervising is set on a relay thread shown as working because something supervises it.
 	Supervising *Supervising `json:"supervising,omitempty"`
+	// Attention is the server's verdict that this thread waits on a person now: it has an
+	// item in the response's attention list. It is the same judgement as the 「等我」 list
+	// (marked turn, grace period over, not supervised); a client groups a thread under
+	// 「需要你」 by it, not by the raw status.
+	Attention bool `json:"attention,omitempty"`
 	// Attachments is how images sent to this thread would be delivered (inline | file |
 	// none); AttachmentsReason says why when it is none. Both are absent while the
 	// attachment store is not wired.
