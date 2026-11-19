@@ -482,8 +482,8 @@ func TestWaitReasonSkipsWhileSupervising(t *testing.T) {
 	assert.Eq(t, WaitIdleProbe, reason)
 	assert.Eq(t, "", detail)
 
-	seedCallerJob(t, s, "job-sup-1", "claude-sup", "running", now.Unix()-60)
-	seedCallerJob(t, s, "job-sup-2", "claude-sup", "queued", now.Unix()-10)
+	seedSourceSessionJob(t, s, "job-sup-1", "sid-sup", "claude-sup", "self", "local", "", "running", now.Unix()-60)
+	seedSourceSessionJob(t, s, "job-sup-2", "sid-sup", "claude-sup", "self", "local", "", "queued", now.Unix()-10)
 	reason, detail = s.WaitDecision(a)
 	assert.Eq(t, "", reason, "a supervising caller's Stop must not wait")
 	assert.Eq(t, "supervising 1 jobs", detail)
@@ -500,7 +500,7 @@ func TestWaitReasonSkipsWhileSupervising(t *testing.T) {
 
 	// A job that started before the window is over — the human is not supervising
 	// it any more, so it must not keep the gate shut.
-	seedCallerJob(t, s, "job-sup-old", "claude-sup", "running", now.Unix()-7201)
+	seedSourceSessionJob(t, s, "job-sup-old", "sid-sup", "claude-sup", "self", "local", "", "running", now.Unix()-7201)
 	reason, _ = s.WaitDecision(a)
 	assert.Eq(t, WaitIdleProbe, reason)
 }
@@ -512,7 +512,7 @@ func TestWaitReasonSupervisingIgnoresModeOn(t *testing.T) {
 	s.AutoArmIdleSec, s.SkipWhenSupervising, s.SupervisingWindowSec = 300, true, 7200
 	now := time.Now()
 	s.nowFn = func() time.Time { return now }
-	seedCallerJob(t, s, "job-on", "claude-sup", "running", now.Unix()-5)
+	seedSourceSessionJob(t, s, "job-on", "sid-on", "claude-sup", "self", "local", "", "running", now.Unix()-5)
 
 	a := jobstore.AgentSession{
 		SessionID: "sid-on", RelayMode: jobstore.RelayModeOn, CallerID: "claude-sup", IdleSec: 600,
@@ -531,7 +531,7 @@ func TestWaitReasonSupervisingDisabledByConfig(t *testing.T) {
 	s.SkipWhenSupervising = false
 	now := time.Now()
 	s.nowFn = func() time.Time { return now }
-	seedCallerJob(t, s, "job-cfg", "claude-sup", "running", now.Unix()-5)
+	seedSourceSessionJob(t, s, "job-cfg", "sid-cfg", "claude-sup", "self", "local", "", "running", now.Unix()-5)
 
 	a := jobstore.AgentSession{
 		SessionID: "sid-cfg", RelayMode: jobstore.RelayModeAuto, CallerID: "claude-sup", IdleSec: 600,
@@ -541,27 +541,27 @@ func TestWaitReasonSupervisingDisabledByConfig(t *testing.T) {
 	assert.Eq(t, "", detail)
 }
 
-// TestWaitReasonSupervisingNeedsCallerID: without a caller the relay cannot know
-// whose jobs those are, so the gate stays open — the pre-caller_id session (and
-// the empty-token server) keeps its previous behaviour.
-func TestWaitReasonSupervisingNeedsCallerID(t *testing.T) {
+// TestWaitReasonSupervisingIsPerSession: only jobs this session submitted
+// supervise it. A running job another session shares the caller with does not,
+// and a session without a caller id is still judged by its own jobs.
+func TestWaitReasonSupervisingIsPerSession(t *testing.T) {
 	s := newSvc(t)
 	s.AutoArmIdleSec, s.AutoArmTurnSec = 300, 900
 	s.SkipWhenSupervising, s.SupervisingWindowSec = true, 7200
 	now := time.Now()
 	s.nowFn = func() time.Time { return now }
-	seedCallerJob(t, s, "job-anon", "claude-sup", "running", now.Unix()-5)
+	seedSourceSessionJob(t, s, "job-other", "sid-other", "claude-sup", "self", "local", "", "running", now.Unix()-5)
 
-	a := jobstore.AgentSession{SessionID: "sid-anon", RelayMode: jobstore.RelayModeAuto, IdleSec: 600}
+	a := jobstore.AgentSession{SessionID: "sid-mine", RelayMode: jobstore.RelayModeAuto, CallerID: "claude-sup", IdleSec: 600}
 	reason, detail := s.WaitDecision(a)
 	assert.Eq(t, WaitIdleProbe, reason)
 	assert.Eq(t, "", detail)
 
-	// And a job with no caller recorded counts for nobody.
-	seedCallerJob(t, s, "job-nocall", "", "running", now.Unix()-5)
 	a.CallerID = ""
-	reason, _ = s.WaitDecision(a)
-	assert.Eq(t, WaitIdleProbe, reason)
+	seedSourceSessionJob(t, s, "job-mine", "sid-mine", "", "self", "local", "", "running", now.Unix()-5)
+	reason, detail = s.WaitDecision(a)
+	assert.Eq(t, "", reason)
+	assert.Eq(t, "supervising 1 jobs", detail)
 }
 
 // TestInterruptReleasesOpenTurnEvenWhenRelayOn pins the Esc-while-waiting fix: the

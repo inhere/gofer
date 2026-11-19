@@ -234,6 +234,7 @@ func decodeConfig(mainPath string, data []byte, read func(string) ([]byte, error
 	}
 	if len(cfg.Include) == 0 {
 		cfg.loadWarnings = append(cfg.loadWarnings, callerCeilingWarnings(cfg, cfg.SectionFile("server"))...)
+		cfg.loadWarnings = append(cfg.loadWarnings, migrateRetiredEvents(cfg, cfg.SectionFile("server"))...)
 		return cfg, nil
 	}
 	files, err := expandIncludes(mainPath, cfg.Include)
@@ -277,5 +278,6 @@ func decodeConfig(mainPath string, data []byte, read func(string) ([]byte, error
 	}
 	// The ceiling notices name the file that holds the `server` section (main or fragment).
 	cfg.loadWarnings = append(cfg.loadWarnings, callerCeilingWarnings(cfg, cfg.SectionFile("server"))...)
+	cfg.loadWarnings = append(cfg.loadWarnings, migrateRetiredEvents(cfg, cfg.SectionFile("server"))...)
 	return cfg, nil
 }

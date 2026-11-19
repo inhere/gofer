@@ -120,3 +120,40 @@ func TestRetiredSectionsFailInIncludeFragment(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// A webhook / desktop / hook events list that still names the retired session.waiting is read
+// as session.awaiting_reply (deduplicated) and the load says to rename it.
+func TestRetiredSessionWaitingEventIsRenamed(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "cfg.yaml")
+	write(t, p, `projects:
+  demo:
+    host_path: /tmp/demo
+server:
+  notification:
+    desktop:
+      events: [session.waiting, job.terminal]
+    webhooks:
+      - url: https://example.com/hook
+        events: [session.waiting, session.awaiting_reply]
+`)
+	cfg, _, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := cfg.Server.Notification
+	if got := n.Webhooks[0].Events; len(got) != 1 || got[0] != "session.awaiting_reply" {
+		t.Fatalf("webhook events = %q", got)
+	}
+	if got := n.Desktop.Events; len(got) != 2 || got[0] != "session.awaiting_reply" || got[1] != "job.terminal" {
+		t.Fatalf("desktop events = %q", got)
+	}
+	var n2 int
+	for _, w := range cfg.LoadWarnings() {
+		if strings.Contains(w, "session.waiting") && strings.Contains(w, "session.awaiting_reply") {
+			n2++
+		}
+	}
+	if n2 != 2 {
+		t.Fatalf("retired event warnings = %d, want 2: %q", n2, cfg.LoadWarnings())
+	}
+}
