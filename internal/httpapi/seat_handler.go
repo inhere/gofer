@@ -40,9 +40,8 @@ func (s *Server) seats() *seat.Service {
 			return
 		}
 		d := seat.Deps{
-			Projects: seatProjects{s},
-			// TODO(seat-T1): wire inbox.WaitingSubjects; until then no seat reads as waiting.
-			Waiting:   seatNoWaiting{},
+			Projects:  seatProjects{s},
+			Waiting:   seatWaiting{s},
 			Restarter: seatRestarter{jobs: s.jobs, agents: s.agents},
 		}
 		if s.agents != nil {
@@ -69,13 +68,6 @@ func (p seatProjects) Paths(key string) (string, string, bool) {
 		return "", "", false
 	}
 	return proj.HostPath, proj.ContainerPath, true
-}
-
-// seatNoWaiting is the placeholder of the "waiting for me" judgement: nothing waits.
-type seatNoWaiting struct{}
-
-func (seatNoWaiting) WaitingSubjects(string, []string) (map[string]string, error) {
-	return map[string]string{}, nil
 }
 
 // seatRestarter starts the replacement session job of an ACP seat. The conversation is

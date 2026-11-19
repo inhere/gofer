@@ -8,8 +8,6 @@ terminal session max_session_timeout | 会话已结束：超过会话总时长 |
 terminal session max_session | 会话已结束：超过会话总时长 | 超过会话总时长 · runner server
 terminal session  | 会话已结束：失败原因未记录 | Fix login · runner server
 terminal session boom | 会话已结束：失败：boom | 失败：boom · runner server
-awaiting reply | 会话等你回复：Fix login | 第 3 轮 · claude · proj · runner server\ndone?\n空闲将在 22:13 自动结束
-awaiting reply bare | 会话等你回复：Fix login | 第 1 轮 · claude · proj · runner server
 plan blocked | 计划已阻塞 | no worker
 test | gofer 测试通知 | 此设备的 Web Push 已连通。
 action allow 允许

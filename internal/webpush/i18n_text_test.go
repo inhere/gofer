@@ -39,10 +39,6 @@ func pushTextOutputs(lang i18n.Lang) string {
 		ts, bs := pushTitleBody(lang, job.EventJobTerminal, s, nil, nil)
 		line("terminal session "+reason, ts, bs)
 	}
-	t5, b5 := pushTitleBody(lang, job.EventSessionAwaitingReply, r, map[string]any{"turn_no": 3, "reply_preview": "done?", "idle_deadline_at": float64(1_700_000_000)}, nil)
-	line("awaiting reply", t5, b5)
-	t6, b6 := pushTitleBody(lang, job.EventSessionAwaitingReply, r, map[string]any{"turn_no": 1}, nil)
-	line("awaiting reply bare", t6, b6)
 	t7, b7 := pushTitleBody(lang, job.EventPlanBlocked, r, map[string]any{"reason": "no worker"}, nil)
 	line("plan blocked", t7, b7)
 	tp := testPayload(lang)

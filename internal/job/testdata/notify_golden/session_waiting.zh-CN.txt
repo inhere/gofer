@@ -1,5 +1,3 @@
-会话等待回复 · repo: fix
+repo: fix 在等你回答
 
-pick A or B?
-
-打开会话回复：https://gofer.example.com/sessions?sid=sid-123456789
+打开会话：https://gofer.example.com/workbench?thread=r%3Asid-123456789

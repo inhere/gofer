@@ -274,3 +274,36 @@ func TestSeatRestartNeedsJobSubmit(t *testing.T) {
 		t.Fatalf("restart of a vacant seat = %d, want 400", status)
 	}
 }
+
+// A terminal session turn that asked for a reply, has been open past the grace period and is
+// not supervised reads as waiting on the seat; one still inside the grace period does not.
+func TestSeatStatusShowsWaitingForMe(t *testing.T) {
+	s := newCeilingServer(t)
+	seatFor := func(name, sid string, askedAgo int64) seatView {
+		a := seatJSON(t, s, ceilTokPlain, "", "POST", "/v1/seats", map[string]any{"project_key": "p1", "name": name}, 200)
+		registerSeatSession(t, s, sid, "p1", "plain")
+		seatJSON(t, s, ceilTokPlain, "", "POST", "/v1/seats/"+a.ID+"/bind", map[string]any{"ref": sid}, 200)
+		if askedAgo >= 0 {
+			d := &jobstore.PlanDecision{ID: "dec-" + sid, Title: "turn", Question: "q", Kind: jobstore.DecisionKindRelay,
+				SessionID: sid, AskedAt: time.Now().Unix() - askedAgo, TimeoutSec: 86400, NeedsReply: true}
+			if err := s.jobs.Meta().InsertDecision(d); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return seatJSON(t, s, ceilTokPlain, "", "GET", "/v1/seats/"+a.ID, nil, 200)
+	}
+	if got := seatFor("idle", "sess-idle", -1); got.Waiting != "" {
+		t.Fatalf("a seat with no open turn must not wait: %+v", got)
+	}
+	if got := seatFor("fresh", "sess-fresh", 10); got.Waiting != "" {
+		t.Fatalf("a turn inside the grace period must not wait: %+v", got)
+	}
+	got := seatFor("late", "sess-late", 3600)
+	if got.Waiting != "answer" {
+		t.Fatalf("a turn past the grace period must read as waiting: %+v", got)
+	}
+	_, resp := seatReq(t, s, ceilTokPlain, "", "GET", "/v1/seats", nil)
+	if strings.Count(resp, `"waiting":"answer"`) != 1 {
+		t.Fatalf("exactly one seat of the list waits: %s", resp)
+	}
+}

@@ -27,15 +27,11 @@ func newSvc(t *testing.T) *Service {
 
 // fakeNotifier records the outbound notifications the relay raises.
 type fakeNotifier struct {
-	waiting   []string
 	attention []string
 	handedOff []string
 	released  []string
 }
 
-func (f *fakeNotifier) NotifySessionWaiting(sid, _, _, msg string, _ int64) {
-	f.waiting = append(f.waiting, sid+":"+msg)
-}
 func (f *fakeNotifier) NotifySessionAttention(sid, _, _, detail string) {
 	f.attention = append(f.attention, sid+":"+detail)
 }
@@ -81,11 +77,11 @@ func TestNotifierHooks(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Len(t, f.attention, 2)
 
-	// an opened turn always notifies
+	// an opened turn tells nobody by itself: the waiting-notice scan does, once the turn
+	// is 「等我」 (the notifier has no method for it any more)
 	_, err = s.OpenTurn("sid-n", "选 A 还是 B？", 60, false)
 	assert.NoErr(t, err)
-	assert.Len(t, f.waiting, 1)
-	assert.Eq(t, "sid-n:选 A 还是 B？", f.waiting[0])
+	assert.Len(t, f.attention, 2)
 }
 
 func TestRelayHappyPath(t *testing.T) {

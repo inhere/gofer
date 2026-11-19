@@ -1,7 +1,7 @@
 # Runbook · IM 出站通知（钉钉 / 飞书）
 
 > OBS-07a。把 gofer 的事件推到钉钉或飞书的群机器人，手机上被动收到提醒。
-> 相关：[`session-relay.md`](session-relay.md)（会话中继，`session.waiting` 事件的来源）。
+> 相关：[`session-relay.md`](session-relay.md)（会话中继，「等我」通知的来源）。
 
 ## 1. 它是什么 / 不是什么
 
@@ -49,10 +49,10 @@ server:
         kind: dingtalk
         keyword: gofer                     # 机器人开了「自定义关键词」才写；三个字的词不区分大小写
         secret_env: GOFER_DINGTALK_SECRET   # 加签模式才要；关键词模式删掉这行
-        events: [session.waiting, session.attention]
+        events: [session.awaiting_reply, session.attention]
       - url: https://open.feishu.cn/open-apis/bot/v2/hook/xxx
         kind: feishu
-        events: [session.waiting, job.terminal]
+        events: [session.awaiting_reply, job.terminal]
         projects: [my-project]              # 省略 = 全部项目
 ```
 
@@ -70,7 +70,7 @@ export GOFER_DINGTALK_SECRET='SECxxxxxx'
 
 | 事件 | 何时触发 | 能在手机上处理吗 |
 |---|---|---|
-| `session.waiting` | 中继会话停下来等人回复 | ✅ 点链接进 web 回复 |
+| `session.awaiting_reply` | 终端会话的回合或托管 ACP 会话进入「等我」（要你回答）时发一次，超过 `server.notification.reminder_after_min`（默认 30，0 关闭）仍没处理再提醒一次；只带标题与链接，不带回合正文；桌面通知与 Web Push 同口径 | ✅ 点链接进 web 回复 |
 | `session.attention` | 中继会话弹权限确认等终端内对话框 | ❌ 只能回终端处理，通知是叫你回去 |
 | `session.nudge_paused` | 会话催办（`gofer session nudge`）连续 3 次送达失败后自动暂停；**不在默认订阅集**，需显式写进 `events` | ✅ 点链接进会话抽屉，会话可达后点「恢复」 |
 | `work.remind` | 工作项的提醒时间到了，或搁置（`park_until`）到期；每个到期点只发一次 | ✅ 点链接进 web「工作」页该工作项 |
@@ -88,7 +88,7 @@ export GOFER_DINGTALK_SECRET='SECxxxxxx'
 两个会话事件都**只在该会话的中继开关打开时**才推：关着说明人就在键盘前，终端里能直接看到。
 `session.attention` 会按内容去重——同一个提示反复弹不会重复推，换了个不同的提示才会再推一条。
 
-**注意**：省略 `events` 时用的是默认集（`job.terminal` + `interaction.created` + `job.needs_review` + `plan.blocked` + `job.retry_exhausted` + `plan.leader_exhausted` + `session.awaiting_reply` + `work.remind` + `work.digest` + `work.needs_me`），**不含** `session.waiting`；`work.needs_me` 虽在默认集，但总开关 `work.needs_me_notify` 默认关，所以不会平白多出流量。想收会话提醒必须显式写进 `events`，这样既有配置不会平白多出流量。`job.needs_review` 只在**开了验收**的 job 上发生（`--review` / 项目 `require_review`），没开验收的项目不会因此多出通知。`plan.blocked` 只在**用了 `--after` 依赖的链式 plan** 上发生（平铺清单不会 block），且它是唯一进默认集的 plan 事件——链停住意味着"没人会再往前推"，和 `job.needs_review` 同属"必须有人动手"。
+**注意**：省略 `events` 时用的是默认集（`job.terminal` + `interaction.created` + `job.needs_review` + `plan.blocked` + `job.retry_exhausted` + `plan.leader_exhausted` + `session.awaiting_reply` + `work.remind` + `work.digest` + `work.needs_me`），含 `session.awaiting_reply`；`work.needs_me` 虽在默认集，但总开关 `work.needs_me_notify` 默认关，所以不会平白多出流量。`job.needs_review` 只在**开了验收**的 job 上发生（`--review` / 项目 `require_review`），没开验收的项目不会因此多出通知。`plan.blocked` 只在**用了 `--after` 依赖的链式 plan** 上发生（平铺清单不会 block），且它是唯一进默认集的 plan 事件——链停住意味着"没人会再往前推"，和 `job.needs_review` 同属"必须有人动手"。
 
 **想让"某个 agent 开始抽风"也上 IM**（PLAN-03 §六）：`agent.degraded` / `agent.recovered` 记在 agent 作用域（`agent:<key>`），可订阅但不进默认集，显式加一行即可：
 
@@ -120,7 +120,7 @@ server:
 
 | 现象 | 处理 |
 |---|---|
-| 完全没收到 | 先确认 `events` 里显式写了 `session.waiting`；再看 `allow_hosts` 是否包含目标 host（空列表=全拒） |
+| 完全没收到 | 先确认 `events` 没写、或写了 `session.awaiting_reply`；再看 `allow_hosts` 是否包含目标 host（空列表=全拒） |
 | 机器人回 `keywords not in content` | 关键词模式下关键词没出现在消息里。给该 webhook 写 `keyword: <机器人里那个词>`，gofer 会自动加进标题；不改配置就只能改用加签 |
 | 机器人回 `sign not match` | 加签密钥不对，或主机时钟偏差过大（两家都要求时间戳在一小时内）。这类投递直接记 failed，不会重试 |
 | 消息里没有链接 | `server.web_base_url` 没配 |

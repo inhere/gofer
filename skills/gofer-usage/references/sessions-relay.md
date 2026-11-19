@@ -325,7 +325,7 @@ gofer session screen <sid> [-n 50] [--json]
 - **会话身份**：会话的重复登记与心跳要求同一个认证 caller。worker token 不是会话凭据：它只能调用工作进程自用的路由（自己的升级包、分配给自己的传输内容、自己的 assignable 项目），命中会话 / job / 配置接口一律 403 `worker credentials cannot call this endpoint`。
 - **归属被拒与转移**：会话的 owner 是**首次登记**的认证 caller（`caller_id`）。换 token（例如把 agent / 容器 hook 换成自己的 caller）后 hook 以另一个身份上报，注册 / 心跳 / 回复都会被拒——拒绝是对的，但会话的状态、最新消息、进度会停在切换那一刻。最近一次被拒的 caller 与时间记在会话上（`GET /v1/sessions` 与详情的 `refused_caller_id` / `refused_at`），server 日志也有一条限频的 warn，hook 日志（`<config-dir>/run/hook.log`）会记一行并指出转移命令。
 - **把会话转给该 caller**：web 的会话列表 / 详情会亮出「归属被拒」并给「转给 <caller>」按钮；CLI 是 `gofer session owner <sid> <caller>`（需要 `session.transfer`；未知 caller 报错列不出就是没配在 `server.callers`）。转移成功后 owner 变成目标 caller、被拒记录清空，它的心跳立即生效；状态、轮次、job 关注都不受影响。该会话自己名下的授权在同一事务里被撤销（见「会话授权」）。
-- **让手机响一下**：配钉钉 / 飞书群机器人并显式订阅 `session.waiting`（不在默认集），消息带直达会话的链接。见 <https://github.com/inhere/gofer/blob/main/docs/runbook/im-notification.md>。
+- **让手机响一下**：配钉钉 / 飞书群机器人（默认就订阅 `session.awaiting_reply`），回合进入「等我」时发一次、30 分钟没处理再提醒一次，消息只带会话名与直达会话的链接，不带回合正文；桌面通知与 Web Push 同口径。见 <https://github.com/inhere/gofer/blob/main/docs/runbook/im-notification.md>。
 - 更多细节：<https://github.com/inhere/gofer/blob/main/docs/runbook/session-relay.md>。
 
 ## 常驻会话（seat）

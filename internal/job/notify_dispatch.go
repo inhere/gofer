@@ -17,9 +17,6 @@ import (
 // `events` filter keeps its current traffic: subscribing is opt-in by listing
 // the type explicitly.
 const (
-	// EventSessionWaiting fires when a relayed terminal session stops and opens a
-	// turn waiting for a human reply (session relay, SESS-01).
-	EventSessionWaiting = "session.waiting"
 	// EventSessionAttention fires when a relayed session needs a human at the
 	// TERMINAL — a permission prompt or a built-in question the agent raised.
 	// Unlike session.waiting this cannot be answered on the web (it is Claude
@@ -238,25 +235,6 @@ func (s *Service) notifyEventHooks(cfg *config.Config, eventType, projectKey str
 // belongs to, else the server (config.LanguageFor); projectKey "" is the server's.
 func (s *Service) notifyLang(projectKey string) i18n.Lang {
 	return s.config().LanguageFor(projectKey)
-}
-
-// NotifySessionWaiting is the session-relay notifier (SESS-01 → OBS-07a): a
-// relayed session stopped and is waiting for a human reply. It satisfies the
-// sessionrelay.Notifier seam, so that package stays free of notification and
-// config concerns.
-func (s *Service) NotifySessionWaiting(sessionID, projectKey, title, lastMessage string, turn int64) {
-	label := strings.TrimSpace(title)
-	if label == "" {
-		label = shortID(sessionID)
-	}
-	lang := s.notifyLang(projectKey)
-	s.NotifyEvent(EventSessionWaiting, projectKey, notify.Message{
-		Title:     i18n.T(lang, "notify.session.waiting_title", "label", label),
-		Text:      lastMessage,
-		Link:      s.webURL("/sessions?sid=" + sessionID),
-		LinkLabel: i18n.T(lang, "notify.session.waiting_link"),
-		Lang:      lang,
-	})
 }
 
 // NotifySessionAttention is raised when a relayed session enters

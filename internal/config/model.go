@@ -429,6 +429,7 @@ func cloneServer(sc ServerConfig) ServerConfig {
 		// DirLock/AgentHealth clones above avoid.
 		n.Enabled = clonePtr(sc.Notification.Enabled)
 		n.SessionReplyDelaySec = clonePtr(sc.Notification.SessionReplyDelaySec)
+		n.ReminderAfterMin = clonePtr(sc.Notification.ReminderAfterMin)
 		if sc.Notification.Desktop != nil {
 			d := *sc.Notification.Desktop
 			d.Enabled = clonePtr(sc.Notification.Desktop.Enabled)
@@ -1914,6 +1915,9 @@ type NotificationConfig struct {
 	// awaiting_input state creates a notification. Nil uses 120 seconds; zero
 	// disables this reminder.
 	SessionReplyDelaySec *int `yaml:"session_reply_delay_sec,omitempty"`
+	// ReminderAfterMin is how long a subject may stay in the 「等我」 list before the person is
+	// reminded once more. Nil uses 30 minutes; zero turns the reminder off.
+	ReminderAfterMin *int `yaml:"reminder_after_min,omitempty"`
 	// Desktop is the OS-notification channel (gofer-3wce): the server pops a system
 	// notification on the machine it runs on. A nil block means the channel is off —
 	// a server must not start popping windows because it was upgraded.
@@ -1961,6 +1965,20 @@ func (d *DesktopNotifyConfig) EffectiveMergeSec() int {
 func (n *NotificationConfig) IsEnabled() bool { return n == nil || n.Enabled == nil || *n.Enabled }
 
 const DefaultSessionReplyDelaySec = 120
+
+// DefaultReminderAfterMin is the 「等我」 reminder delay used when reminder_after_min is unset.
+const DefaultReminderAfterMin = 30
+
+// EffectiveReminderAfterMin returns the reminder delay in minutes; 0 = no reminder.
+func (n *NotificationConfig) EffectiveReminderAfterMin() int {
+	if n == nil || n.ReminderAfterMin == nil {
+		return DefaultReminderAfterMin
+	}
+	if *n.ReminderAfterMin < 0 {
+		return 0
+	}
+	return *n.ReminderAfterMin
+}
 
 const DefaultMaxTextRunes = 3000
 

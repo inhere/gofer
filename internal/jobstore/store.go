@@ -1361,6 +1361,21 @@ var schemaStmts = []string{
   at       INTEGER NOT NULL
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_seat_charter_history_seat ON seat_charter_history(seat_id, id)`,
+	// waiting_notices records, per subject of the 「等我」 list, that its owner was told: one row
+	// per stay in the list (entered_at .. cleared_at). notified_at / reminded_at are stamped
+	// where the notice is sent, so a restart neither repeats nor skips one. At most one row per
+	// subject is open (cleared_at IS NULL). A new table + indexes only (IF NOT EXISTS).
+	`CREATE TABLE IF NOT EXISTS waiting_notices (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  caller_id   TEXT NOT NULL DEFAULT '',
+  subject_key TEXT NOT NULL,
+  category    TEXT NOT NULL DEFAULT '',
+  entered_at  INTEGER NOT NULL,
+  notified_at INTEGER,
+  reminded_at INTEGER,
+  cleared_at  INTEGER
+)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS idx_waiting_notices_open ON waiting_notices(subject_key) WHERE cleared_at IS NULL`,
 	// attachments is the workbench image-attachment index (design 2026-10-19-workbench-image-
 	// attachments-design.md 「附件存储（server）」): one row per uploaded file, the file itself
 	// lives under <config-dir>/attachments/ (path is relative to that root). thread_id is empty

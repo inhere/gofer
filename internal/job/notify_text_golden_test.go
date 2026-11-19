@@ -13,6 +13,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/notify"
+	"github.com/inhere/gofer/internal/waitnotice"
 )
 
 // The golden files under testdata/notify_golden pin the notification text the job
@@ -43,7 +44,7 @@ func jobNotifyTexts(t *testing.T, lang i18n.Lang) map[string]string {
 	time.Local = time.UTC
 	t.Cleanup(func() { time.Local = oldLocal })
 
-	events := []string{EventSessionWaiting, EventSessionAttention, EventSessionHandedOff,
+	events := []string{EventSessionAwaitingReply, EventSessionAttention, EventSessionHandedOff,
 		EventSessionTakeoverReleased, EventSessionNudgePaused, notify.EventUpdateAvailable}
 	s := newNotifyService(t, t.TempDir(), []config.WebhookConfig{{
 		URL: "https://hooks.example.com/gofer", Kind: "feishu", Events: events,
@@ -65,7 +66,10 @@ func jobNotifyTexts(t *testing.T, lang i18n.Lang) map[string]string {
 	}
 
 	out := map[string]string{}
-	out["session_waiting"] = sent(func() { s.NotifySessionWaiting("sid-123456789", "self", "repo: fix", "pick A or B?", 3) })
+	waiting := waitnotice.Notice{Subject: waitnotice.Subject{Key: "session:sid-123456789", Category: "answer", ProjectKey: "self", Title: "repo: fix", ThreadID: "r:sid-123456789"}}
+	out["session_waiting"] = sent(func() { s.NotifyWaiting(waiting) })
+	waiting.Reminder = true
+	out["session_waiting_reminder"] = sent(func() { s.NotifyWaiting(waiting) })
 	out["session_attention"] = sent(func() { s.NotifySessionAttention("sid-123456789", "self", "", "") })
 	out["session_attention_detail"] = sent(func() { s.NotifySessionAttention("sid-123456789", "self", "repo: fix", "needs a choice") })
 	out["session_handed_off"] = sent(func() { s.NotifySessionHandedOff("sid-123456789", "self", "repo: fix", "job-1") })

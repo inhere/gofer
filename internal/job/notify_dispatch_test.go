@@ -11,19 +11,20 @@ import (
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/notify"
+	"github.com/inhere/gofer/internal/waitnotice"
 )
 
-// TestNotifySessionWaitingEndToEnd covers the OBS-07a path a phone actually
-// exercises: a relayed session opens a turn → NotifySessionWaiting enqueues a
-// PRE-RENDERED delivery (no job, no events row) → the sweeper posts the
-// DingTalk message with the provider signature applied to the URL.
-func TestNotifySessionWaitingEndToEnd(t *testing.T) {
+// TestNotifyWaitingEndToEnd covers the OBS-07a path a phone actually exercises: a subject
+// enters the 「等我」 list → NotifyWaiting enqueues a PRE-RENDERED delivery (no job, no events
+// row) → the sweeper posts the DingTalk message with the provider signature applied to the URL.
+// The message names who waits for what and links the thread; it carries no turn text.
+func TestNotifyWaitingEndToEnd(t *testing.T) {
 	root := t.TempDir()
 	s := newNotifyService(t, root, []config.WebhookConfig{{
 		URL:       "https://hooks.example.com/robot/send?access_token=tok",
 		Kind:      "dingtalk",
 		SecretEnv: "TEST_DING_SECRET",
-		Events:    []string{EventSessionWaiting},
+		Events:    []string{EventSessionAwaitingReply},
 	}}, nil)
 	cfg := s.config()
 	cfg.Server.WebBaseURL = "https://gofer.example.com/"
@@ -37,11 +38,12 @@ func TestNotifySessionWaitingEndToEnd(t *testing.T) {
 		return nil
 	}
 
-	s.NotifySessionWaiting("sid-123456789", "self", "repo: 修 bug", "第一步做完了，选 A 还是 B？", 3)
+	s.NotifyWaiting(waitnotice.Notice{Subject: waitnotice.Subject{Key: "session:sid-123456789", Category: "answer",
+		ProjectKey: "self", Title: "repo: 修 bug", ThreadID: "r:sid-123456789"}})
 
 	n := s.DeliverDue(context.Background())
 	assert.Eq(t, 1, n)
-	assert.Eq(t, EventSessionWaiting, gotType)
+	assert.Eq(t, EventSessionAwaitingReply, gotType)
 	// The provider signs in the URL, so no HMAC header secret is passed through.
 	assert.Eq(t, "", gotSecret)
 
@@ -57,11 +59,9 @@ func TestNotifySessionWaitingEndToEnd(t *testing.T) {
 	}
 	assert.NoErr(t, json.Unmarshal(gotBody, &d))
 	assert.Eq(t, "markdown", d.MsgType)
-	assert.True(t, strings.Contains(d.Markdown["title"], "会话等待回复"))
-	assert.True(t, strings.Contains(d.Markdown["title"], "repo: 修 bug"))
-	assert.True(t, strings.Contains(d.Markdown["text"], "选 A 还是 B？"))
-	// The link points at the session drawer through the configured public base.
-	assert.True(t, strings.Contains(d.Markdown["text"], "https://gofer.example.com/sessions?sid=sid-123456789"))
+	assert.True(t, strings.Contains(d.Markdown["title"], "repo: 修 bug 在等你回答"))
+	// The link points at the workbench thread through the configured public base.
+	assert.True(t, strings.Contains(d.Markdown["text"], "https://gofer.example.com/workbench?thread=r%3Asid-123456789"))
 }
 
 // TestNotifyEventSubscriptionRules proves session events are opt-in: a webhook
@@ -75,32 +75,32 @@ func TestNotifyEventSubscriptionRules(t *testing.T) {
 	s := newNotifyService(t, root, []config.WebhookConfig{
 		{URL: "https://hooks.example.com/a"},
 	}, nil)
-	assert.Eq(t, 0, s.NotifyEvent(EventSessionWaiting, "self", msg))
+	assert.Eq(t, 0, s.NotifyEvent(EventSessionAttention, "self", msg))
 
 	// explicit subscription → enqueued
 	s2 := newNotifyService(t, t.TempDir(), []config.WebhookConfig{
-		{URL: "https://hooks.example.com/b", Events: []string{EventSessionWaiting}},
+		{URL: "https://hooks.example.com/b", Events: []string{EventSessionAttention}},
 	}, nil)
-	assert.Eq(t, 1, s2.NotifyEvent(EventSessionWaiting, "self", msg))
+	assert.Eq(t, 1, s2.NotifyEvent(EventSessionAttention, "self", msg))
 
 	// project filter that does not match → skipped
 	s3 := newNotifyService(t, t.TempDir(), []config.WebhookConfig{
-		{URL: "https://hooks.example.com/c", Events: []string{EventSessionWaiting}, Projects: []string{"other"}},
+		{URL: "https://hooks.example.com/c", Events: []string{EventSessionAttention}, Projects: []string{"other"}},
 	}, nil)
-	assert.Eq(t, 0, s3.NotifyEvent(EventSessionWaiting, "self", msg))
+	assert.Eq(t, 0, s3.NotifyEvent(EventSessionAttention, "self", msg))
 
 	// per-project notify_enabled=false silences it
 	off := false
 	s4 := newNotifyService(t, t.TempDir(), []config.WebhookConfig{
-		{URL: "https://hooks.example.com/d", Events: []string{EventSessionWaiting}},
+		{URL: "https://hooks.example.com/d", Events: []string{EventSessionAttention}},
 	}, &off)
-	assert.Eq(t, 0, s4.NotifyEvent(EventSessionWaiting, "self", msg))
+	assert.Eq(t, 0, s4.NotifyEvent(EventSessionAttention, "self", msg))
 
 	// unknown project key still notifies (no project gate to consult)
 	s5 := newNotifyService(t, t.TempDir(), []config.WebhookConfig{
-		{URL: "https://hooks.example.com/e", Events: []string{EventSessionWaiting}},
+		{URL: "https://hooks.example.com/e", Events: []string{EventSessionAttention}},
 	}, nil)
-	assert.Eq(t, 1, s5.NotifyEvent(EventSessionWaiting, "nosuch", msg))
+	assert.Eq(t, 1, s5.NotifyEvent(EventSessionAttention, "nosuch", msg))
 }
 
 // TestJobEventRendersForIMKind proves a job-event delivery to an IM webhook is
