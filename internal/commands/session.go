@@ -222,7 +222,24 @@ func NewSessionCmd() *gcli.Command {
 	}
 }
 
+// noExtraArgs refuses positional arguments a sub-command does not read. gcli drops them silently, so
+// `gofer session relay on <sid>` used to flip the mode of the session of the current directory
+// instead of the one named — that id belongs in --session.
+func noExtraArgs(c *gcli.Command, hint string) error {
+	extra := c.ExtraArgs()
+	if len(extra) == 0 {
+		return nil
+	}
+	if hint == "" {
+		return fmt.Errorf("unexpected argument %q", extra[0])
+	}
+	return fmt.Errorf("unexpected argument %q: pass the session id with --%s <id>", extra[0], hint)
+}
+
 func runSessionWatch(c *gcli.Command, _ []string) error {
+	if err := noExtraArgs(c, "session"); err != nil {
+		return err
+	}
 	cli, err := sessionClient()
 	if err != nil {
 		return err
@@ -514,6 +531,9 @@ func runSessionShow(c *gcli.Command, _ []string) error {
 // runSessionInjectMode sets the terminal delivery mode (design 2026-10-22 D5), or —
 // with --send-held — pastes the messages waiting for the session right now.
 func runSessionInjectMode(c *gcli.Command, _ []string) error {
+	if err := noExtraArgs(c, "session"); err != nil {
+		return err
+	}
 	cli, err := sessionClient()
 	if err != nil {
 		return err
@@ -563,6 +583,9 @@ var sessionInjectModeOpts struct {
 }
 
 func runSessionRelay(c *gcli.Command, _ []string) error {
+	if err := noExtraArgs(c, "session"); err != nil {
+		return err
+	}
 	mode := strings.ToLower(strings.TrimSpace(c.Arg("mode").String()))
 	switch mode {
 	case "on", "1", "true":
@@ -841,6 +864,9 @@ func oneLine(s string, n int) string {
 }
 
 func runSessionTopic(c *gcli.Command, _ []string) error {
+	if err := noExtraArgs(c, "session"); err != nil {
+		return err
+	}
 	cli, err := sessionClient()
 	if err != nil {
 		return err

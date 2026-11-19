@@ -18,16 +18,34 @@ type seatStub struct {
 	// openPlan is what GET /v1/seats/{id}/open-plan answers.
 	openPlan map[string]any
 	restart  map[string]any
+	// projects overrides GET /v1/projects when set (a test needs its own real project root).
+	projects []map[string]any
+	// patched records the paths of the PATCH /v1/seats/{id} requests.
+	patched []string
+	// paths records every request the CLI made (method and path).
+	paths []string
+}
+
+// projectRows is the project list the stub answers for /v1/meta and /v1/projects: the default pair,
+// or the rows a test supplied.
+func (s *seatStub) projectRows() []map[string]any {
+	if len(s.projects) > 0 {
+		return s.projects
+	}
+	return []map[string]any{
+		{"key": "p1", "host_path": "/work/p1", "container_path": "/work/p1"},
+		{"key": "p2", "host_path": "/work/p2"},
+	}
 }
 
 func (s *seatStub) handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.paths = append(s.paths, r.Method+" "+r.URL.Path)
 		switch {
+		case r.URL.Path == "/v1/meta":
+			_ = json.NewEncoder(w).Encode(map[string]any{"projects": s.projectRows()})
 		case r.URL.Path == "/v1/projects":
-			_ = json.NewEncoder(w).Encode(map[string]any{"projects": []any{
-				map[string]any{"key": "p1", "host_path": "/work/p1", "container_path": "/work/p1"},
-				map[string]any{"key": "p2", "host_path": "/work/p2"},
-			}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"projects": s.projectRows()})
 		case r.URL.Path == "/v1/sessions" && r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"sessions": s.sessions})
 		case strings.HasPrefix(r.URL.Path, "/v1/sessions/"):
@@ -63,6 +81,9 @@ func (s *seatStub) handler() http.Handler {
 		case strings.HasSuffix(r.URL.Path, "/restart"):
 			_ = json.NewEncoder(w).Encode(s.restart)
 		case strings.HasPrefix(r.URL.Path, "/v1/seats/"):
+			if r.Method == http.MethodPatch {
+				s.patched = append(s.patched, r.URL.Path)
+			}
 			for _, x := range s.seats {
 				if "/v1/seats/"+x["id"].(string) == r.URL.Path {
 					_ = json.NewEncoder(w).Encode(x)

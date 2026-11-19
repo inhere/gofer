@@ -165,10 +165,14 @@ func TestCandidatesRules(t *testing.T) {
 	}
 }
 
-func TestOpenPlanOmitsGlobalArgsAndUsesHostPath(t *testing.T) {
+// TestOpenPlanOmitsGlobalArgsAndUsesTheSessionsOwnDirectory: the resume command is typed where the
+// session says it works, in that machine's spelling — a container worker's session reports
+// `/d/work/...`, not the host's `D:\work\...`. A vacant seat has no session to ask, so it keeps the
+// host path.
+func TestOpenPlanOmitsGlobalArgsAndUsesTheSessionsOwnDirectory(t *testing.T) {
 	e := newEnv(t)
 	x := e.seat(t, "dev", "pkg/api")
-	e.session(t, "s1", "/d/work/proj/pkg/api")
+	e.session(t, "s1", `/d/work/proj/pkg/api`)
 	if _, err := e.svc.Bind(x.ID, "s1", false, "user"); err != nil {
 		t.Fatal(err)
 	}
@@ -183,22 +187,36 @@ func TestOpenPlanOmitsGlobalArgsAndUsesHostPath(t *testing.T) {
 		if strings.Contains(cmd, "dangerously") {
 			t.Fatalf("GlobalArgs leaked into %q", cmd)
 		}
-		if !strings.Contains(cmd, `D:\work\proj\pkg\api`) {
-			t.Fatalf("the directory must be the host path: %q", cmd)
+		if !strings.Contains(cmd, `/d/work/proj/pkg/api`) {
+			t.Fatalf("the directory must be the one the session reports: %q", cmd)
+		}
+		if strings.Contains(cmd, `D:\work`) {
+			t.Fatalf("the host spelling is useless on the session's machine: %q", cmd)
 		}
 	}
 	if !strings.Contains(p.Sh, "claude --resume s1") || !strings.HasPrefix(p.PowerShell, "Set-Location ") {
 		t.Fatalf("sh=%q ps=%q", p.Sh, p.PowerShell)
 	}
-	// vacant: not resumable, a fresh-start command is still offered
-	y := e.seat(t, "idle", "")
-	e.seat(t, "x", "")
+	// A host-run session reports a host path, which is what its command uses.
+	e.session(t, "s2", `D:\work\proj\pkg\api`)
+	if _, err := e.svc.Bind(x.ID, "s2", true, "user"); err != nil {
+		t.Fatal(err)
+	}
+	p, _ = e.svc.OpenPlan(x.ID)
+	if p.Cwd != `D:\work\proj\pkg\api` || !strings.Contains(p.Sh, `claude --resume s2`) {
+		t.Fatalf("a host session's own spelling must be used: cwd=%q sh=%q", p.Cwd, p.Sh)
+	}
+	// vacant: not resumable, a fresh-start command is still offered, in the seat's host directory
+	y := e.seat(t, "idle", "pkg/api")
 	if _, err := e.svc.Update(y.ID, jobstore.SeatPatch{Agent: strptr("claude")}); err != nil {
 		t.Fatal(err)
 	}
 	vp, _ := e.svc.OpenPlan(y.ID)
 	if vp.Resumable || vp.Reason != ReasonVacant || vp.NewSh == "" {
 		t.Fatalf("vacant plan = %+v", vp)
+	}
+	if !strings.Contains(vp.NewSh, `D:\work\proj\pkg\api`) {
+		t.Fatalf("a vacant seat has no session to ask, so the host path stands: %q", vp.NewSh)
 	}
 }
 

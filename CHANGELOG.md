@@ -15,6 +15,12 @@
 
 - 已有配置里 webhook / 桌面通知 / 事件钩子的 `events` 仍写着退役的 `session.waiting` 时，不再静默收不到「等我」通知：加载时把它当作 `session.awaiting_reply`（与已写的同名项去重），并给出一条警告提示改名（`config info` / `GET /v1/config` 的警告里可见）。示例配置同步改成新名。
 - 收件箱（`/v1/inbox`）补上常驻 ACP 会话「等回复」卡：之前只有今天页（`/v1/today`）有，收件箱的「待办」列看不到。该卡归「待办」列，对应通知事件与终端会话的等回复一致（`session.awaiting_reply`）；新增覆盖测试保证今天页的卡类型都进收件箱或在显式豁免名单里。
+- 常驻会话（seat）的续接告知不再声称上下文丢失：只有 `source=startup`（全新会话）才说「之前的对话不在你的上下文里」，`resume` / `compact` 起改为中性措辞（你现在坐在哪个位置、用途与章程）。同一个 SessionStart 里章程也只出现一次（续接告知不再重贴章程正文）。
+- `gofer seat bind` 不再误报 relay hook 缺失：hook 检查同时看项目级与用户级 settings（`gofer init hooks --global` 装的用户级 hook 确实生效），会话在别的机器上跑或该 agent 没有 hook 模板时只给温和提示；`--kind acp` 的位置不再输出这条提示（它的章程由会话 job 的开口 prompt 注入）。
+- `gofer seat open` 打印的目录改成**会话自己上报的 cwd**：坐在容器 worker 上的位置现在给容器内路径（`/d/work/...`），不再给在这台机上无效的主机路径；位置空着时仍用项目的主机路径。
+- `gofer seat` 的显示：`seat show` 把章程作者那一行标成 `charter by:`（原来写成 `charter:`，和下面的章程正文同名）；`seat bind` / `seat ls` 里 acp 位置的 job id 显示全名（原来截成 8 位），终端会话 id 仍显示可读前缀。
+- `gofer seat add --cwd <相对路径>` 不再报「无法判断属于哪个项目」：相对目录先按当前目录解成绝对路径再找项目。`seat rm / show / set / bind / unbind / open` 补上了 `-p, --project`（之前只有 `ls` / `add` 有）。
+- `gofer session relay on <sid>` 这类多余的位置参数现在报错并提示用 `--session <id>`，不再静默忽略、把当前目录的会话当成目标；`session inject-mode` / `session watch` / `session topic` 同样处理。
 
 ### 变更
 

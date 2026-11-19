@@ -3,6 +3,7 @@ package commands
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -25,7 +26,12 @@ var seatAddOpts struct {
 	cwd      string
 }
 
+var seatRefOpts struct {
+	project string
+}
+
 var seatSetOpts struct {
+	project  string
 	purpose  string
 	charter  string
 	template string
@@ -33,11 +39,13 @@ var seatSetOpts struct {
 }
 
 var seatBindOpts struct {
+	project string
 	ref     string
 	replace bool
 }
 
 var seatOpenOpts struct {
+	project string
 	shell   string
 	restart bool
 }
@@ -93,6 +101,7 @@ func NewSeatCmd() *gcli.Command {
 					bindConfigFlag(c)
 					bindServerFlags(c)
 					c.AddArg("name", cliText("cli.seat.arg.seat"), true)
+					c.StrOpt(&seatRefOpts.project, "project", "p", "", cliText("cli.seat.flag.project"))
 				},
 				Func: runSeatShow,
 			},
@@ -107,6 +116,7 @@ func NewSeatCmd() *gcli.Command {
 					c.StrOpt(&seatSetOpts.charter, "charter", "", "", cliText("cli.seat.flag.charter"))
 					c.StrOpt(&seatSetOpts.template, "charter-template", "", "", cliText("cli.seat.flag.charter_template"))
 					c.StrOpt(&seatSetOpts.agent, "agent", "a", "", cliText("cli.seat.flag.agent"))
+					c.StrOpt(&seatSetOpts.project, "project", "p", "", cliText("cli.seat.flag.project"))
 				},
 				Func: runSeatSet,
 			},
@@ -118,6 +128,7 @@ func NewSeatCmd() *gcli.Command {
 					bindConfigFlag(c)
 					bindServerFlags(c)
 					c.AddArg("name", cliText("cli.seat.arg.seat"), true)
+					c.StrOpt(&seatRefOpts.project, "project", "p", "", cliText("cli.seat.flag.project"))
 				},
 				Func: runSeatRemove,
 			},
@@ -129,6 +140,7 @@ func NewSeatCmd() *gcli.Command {
 					bindServerFlags(c)
 					c.AddArg("name", cliText("cli.seat.arg.seat"), true)
 					c.StrOpt(&seatBindOpts.ref, "ref", "", "", cliText("cli.seat.flag.ref"))
+					c.StrOpt(&seatBindOpts.project, "project", "p", "", cliText("cli.seat.flag.project"))
 					c.BoolOpt(&seatBindOpts.replace, "replace", "", false, cliText("cli.seat.flag.replace"))
 				},
 				Func: runSeatBind,
@@ -140,6 +152,7 @@ func NewSeatCmd() *gcli.Command {
 					bindConfigFlag(c)
 					bindServerFlags(c)
 					c.AddArg("name", cliText("cli.seat.arg.seat"), true)
+					c.StrOpt(&seatRefOpts.project, "project", "p", "", cliText("cli.seat.flag.project"))
 				},
 				Func: runSeatUnbind,
 			},
@@ -151,6 +164,7 @@ func NewSeatCmd() *gcli.Command {
 					bindServerFlags(c)
 					c.AddArg("name", cliText("cli.seat.arg.seat"), true)
 					c.StrOpt(&seatOpenOpts.shell, "shell", "", "", cliText("cli.seat.flag.shell"))
+					c.StrOpt(&seatOpenOpts.project, "project", "p", "", cliText("cli.seat.flag.project"))
 					c.BoolOpt(&seatOpenOpts.restart, "restart", "", false, cliText("cli.seat.flag.restart"))
 				},
 				Func: runSeatOpen,
@@ -195,18 +209,20 @@ func currentProjectKey(cli *client.Client) string {
 	return key
 }
 
-// findSeat resolves a seat reference to its row. A bare name is looked up in the project of the
-// current directory (else anywhere the name is unique).
-func findSeat(cli *client.Client, c *gcli.Command, in string) (client.Seat, error) {
+// findSeat resolves a seat reference to its row. A bare name is looked up in project (the -p flag)
+// when given, else in the project of the current directory (else anywhere the name is unique).
+func findSeat(cli *client.Client, project, in string) (client.Seat, error) {
 	ref := parseSeatName(in)
 	if ref.name == "" {
 		return client.Seat{}, fmt.Errorf("seat name required")
 	}
-	project := ref.project
-	if project == "" {
-		project = currentProjectKey(cli)
+	if ref.project == "" {
+		ref.project = strings.TrimSpace(project)
 	}
-	list, err := cli.ListSeats(client.SeatListOpts{Project: project})
+	if ref.project == "" {
+		ref.project = currentProjectKey(cli)
+	}
+	list, err := cli.ListSeats(client.SeatListOpts{Project: ref.project})
 	if err != nil {
 		return client.Seat{}, err
 	}
@@ -220,10 +236,10 @@ func findSeat(cli *client.Client, c *gcli.Command, in string) (client.Seat, erro
 	case 1:
 		return hits[0], nil
 	case 0:
-		if project == "" {
+		if ref.project == "" {
 			return client.Seat{}, fmt.Errorf("no seat named %q (see `gofer seat ls`)", ref.name)
 		}
-		return client.Seat{}, fmt.Errorf("no seat named %q in project %q (see `gofer seat ls`)", ref.name, project)
+		return client.Seat{}, fmt.Errorf("no seat named %q in project %q (see `gofer seat ls`)", ref.name, ref.project)
 	}
 	var b strings.Builder
 	for _, x := range hits {
@@ -246,21 +262,16 @@ func runSeatList(c *gcli.Command, _ []string) error {
 		return nil
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%-22s %-16s %-8s %-9s %-9s %-20s %s\n", "NAME", "PROJECT", "KIND", "AGENT", "STATE", "CURRENT", "PURPOSE")
+	fmt.Fprintf(&b, "%-22s %-16s %-8s %-9s %-9s %-30s %s\n", "NAME", "PROJECT", "KIND", "AGENT", "STATE", "CURRENT", "PURPOSE")
 	for _, x := range list {
-		agent, current := x.Agent, x.CurrentRef
+		agent, current := x.Agent, seatCurrentRef(x)
 		if agent == "" {
 			agent = "-"
-		}
-		if current == "" {
-			current = "-"
-		} else if len(current) > 8 {
-			current = current[:8]
 		}
 		if x.ArchivedAt > 0 {
 			current += " (archived)"
 		}
-		fmt.Fprintf(&b, "%-22s %-16s %-8s %-9s %-9s %-20s %s\n",
+		fmt.Fprintf(&b, "%-22s %-16s %-8s %-9s %-9s %-30s %s\n",
 			x.Name, x.ProjectKey, x.Kind, agent, x.State, current, oneLine(x.Purpose, 60))
 	}
 	c.Print(b.String())
@@ -299,6 +310,9 @@ func runSeatAdd(c *gcli.Command, _ []string) error {
 	if in := strings.TrimSpace(seatAddOpts.cwd); in != "" {
 		cwd = in
 	}
+	if cwd, err = absoluteSeatCwd(cwd); err != nil {
+		return err
+	}
 	project := strings.TrimSpace(seatAddOpts.project)
 	rel := ""
 	if project == "" {
@@ -334,25 +348,57 @@ func runSeatAdd(c *gcli.Command, _ []string) error {
 	return nil
 }
 
+// absoluteSeatCwd resolves a relative directory beside the current one, so the project it belongs
+// to can be found; a rooted path (a host path, or the container's /d/... spelling) is kept exactly
+// as typed.
+func absoluteSeatCwd(cwd string) (string, error) {
+	if filepath.IsAbs(cwd) || strings.HasPrefix(cwd, "/") {
+		return cwd, nil
+	}
+	abs, err := filepath.Abs(cwd)
+	if err != nil {
+		return "", fmt.Errorf("resolve --cwd %s: %w", cwd, err)
+	}
+	return abs, nil
+}
+
+// seatCurrentRef is how a seat names what sits in it: the terminal session id shortened to its
+// readable prefix, the job id of an acp seat in full (it is the handle a person copies into
+// `gofer job show`). An empty seat is "-".
+func seatCurrentRef(x client.Seat) string { return seatRefLabel(x.Kind, x.CurrentRef) }
+
+// seatRefLabel is seatCurrentRef for a kind and a ref that need not come from the same row (a
+// fresh bind answers with the new ref).
+func seatRefLabel(kind, ref string) string {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return "-"
+	}
+	if kind == jobstore.SeatKindACP {
+		return ref
+	}
+	return shortSID(ref)
+}
+
 func runSeatShow(c *gcli.Command, _ []string) error {
 	cli, err := seatClient()
 	if err != nil {
 		return err
 	}
-	x, err := findSeat(cli, c, c.Arg("name").String())
+	x, err := findSeat(cli, seatRefOpts.project, c.Arg("name").String())
 	if err != nil {
 		return err
 	}
-	c.Printf("seat:     %s\nproject:  %s\nkind:     %s\nagent:    %s\ndir:      %s\nstate:    %s\npurpose:  %s\ncharter:  %s\ncreated:  %s ago\nupdated:  %s ago\n",
+	c.Printf("seat:       %s\nproject:    %s\nkind:       %s\nagent:      %s\ndir:        %s\nstate:      %s\npurpose:    %s\ncharter by: %s\ncreated:    %s ago\nupdated:    %s ago\n",
 		x.Name, x.ProjectKey, x.Kind, dash(x.Agent), dash(x.RelCwd), x.State, dash(x.Purpose), dash(x.CharterBy),
 		ago(x.CreatedAt), ago(x.UpdatedAt))
 	if x.CurrentRef != "" {
-		c.Printf("current:  %s (%s)\n", x.CurrentRef, x.State)
+		c.Printf("current:    %s (%s)\n", seatCurrentRef(x), x.State)
 	} else {
-		c.Println("current:  - (vacant)")
+		c.Println("current:    - (vacant)")
 	}
 	if x.ThreadID != "" {
-		c.Printf("thread:   %s\n", x.ThreadID)
+		c.Printf("thread:     %s\n", x.ThreadID)
 	}
 	if x.Charter != "" {
 		c.Printf("\ncharter:\n  %s\n", strings.ReplaceAll(strings.TrimSpace(x.Charter), "\n", "\n  "))
@@ -365,7 +411,7 @@ func runSeatSet(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	x, err := findSeat(cli, c, c.Arg("name").String())
+	x, err := findSeat(cli, seatRefOpts.project, c.Arg("name").String())
 	if err != nil {
 		return err
 	}
@@ -406,7 +452,7 @@ func runSeatRemove(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	x, err := findSeat(cli, c, c.Arg("name").String())
+	x, err := findSeat(cli, seatRefOpts.project, c.Arg("name").String())
 	if err != nil {
 		return err
 	}
@@ -426,7 +472,7 @@ func runSeatBind(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	x, err := findSeat(cli, c, c.Arg("name").String())
+	x, err := findSeat(cli, seatRefOpts.project, c.Arg("name").String())
 	if err != nil {
 		return err
 	}
@@ -450,17 +496,39 @@ func runSeatBind(c *gcli.Command, _ []string) error {
 		}
 		return err
 	}
-	c.Printf("seat %s now holds session %s\n", got.Name, shortSID(got.CurrentRef))
+	c.Printf("seat %s now holds session %s\n", got.Name, seatRefLabel(x.Kind, got.CurrentRef))
+	if x.Kind == jobstore.SeatKindACP {
+		// An acp seat is a gofer session job: its opening prompt carries the seat block, so no
+		// terminal relay hook is involved and there is nothing to warn about.
+		return nil
+	}
 	c.Printf("  charter injection needs the relay hook: `gofer init hooks`\n")
 	if d, derr := cli.GetSession(ref, 0, ""); derr == nil {
 		a = d.Session
-		if hookrelay.HasRelayHooks(a.Agent, seatRootForAgent(cli, got)) {
-			c.Printf("  relay hook installed for %s: the charter reaches it on the next start\n", a.Agent)
-		} else {
-			c.Printf("  WARNING: %s has no gofer relay hook in this project, so the charter will NOT be injected; install it with `gofer init hooks`\n", dash(a.Agent))
-		}
+		seatBindRelayHint(c, cli, x, a)
 	}
 	return nil
+}
+
+// seatBindRelayHint says whether the seat's charter will reach the session. It looks where gofer
+// installs relay hooks — under the project root and at the user level — because a session's
+// SessionStart fires from either one, and it says "cannot tell" instead of claiming a missing
+// hook when the check cannot see the session's machine or the agent has no gofer hook template.
+func seatBindRelayHint(c *gcli.Command, cli *client.Client, x client.Seat, a client.AgentSession) {
+	agent := strings.TrimSpace(a.Agent)
+	if r := strings.TrimSpace(a.Runner); r != "" && config.NormalizeRunnerName(r) != config.BuiltinLocalRunner {
+		c.Printf("  the session runs on %s: gofer cannot check its hooks from here (run `gofer init hooks` there if the charter does not arrive)\n", r)
+		return
+	}
+	level, known := hookrelay.FindRelayHooks(agent, seatRootForAgent(cli, x))
+	switch {
+	case !known:
+		c.Printf("  gofer cannot check the %s hook config; if the charter does not arrive, install it with `gofer init hooks`\n", dash(agent))
+	case level != "":
+		c.Printf("  relay hook installed for %s (%s level): the charter reaches it on the next start\n", agent, level)
+	default:
+		c.Printf("  WARNING: %s has no gofer relay hook in this project or at the user level, so the charter will NOT be injected; install it with `gofer init hooks`\n", dash(agent))
+	}
 }
 
 func runSeatUnbind(c *gcli.Command, _ []string) error {
@@ -468,7 +536,7 @@ func runSeatUnbind(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	x, err := findSeat(cli, c, c.Arg("name").String())
+	x, err := findSeat(cli, seatRefOpts.project, c.Arg("name").String())
 	if err != nil {
 		return err
 	}
@@ -488,7 +556,7 @@ func runSeatOpen(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	x, err := findSeat(cli, c, c.Arg("name").String())
+	x, err := findSeat(cli, seatRefOpts.project, c.Arg("name").String())
 	if err != nil {
 		return err
 	}

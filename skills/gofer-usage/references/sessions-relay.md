@@ -65,6 +65,8 @@ gofer session find <关键词|路径>                    # 找哪个会话在做
 
 **约定**：用户说「打开中继 / 我要离开了 / 交给 web」→ 执行 `gofer session relay on`，然后正常结束回合；之后每次回合结束都在 web 等回复，直到 web 回复 `/off`、终端有人输入、或 `relay off`。
 
+会话 id 只能通过 `--session` 给：`gofer session relay on <sid>` 这类多余的位置参数直接报错（不再静默忽略去操作当前目录的会话）。
+
 ## 三态开关 on / off / auto
 
 按会话存在 server，缺省 `auto`：
@@ -331,9 +333,9 @@ gofer session screen <sid> [-n 50] [--json]
 ## 常驻会话（seat）
 
 - 一个 **seat** 是一个项目里长期的工作位置：名字、用途、章程、目录；坐进去的会话会换（终端会话重启、换机器、`/clear` 出新 id），位置不变。
-- `gofer seat ls` 看自己项目的位置（`-p` 换项目、`--archived`、`--all` 需要 `seat.manage.others`）；名字跨项目用 `name@project`。
-- `gofer seat add <name> --purpose "审查 PR" --charter "..."`：`--charter` 可写正文，也可写 `@docs/xxx.md` 指向仓库里的文件（每次启动重新读，改文件即生效）；`--charter-template flow` 直接套内置的「设计 → 评审 → 计划 → 实施 → 验证」约定（源文件 `docs/examples/templates/seat-charter-flow.md`）。`--kind acp` 是 gofer 的托管会话 job，`--cwd` 指定目录。
-- `gofer seat bind <name>`：把当前目录的会话放进去（`--ref` 指定别的会话，`--replace` 从正坐着的会话手里接过）。**位置被占时会 409 并提示加 `--replace`**；成功后若该 agent 没装 relay hook 会警告——章程是 hook 注入的，没 hook 就注不进去（`gofer init hooks`）。
-- **章程注入**：坐在某个 seat 上的会话，每次 SessionStart（启动 / 续接 / 压缩）都会收到一节「常驻会话：<名字>（<用途>）」加章程正文；位置换到新会话后，新会话第一次启动额外收到一次续接告知（含最近的 work report / 计划交接），之后不再重复。
-- `gofer seat open <name>`：打印回这个位置要敲的命令和**在哪台机器上敲**（`--shell sh|ps` 选写法；命令是给人敲的，不含 job 用的 `global_args`）；位置空着或不能续时给「新开」命令；`acp` 类给工作台线程，会话已结束时提示 `gofer seat open <name> --restart`。
+- `gofer seat ls` 看自己项目的位置（`-p` 换项目、`--archived`、`--all` 需要 `seat.manage.others`）；所有 seat 子命令都收 `-p/--project`（不给就用当前目录所在项目）；名字跨项目用 `name@project`。
+- `gofer seat add <name> --purpose "审查 PR" --charter "..."`：`--charter` 可写正文，也可写 `@docs/xxx.md` 指向仓库里的文件（每次启动重新读，改文件即生效）；`--charter-template flow` 直接套内置的「设计 → 评审 → 计划 → 实施 → 验证」约定（源文件 `docs/examples/templates/seat-charter-flow.md`）。`--kind acp` 是 gofer 的托管会话 job，`--cwd` 指定目录（可以给相对路径，按当前目录解成绝对路径）。
+- `gofer seat bind <name>`：把当前目录的会话放进去（`--ref` 指定别的会话，`--replace` 从正坐着的会话手里接过）。**位置被占时会 409 并提示加 `--replace`**；成功后若该 agent 没装 relay hook 会提醒——章程是 hook 注入的，没 hook 就注不进去（`gofer init hooks`）。检查同时看**项目级与用户级** settings（`gofer init hooks --global` 装的用户级 hook 同样生效，不会误报）；会话跑在别的机器上、或该 agent 没有 gofer 的 hook 模板时只给温和提示，不下结论；`--kind acp` 的位置由 gofer 会话 job 的开口 prompt 注入，不查也不提示 hook。
+- **章程注入**：坐在某个 seat 上的会话，每次 SessionStart（启动 / 续接 / 压缩）都会收到一节「常驻会话：<名字>（<用途>）」加章程正文（章程只出现这一次）；位置换到新会话后，新会话第一次启动额外收到一次续接告知（含最近的 work report / 计划交接），之后不再重复。续接告知只在来源是**全新会话**（`source=startup`）时说「之前的对话不在上下文里」，`resume` / `compact` 起的中性措辞，不声称上下文丢失。
+- `gofer seat open <name>`：打印回这个位置要敲的命令和**在哪台机器上敲**、在哪一个目录里敲（`--shell sh|ps` 选写法；命令是给人敲的，不含 job 用的 `global_args`）。目录用**会话自己上报的 cwd**，所以坐在容器 worker 上的位置给的是容器内路径（如 `/d/work/...`），不是主机路径；位置空着时用项目的主机路径。位置空着或不能续时给「新开」命令；`acp` 类给工作台线程，会话已结束时提示 `gofer seat open <name> --restart`。
 - `gofer seat set <name> --purpose/--charter/--agent`（`-` 清空）、`gofer seat rm <name>`（归档，名字重新可用，历史保留）、`gofer seat unbind <name>`（让出位置，会话仍注册着）。

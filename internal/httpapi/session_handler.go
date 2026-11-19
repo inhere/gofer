@@ -529,6 +529,9 @@ type registerSessionReq struct {
 	Transcript     string `json:"transcript,omitempty"`
 	TmuxPane       string `json:"tmux_pane,omitempty"`
 	Event          string `json:"event,omitempty"`
+	// Source is the SessionStart source (startup|resume|clear|compact), which the seat notice's
+	// wording depends on; an agent that reports none leaves it empty.
+	Source         string `json:"source,omitempty"`
 	PeerName       string `json:"peer_name,omitempty"`
 	PeerNameSource string `json:"peer_name_source,omitempty"`
 	PeerStatus     string `json:"peer_status,omitempty"`
@@ -609,7 +612,7 @@ func (s *Server) handleRegisterSession(c *rux.Context) {
 	// the notice is handed out and marked delivered in this one request (the registration is a
 	// write; the read paths leave it owed).
 	if view.Seat != nil && s.seats() != nil {
-		if text, ok, err := s.seats().TakeContinuationNotice(a.SessionID, s.requestLang(c)); err == nil && ok {
+		if text, ok, err := s.seats().TakeContinuationNotice(a.SessionID, body.Source, s.requestLang(c)); err == nil && ok {
 			// The registration itself succeeded; a lost notice is not worth failing it.
 			view.Seat.Continuation = text
 		}
