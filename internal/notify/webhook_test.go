@@ -100,9 +100,11 @@ func TestValidateWebhookURLRejected(t *testing.T) {
 // when AllowHTTP is set (the local-testing escape hatch); the host must still be
 // public + allowlisted.
 func TestValidateWebhookURLAllowHTTP(t *testing.T) {
-	cfg := config.NotificationConfig{AllowHosts: []string{"example.com"}, AllowHTTP: true}
-	if err := ValidateWebhookURL("http://example.com/x", cfg); err != nil {
-		t.Fatalf("allow_http should permit http://example.com, got %v", err)
+	// A public IP literal, not a name: the check resolves names through DNS, and the test
+	// must not depend on the network.
+	cfg := config.NotificationConfig{AllowHosts: []string{"93.184.215.14"}, AllowHTTP: true}
+	if err := ValidateWebhookURL("http://93.184.215.14/x", cfg); err != nil {
+		t.Fatalf("allow_http should permit a public http host, got %v", err)
 	}
 	// allow_http does NOT waive the SSRF blocklist.
 	if err := ValidateWebhookURL("http://127.0.0.1/x", config.NotificationConfig{
