@@ -99,6 +99,7 @@ func (s *Service) beginSessionTurn(entry *jobEntry) error {
 	entry.result.Status = StatusRunning
 	entry.sessionCommandPending = false
 	entry.result.IdleDeadlineAt = 0
+	entry.awaitNeedsReply = false
 	entry.result.TurnNo++
 	snap := entry.result
 	if err := s.persist(snap); err != nil {
@@ -163,6 +164,7 @@ func (s *Service) awaitSessionInput(entry *jobEntry) error {
 	}
 	needsReply := entry.turnNeedsReply
 	entry.turnNeedsReply = false
+	entry.awaitNeedsReply = needsReply
 	entry.mu.Unlock()
 	s.scheduleSessionReply(entry)
 	s.recordEvent(snap.ID, EventJobAwaitingInput, awaitingInputDetail(snap, needsReply))

@@ -504,6 +504,9 @@ type jobEntry struct {
 	// Guarded by mu.
 	turnNeedsReply   bool
 	needsReplyTaught bool
+	// awaitNeedsReply keeps the verdict while the session sits in awaiting_input (a worker
+	// reports it to the hub on its status frame); the next turn start clears it.
+	awaitNeedsReply bool
 	// adopted, when non-nil, is the RECOV-01 R4 adoption handle that drives this job:
 	// the entry was rebuilt from the store by a serve process that did NOT start it, so
 	// there is no execute/Run goroutine behind it. Set once at creation under Service.mu

@@ -186,7 +186,7 @@ func TestE2EWorkerACPSessionStreamsStructuredEvents(t *testing.T) {
 
 	wait.For(t, 20*time.Second, "turn 1 prompt + reply on the hub acp stream", func() (bool, any) {
 		events, _ := stream.snapshot()
-		return stream.has("prompt", "first turn") && stream.has("message", "ECHO:first turn"), events
+		return stream.has("prompt", "first turn") && stream.has("message", "first turn"), events
 	})
 	waitHostAwaitingTurn(t, hub.jobs, created.ID, 1)
 

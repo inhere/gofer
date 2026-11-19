@@ -30,3 +30,16 @@ func awaitingInputDetail(snap JobResult, needsReply bool) map[string]any {
 	}
 	return detail
 }
+
+// AwaitingNeedsReply reports whether the session job is waiting in awaiting_input after a
+// turn that carried the needs-reply marker. A worker puts it on the status frame it sends
+// the hub, which records it on its own job.awaiting_input event.
+func (s *Service) AwaitingNeedsReply(jobID string) bool {
+	entry := s.entry(jobID)
+	if entry == nil {
+		return false
+	}
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	return entry.result.Status == StatusAwaitingInput && entry.awaitNeedsReply
+}

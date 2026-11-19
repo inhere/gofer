@@ -649,6 +649,7 @@ type inflightJob struct {
 	turnNo        int
 	sessionImages bool
 	sessionStatus string
+	needsReply    bool
 	// reloadable is true while the job is a persistent session that can be reloaded on a
 	// restarted worker process (its agent supports session/load); see drainBlockers.
 	reloadable bool
@@ -724,10 +725,10 @@ func (cl *Client) inflightSetReloadable(remoteID string, reloadable bool) {
 	cl.inflMu.Unlock()
 }
 
-func (cl *Client) inflightSetSession(remoteID string, turnNo int, status string, images bool) {
+func (cl *Client) inflightSetSession(remoteID string, turnNo int, status string, images, needsReply bool) {
 	cl.inflMu.Lock()
 	if f := cl.inflight[remoteID]; f != nil {
-		f.turnNo, f.sessionStatus, f.sessionImages = turnNo, status, images
+		f.turnNo, f.sessionStatus, f.sessionImages, f.needsReply = turnNo, status, images, needsReply
 	}
 	cl.inflMu.Unlock()
 }
@@ -894,6 +895,7 @@ func (cl *Client) inflightSnapshot() []wsproto.InflightJob {
 			TurnNo:        f.turnNo,
 			SessionStatus: f.sessionStatus,
 			SessionImages: f.sessionImages,
+			NeedsReply:    f.needsReply,
 		})
 	}
 	return out
