@@ -123,6 +123,8 @@ func signalsOf(c today.Card) (subject string, s Signals, ok bool) {
 		return "decision:" + c.Refs.DecisionID, Signals{Question: true}, true
 	case today.KindRelay:
 		return "session:" + c.Refs.SessionID, Signals{Question: true}, true
+	case today.KindACPReply:
+		return "job:" + c.Refs.JobID, Signals{Question: true}, true
 	case today.KindReview:
 		return "job:" + c.Refs.JobID, Signals{NeedsReview: true, TodoNeedsReview: c.Refs.TodoID != ""}, true
 	case today.KindTodoAwaitingMerge:

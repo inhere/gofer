@@ -1,11 +1,14 @@
 package today
 
-import "github.com/inhere/gofer/internal/jobstore"
+import (
+	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/waitgate"
+)
 
 // relayGraceSec is how long a relay turn must have been open before it counts as
 // "waiting for me": a turn that lasts less than this is usually answered at the
 // keyboard before the person ever looks at the list.
-const relayGraceSec = 300
+const relayGraceSec = waitgate.GraceSec
 
 // gateRelayTurns keeps only the open turns that belong in the waiting list: the agent
 // marked the turn as needing a reply, nobody supervises the session, and the turn has
@@ -31,13 +34,18 @@ func (b *builder) gateRelayTurns(sess *jobstore.AgentSession, turns []*jobstore.
 		if supervised {
 			continue
 		}
-		if at := d.AskedAt + relayGraceSec; b.now < at {
-			if b.recheckAt == 0 || at < b.recheckAt {
-				b.recheckAt = at
-			}
+		if ripe, at := waitgate.Ripe(b.now, d.AskedAt); !ripe {
+			b.holdUntil(at)
 			continue
 		}
 		kept = append(kept, d)
 	}
 	return kept
+}
+
+// holdUntil lowers recheck_at to at: a turn held back only by the grace period qualifies then.
+func (b *builder) holdUntil(at int64) {
+	if b.recheckAt == 0 || at < b.recheckAt {
+		b.recheckAt = at
+	}
 }
