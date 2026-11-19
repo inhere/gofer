@@ -246,21 +246,16 @@ func runSeatList(c *gcli.Command, _ []string) error {
 		return nil
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%-22s %-16s %-8s %-9s %-9s %-20s %s\n", "NAME", "PROJECT", "KIND", "AGENT", "STATE", "CURRENT", "PURPOSE")
+	fmt.Fprintf(&b, "%-22s %-16s %-8s %-9s %-9s %-30s %s\n", "NAME", "PROJECT", "KIND", "AGENT", "STATE", "CURRENT", "PURPOSE")
 	for _, x := range list {
-		agent, current := x.Agent, x.CurrentRef
+		agent, current := x.Agent, seatCurrentRef(x)
 		if agent == "" {
 			agent = "-"
-		}
-		if current == "" {
-			current = "-"
-		} else if len(current) > 8 {
-			current = current[:8]
 		}
 		if x.ArchivedAt > 0 {
 			current += " (archived)"
 		}
-		fmt.Fprintf(&b, "%-22s %-16s %-8s %-9s %-9s %-20s %s\n",
+		fmt.Fprintf(&b, "%-22s %-16s %-8s %-9s %-9s %-30s %s\n",
 			x.Name, x.ProjectKey, x.Kind, agent, x.State, current, oneLine(x.Purpose, 60))
 	}
 	c.Print(b.String())
@@ -334,6 +329,24 @@ func runSeatAdd(c *gcli.Command, _ []string) error {
 	return nil
 }
 
+// seatCurrentRef is how a seat names what sits in it: the terminal session id shortened to its
+// readable prefix, the job id of an acp seat in full (it is the handle a person copies into
+// `gofer job show`). An empty seat is "-".
+func seatCurrentRef(x client.Seat) string { return seatRefLabel(x.Kind, x.CurrentRef) }
+
+// seatRefLabel is seatCurrentRef for a kind and a ref that need not come from the same row (a
+// fresh bind answers with the new ref).
+func seatRefLabel(kind, ref string) string {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return "-"
+	}
+	if kind == jobstore.SeatKindACP {
+		return ref
+	}
+	return shortSID(ref)
+}
+
 func runSeatShow(c *gcli.Command, _ []string) error {
 	cli, err := seatClient()
 	if err != nil {
@@ -343,16 +356,16 @@ func runSeatShow(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	c.Printf("seat:     %s\nproject:  %s\nkind:     %s\nagent:    %s\ndir:      %s\nstate:    %s\npurpose:  %s\ncharter:  %s\ncreated:  %s ago\nupdated:  %s ago\n",
+	c.Printf("seat:       %s\nproject:    %s\nkind:       %s\nagent:      %s\ndir:        %s\nstate:      %s\npurpose:    %s\ncharter by: %s\ncreated:    %s ago\nupdated:    %s ago\n",
 		x.Name, x.ProjectKey, x.Kind, dash(x.Agent), dash(x.RelCwd), x.State, dash(x.Purpose), dash(x.CharterBy),
 		ago(x.CreatedAt), ago(x.UpdatedAt))
 	if x.CurrentRef != "" {
-		c.Printf("current:  %s (%s)\n", x.CurrentRef, x.State)
+		c.Printf("current:    %s (%s)\n", seatCurrentRef(x), x.State)
 	} else {
-		c.Println("current:  - (vacant)")
+		c.Println("current:    - (vacant)")
 	}
 	if x.ThreadID != "" {
-		c.Printf("thread:   %s\n", x.ThreadID)
+		c.Printf("thread:     %s\n", x.ThreadID)
 	}
 	if x.Charter != "" {
 		c.Printf("\ncharter:\n  %s\n", strings.ReplaceAll(strings.TrimSpace(x.Charter), "\n", "\n  "))
@@ -450,7 +463,7 @@ func runSeatBind(c *gcli.Command, _ []string) error {
 		}
 		return err
 	}
-	c.Printf("seat %s now holds session %s\n", got.Name, shortSID(got.CurrentRef))
+	c.Printf("seat %s now holds session %s\n", got.Name, seatRefLabel(x.Kind, got.CurrentRef))
 	if x.Kind == jobstore.SeatKindACP {
 		// An acp seat is a gofer session job: its opening prompt carries the seat block, so no
 		// terminal relay hook is involved and there is nothing to warn about.

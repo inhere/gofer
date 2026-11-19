@@ -16,6 +16,7 @@
 - 常驻会话（seat）的续接告知不再声称上下文丢失：只有 `source=startup`（全新会话）才说「之前的对话不在你的上下文里」，`resume` / `compact` 起改为中性措辞（你现在坐在哪个位置、用途与章程）。同一个 SessionStart 里章程也只出现一次（续接告知不再重贴章程正文）。
 - `gofer seat bind` 不再误报 relay hook 缺失：hook 检查同时看项目级与用户级 settings（`gofer init hooks --global` 装的用户级 hook 确实生效），会话在别的机器上跑或该 agent 没有 hook 模板时只给温和提示；`--kind acp` 的位置不再输出这条提示（它的章程由会话 job 的开口 prompt 注入）。
 - `gofer seat open` 打印的目录改成**会话自己上报的 cwd**：坐在容器 worker 上的位置现在给容器内路径（`/d/work/...`），不再给在这台机上无效的主机路径；位置空着时仍用项目的主机路径。
+- `gofer seat` 的显示：`seat show` 把章程作者那一行标成 `charter by:`（原来写成 `charter:`，和下面的章程正文同名）；`seat bind` / `seat ls` 里 acp 位置的 job id 显示全名（原来截成 8 位），终端会话 id 仍显示可读前缀。
 
 ## [0.217.0] - 2026-11-19
 
