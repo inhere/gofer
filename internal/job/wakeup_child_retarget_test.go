@@ -135,7 +135,12 @@ func TestChildWakeRetryHeldDuringBackoff(t *testing.T) {
 	if rows := retryRows(t, s, childID); len(rows) != 1 || rows[0].State != jobstore.RetryPending {
 		t.Fatalf("retry rows = %+v, want one pending retry", rows)
 	}
-	// The receipt was triggered by the failure; the say must NOT have gone out.
+	// The receipt was triggered by the failure; the say must NOT have gone out. The receipt is
+	// handled on its own goroutine, so wait for its sentinel before judging the say.
+	wait.For(t, 15*time.Second, "the held receipt's sentinel", func() (bool, any) {
+		r := childWakeRow(t, s, w.ID)
+		return r.ContinuationJobID == jobstore.WakeupPendingSay, r.ContinuationJobID
+	})
 	time.Sleep(300 * time.Millisecond)
 	assert.Eq(t, 0, len(sayTexts(sender)), "a child with a pending retry woke its parent")
 	row := childWakeRow(t, s, w.ID)
