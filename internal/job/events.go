@@ -342,7 +342,11 @@ func (s *Service) enqueueDeliveries(seq int64, jobID, eventType, detailJSON stri
 	// A manually ended session is not news for a PERSON; it is still an event an
 	// automation hook (an audit log, a sync script) wants to see. This covers the
 	// desktop popup too: it is the most person-facing channel of all.
-	if !(eventType == EventJobTerminal && jr.Session && jr.SessionEndReason == "manual_end") {
+	//
+	// session.awaiting_reply is recorded for the timeline and for hooks, but it is not
+	// pushed here: the person is told once, from the waiting-notice scan, with the same
+	// words on every channel (internal/waitnotice).
+	if !(eventType == EventJobTerminal && jr.Session && jr.SessionEndReason == "manual_end") && eventType != EventSessionAwaitingReply {
 		s.enqueueWebhookDeliveries(cfg, seq, jobID, jr.ProjectKey, eventType, detailJSON, at)
 		s.notifyDesktopJobEvent(cfg, jr, eventType, detailJSON, at)
 	}

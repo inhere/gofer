@@ -57,12 +57,15 @@ func (s *Service) dispatch(event queuedEvent) {
 		s.dispatchTest(event.caller, event.lang)
 		return
 	}
+	if event.kind == kindWaiting {
+		s.dispatchWaiting(event.notice)
+		return
+	}
 	if event.kind != job.EventInteractionCreated &&
 		event.kind != job.EventJobNeedsReview &&
 		event.kind != job.EventJobAwaitingApproval &&
 		event.kind != job.EventJobTerminal &&
 		event.kind != job.EventPlanBlocked &&
-		event.kind != job.EventSessionAwaitingReply &&
 		event.kind != job.EventJobChildWakeFailed {
 		return
 	}
@@ -120,9 +123,6 @@ func (s *Service) dispatch(event queuedEvent) {
 			status = result.Status
 		}
 		base.Title, base.Body = pushTitleBody(s.lang(result.ProjectKey), event.kind, result, event.detail, nil)
-	case job.EventSessionAwaitingReply:
-		base.Title, base.Body = pushTitleBody(s.lang(result.ProjectKey), event.kind, result, event.detail, nil)
-		urgency = "high"
 	case job.EventPlanBlocked:
 		base.Title, base.Body = pushTitleBody(s.lang(result.ProjectKey), event.kind, result, event.detail, nil)
 		urgency = "high"
@@ -175,8 +175,6 @@ func pushTitleBody(lang i18n.Lang, kind string, result job.JobResult, detail map
 		return i18n.T(lang, "webpush.title.approval"), truncateRunes(holdPushBody(result.Title, reason, result.ID), 120)
 	case job.EventJobTerminal:
 		return terminalPushTitle(lang, result), truncateRunes(terminalPushBody(lang, result), 120)
-	case job.EventSessionAwaitingReply:
-		return sessionAwaitingReplyPush(lang, result, detail)
 	case job.EventPlanBlocked:
 		reason, _ := stringDetail(detail, "reason")
 		return i18n.T(lang, "webpush.title.plan_blocked"), truncateRunes(reason, 120)
@@ -428,23 +426,6 @@ func sessionEndReason(lang i18n.Lang, reason string) string {
 		}
 		return i18n.T(lang, "webpush.end_reason.failed", "reason", reason)
 	}
-}
-
-func sessionAwaitingReplyPush(lang i18n.Lang, result job.JobResult, detail map[string]any) (string, string) {
-	turn := intDetail(detail, "turn_no")
-	preview, _ := detail["reply_preview"].(string)
-	idleAt := int64Detail(detail, "idle_deadline_at")
-	body := i18n.T(lang, "webpush.body.turn", "turn", turn, "agent", result.Agent, "project", result.ProjectKey)
-	if runner := config.RunnerDisplayName(result.Runner); runner != "" {
-		body += " · runner " + runner
-	}
-	if preview != "" {
-		body += "\n" + truncateRunes(preview, 200)
-	}
-	if idleAt > 0 {
-		body += "\n" + i18n.T(lang, "webpush.body.idle_end", "time", time.Unix(idleAt, 0).In(time.Local).Format("15:04"))
-	}
-	return i18n.T(lang, "webpush.title.awaiting_reply", "title", firstNonEmpty(result.Title, result.ID)), body
 }
 
 func intDetail(detail map[string]any, key string) int {

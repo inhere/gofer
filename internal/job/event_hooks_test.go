@@ -83,7 +83,7 @@ func TestEventHookEnqueueIgnoresNotificationGates(t *testing.T) {
 func TestEventHookEnqueueScopedAndNotifyEvent(t *testing.T) {
 	t.Parallel()
 	s := newHookService(t,
-		[]config.WebhookConfig{{URL: "https://hooks.example.com/robot", Kind: "dingtalk", Events: []string{EventSessionWaiting}}},
+		[]config.WebhookConfig{{URL: "https://hooks.example.com/robot", Kind: "dingtalk", Events: []string{EventSessionAttention}}},
 		[]config.EventHookConfig{{Name: "all", Command: []string{"x"}, Events: []string{"*"}}})
 
 	s.RecordScopedEvent("xfer:t1", "xfer.put", "self", map[string]any{"path": "a.txt"})
@@ -92,13 +92,13 @@ func TestEventHookEnqueueScopedAndNotifyEvent(t *testing.T) {
 	assert.Require(t, assert.Len(t, ds, 1))
 	assert.Eq(t, "hook:all", ds[0].Target)
 
-	n := s.NotifyEvent(EventSessionWaiting, "self", notify.Message{Title: "会话等待回复", Text: "选 A 还是 B"})
+	n := s.NotifyEvent(EventSessionAttention, "self", notify.Message{Title: "会话等待回复", Text: "选 A 还是 B"})
 	assert.Eq(t, 2, n) // the DingTalk webhook + the hook
 	claimed, err := s.meta.ClaimDueDeliveries(s.nowFn().Unix()+1, 50, 60)
 	assert.Require(t, assert.NoErr(t, err))
 	var hookBody string
 	for _, d := range claimed {
-		if d.Target == "hook:all" && d.EventType == EventSessionWaiting {
+		if d.Target == "hook:all" && d.EventType == EventSessionAttention {
 			hookBody = d.Body
 		}
 	}
@@ -110,7 +110,7 @@ func TestEventHookEnqueueScopedAndNotifyEvent(t *testing.T) {
 		Text  string `json:"text"`
 	}
 	assert.Require(t, assert.NoErr(t, json.Unmarshal([]byte(hookBody), &body)))
-	assert.Eq(t, EventSessionWaiting, body.Event.Type)
+	assert.Eq(t, EventSessionAttention, body.Event.Type)
 	assert.Eq(t, "会话等待回复", body.Title)
 	assert.Eq(t, "选 A 还是 B", body.Text)
 }

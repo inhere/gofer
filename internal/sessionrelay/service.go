@@ -116,7 +116,6 @@ const (
 // human is needed; it must not know about webhooks, IM adapters or config — the
 // entry layer injects an implementation (job.Service). nil = no notification.
 type Notifier interface {
-	NotifySessionWaiting(sessionID, projectKey, title, lastMessage string, turn int64)
 	NotifySessionAttention(sessionID, projectKey, title, detail string)
 	// NotifySessionHandedOff is path B (design §9.1 B): the session was taken over
 	// by a pty job, so the conversation continues there — the human who was about
@@ -972,11 +971,9 @@ func (s *Service) OpenTurn(sid, body string, timeoutSec int64, needsReply bool) 
 		return jobstore.PlanDecision{}, err
 	}
 	s.noteState(sid, jobstore.SessionWaitingReply, EventStop)
-	// Tell the human their session is waiting (best-effort, never blocks the
-	// hook: the notifier only enqueues, the delivery sweeper does the posting).
-	if s.notifier != nil {
-		s.notifier.NotifySessionWaiting(sid, a.ProjectKey, a.Title, body, turn)
-	}
+	// Telling the human is not done here: the turn only becomes 「等我」 once it has been open
+	// past the grace period, unsupervised and marked as needing a reply, and the waiting-notice
+	// scan (internal/waitnotice) sends the one notice from there.
 	return d, nil
 }
 

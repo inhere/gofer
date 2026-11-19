@@ -19,7 +19,6 @@ type recordingRelayNotifier struct {
 	released []string
 }
 
-func (n *recordingRelayNotifier) NotifySessionWaiting(_, _, _, _ string, _ int64) {}
 func (n *recordingRelayNotifier) NotifySessionAttention(_, _, _, _ string)        {}
 func (n *recordingRelayNotifier) NotifySessionHandedOff(_, _, _, _ string)        {}
 func (n *recordingRelayNotifier) NotifySessionTakeoverReleased(sid, _, _, jobID, reason string) {

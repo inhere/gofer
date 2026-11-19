@@ -41,7 +41,7 @@ func (s *Server) seats() *seat.Service {
 			return
 		}
 		d := seat.Deps{
-			Projects: seatProjects{s},
+			Projects:  seatProjects{s},
 			Waiting:   seatWaiting{s},
 			Restarter: seatRestarter{jobs: s.jobs, agents: s.agents},
 		}

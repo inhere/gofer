@@ -36,7 +36,6 @@ var notInboxEvents = map[string]string{
 	"job.dir_wait_timeout":      "informational",
 	"interaction.answered":      "outcome of an answer; nothing left to decide",
 	"interaction.punted":        "outcome of an answer; the question is back in the queue as interaction",
-	"session.waiting":           "informational wait notice; the reply request is session.awaiting_reply",
 	"session.attention":         "ops alert delivered by webhook",
 	"session.nudge_paused":      "informational",
 	"plan.completed":            "informational outcome",

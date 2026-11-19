@@ -20,6 +20,7 @@ import (
 	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/waitnotice"
 )
 
 const eventQueueSize = 128
@@ -81,6 +82,8 @@ type queuedEvent struct {
 	caller string
 	// lang is the language of a test notification (the request that asked for it).
 	lang i18n.Lang
+	// notice is the 「等我」 notice of a "waiting" event.
+	notice waitnotice.Notice
 }
 
 // Service owns process-lifetime transient state. Subscription rows and job

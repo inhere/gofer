@@ -141,11 +141,8 @@ var catalogEvents = []EventInfo{
 
 	// session
 	{Key: "session.awaiting_reply", Group: "session",
-		Zh: "持续会话在等你回复",
-		En: "A continuous session is waiting for your reply"},
-	{Key: "session.waiting", Group: "session",
-		Zh: "中继会话停下来开了新一轮，等人在网页上回复",
-		En: "A relayed session opened a turn and waits for a reply in the console"},
+		Zh: "会话进入「等我」（在等你回答或批准）时发一次，30 分钟还没处理再提醒一次",
+		En: "A session entered the waiting-for-me list; sent once, and once more if still unhandled after 30 minutes"},
 	{Key: "session.attention", Group: "session",
 		Zh: "会话在终端里等确认（权限或选择），要回到键盘",
 		En: "A session waits for confirmation in its terminal (permission or choice)"},

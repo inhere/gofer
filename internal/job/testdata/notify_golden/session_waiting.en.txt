@@ -1,5 +1,3 @@
-Session waiting for a reply · repo: fix
+repo: fix is waiting for your answer
 
-pick A or B?
-
-Open session to reply: https://gofer.example.com/sessions?sid=sid-123456789
+Open the session: https://gofer.example.com/workbench?thread=r%3Asid-123456789

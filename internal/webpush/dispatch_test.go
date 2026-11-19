@@ -24,6 +24,7 @@ import (
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/testutil/wait"
+	"github.com/inhere/gofer/internal/waitnotice"
 )
 
 type dispatchJobs struct {
@@ -356,7 +357,9 @@ func TestPushDispatchKeepsTheNotificationWithoutTheAnswerPermission(t *testing.T
 	}
 }
 
-func TestWebPushSessionAwaitingReply(t *testing.T) {
+// The 「等我」 notice is pushed from the scan: its title names who waits for what, its tag is the
+// subject key and it opens the subject's thread. The old per-event reminder pushes nothing.
+func TestWebPushWaitingNotice(t *testing.T) {
 	store, err := jobstore.Open(filepath.Join(t.TempDir(), "gofer.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -367,7 +370,7 @@ func TestWebPushSessionAwaitingReply(t *testing.T) {
 		t.Fatal(err)
 	}
 	auth := bytes.Repeat([]byte{0x52}, 16)
-	gotCh := make(chan capturedPush, 1)
+	gotCh := make(chan capturedPush, 4)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		gotCh <- capturedPush{body: body, headers: r.Header.Clone()}
@@ -378,19 +381,50 @@ func TestWebPushSessionAwaitingReply(t *testing.T) {
 		t.Fatal(err)
 	}
 	jobs := &dispatchJobs{result: job.JobResult{ID: "job-2", ProjectKey: "project-a", SessionID: "sess-2", Title: "修复会话", Agent: "codex", Status: job.StatusAwaitingInput}}
-	service, err := NewService(Options{Store: store, Jobs: jobs, ConfigDir: t.TempDir(), UserCallers: func() []string { return []string{"alice"} }, Visible: func(_, _ string) bool { return true }, AllowInsecureLoopback: true})
+	service, err := NewService(Options{Store: store, Jobs: jobs, ConfigDir: t.TempDir(), UserCallers: func() []string { return []string{"alice", "bob"} }, Visible: func(_, _ string) bool { return true }, AllowInsecureLoopback: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer service.Close()
-	service.ObserveEvent("job-2", job.EventSessionAwaitingReply, map[string]any{"turn_no": 3, "idle_deadline_at": int64(1800000300), "reply_preview": "请回复 A", "agent": "codex", "project": "project-a"})
+
+	// The retired per-event reminder pushes nothing, whatever its detail carries.
+	const turnText = "TURN-TEXT-MUST-NOT-LEAVE"
+	service.ObserveEvent("job-2", job.EventSessionAwaitingReply, map[string]any{"turn_no": 3, "reply_preview": turnText, "agent": "codex", "project": "project-a"})
+	select {
+	case got := <-gotCh:
+		t.Fatalf("the awaiting_reply event pushed: %s", decryptPushPayload(t, got.body, receiverPrivate, auth))
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	service.NotifyWaiting(waitnotice.Notice{Subject: waitnotice.Subject{Key: "session:sess-9", Category: "answer",
+		CallerID: "alice", ProjectKey: "project-a", Title: "周报", ThreadID: "r:sess-9"}})
 	push := waitPush(t, gotCh)
+	plain := decryptPushPayload(t, push.body, receiverPrivate, auth)
 	var payload PushPayload
+	if err := json.Unmarshal(plain, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Title != "周报 在等你回答" || payload.Tag != "session:sess-9" || payload.URL != "/workbench?thread=r%3Asess-9" || payload.Body != "" {
+		t.Fatalf("payload = %#v", payload)
+	}
+	if strings.Contains(string(plain), turnText) {
+		t.Fatalf("turn text in the payload: %s", plain)
+	}
+	// only the owner is pushed
+	select {
+	case got := <-gotCh:
+		t.Fatalf("a second push went out: %s", decryptPushPayload(t, got.body, receiverPrivate, auth))
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	service.NotifyWaiting(waitnotice.Notice{Reminder: true, Subject: waitnotice.Subject{Key: "session:sess-9", Category: "answer",
+		CallerID: "alice", ProjectKey: "project-a", Title: "周报", ThreadID: "r:sess-9"}})
+	push = waitPush(t, gotCh)
 	if err := json.Unmarshal(decryptPushPayload(t, push.body, receiverPrivate, auth), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.Title != "会话等你回复：修复会话" || payload.URL != "/workbench?thread=s%3Asess-2" || !strings.Contains(payload.Body, "第 3 轮") || !strings.Contains(payload.Body, "请回复 A") {
-		t.Fatalf("payload = %#v", payload)
+	if payload.Title != "提醒：周报 在等你回答" || payload.Tag != "session:sess-9" {
+		t.Fatalf("reminder payload = %#v", payload)
 	}
 }
 
@@ -500,7 +534,7 @@ func TestWebPushChildWakeFailedBypassesTheThread(t *testing.T) {
 	}
 
 	// 2) Control: another push in the same thread, inside the window, is merged away.
-	service.ObserveEvent("job-parent", job.EventSessionAwaitingReply, map[string]any{"turn_no": 2})
+	service.ObserveEvent("job-parent", job.EventJobTerminal, map[string]any{"status": job.StatusFailed})
 	select {
 	case got := <-gotCh:
 		t.Fatalf("a same-thread push inside the merge window was delivered: %#v", got.headers)
@@ -558,9 +592,5 @@ func TestPushBodiesNameTheRunner(t *testing.T) {
 	}
 	if got := terminalPushBody(i18n.ZhCN, job.JobResult{ID: "job-s", Session: true, SessionEndReason: "idle_timeout", Runner: "w-lab"}); got != "空闲超时 · runner w-lab" {
 		t.Errorf("terminalPushBody(session) = %q", got)
-	}
-	title, body := sessionAwaitingReplyPush(i18n.ZhCN, job.JobResult{ID: "job-2", Title: "fix", Agent: "codex", ProjectKey: "project-a", Runner: "local"}, map[string]any{"turn_no": 3})
-	if !strings.Contains(title, "会话等你回复") || !strings.Contains(body, "第 3 轮 · codex · project-a · runner server") {
-		t.Errorf("sessionAwaitingReplyPush = %q / %q", title, body)
 	}
 }

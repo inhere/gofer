@@ -47,17 +47,29 @@ func waitAwaitingInput(t *testing.T, s *Service, id string, turn int) JobResult 
 	return got
 }
 
-// waitDeliveries polls until the job has want webhook deliveries (the reminder is a
-// 1s timer: a fixed sleep after it left the timer ~200ms under load).
-func waitDeliveries(t *testing.T, s *Service, id string, want int) {
+// waitReminderEvents polls until the job's timeline holds want reminder events (the reminder
+// is a 1s timer: a fixed sleep after it left the timer ~200ms under load) and returns how many
+// it holds.
+func waitReminderEvents(t *testing.T, s *Service, id string, want int) int {
 	t.Helper()
-	wait.For(t, 5*time.Second, "session reply reminder deliveries", func() (bool, any) {
-		deliveries, err := s.ListDeliveriesByJob(id)
-		return err == nil && len(deliveries) >= want, len(deliveries)
+	n := 0
+	wait.For(t, 5*time.Second, "session reply reminder events", func() (bool, any) {
+		events, _ := s.ListJobEvents(id, 0)
+		n = 0
+		for _, ev := range events {
+			if ev.Type == EventSessionAwaitingReply {
+				n++
+			}
+		}
+		return n >= want, n
 	})
+	return n
 }
 
-func TestSessionAwaitingReplyNotifiesAfterDelay(t *testing.T) {
+// The delayed reminder keeps its event on the job's timeline, but it no longer pushes: the
+// person is told once from the waiting-notice scan, so a webhook subscribed to the event gets
+// no delivery from it and no turn text leaves through it.
+func TestSessionAwaitingReplyRecordsEventWithoutPushing(t *testing.T) {
 	s := newACPService(t, t.TempDir(), acptest.Options{})
 	configureSessionReplyNotify(s, 1)
 	result, err := s.Submit(JobRequest{ProjectKey: "self", Agent: "acpbot", Runner: "local", Cwd: ".", Prompt: "hello", Session: true, TimeoutSec: 30, IdleTimeoutSec: 10, Title: "测试会话"})
@@ -65,19 +77,15 @@ func TestSessionAwaitingReplyNotifiesAfterDelay(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitAwaitingInput(t, s, result.ID, 1)
-	waitDeliveries(t, s, result.ID, 1)
+	waitReminderEvents(t, s, result.ID, 1)
 	deliveries, err := s.ListDeliveriesByJob(result.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	events, _ := s.ListJobEvents(result.ID, 0)
-	reminded := false
-	for _, ev := range events {
-		reminded = reminded || ev.Type == EventSessionAwaitingReply
+	if len(deliveries) != 0 {
+		t.Fatalf("the timer reminder must not push, the scan does: %+v", deliveries)
 	}
-	if len(deliveries) != 1 || deliveries[0].EventSeq == 0 || !reminded {
-		t.Fatalf("deliveries = %+v", deliveries)
-	}
+	_ = s.Cancel(result.ID)
 }
 
 func TestSessionAwaitingReplyCancelledBySay(t *testing.T) {
@@ -127,18 +135,13 @@ func TestSessionAwaitingReplyOncePerWait(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitAwaitingInput(t, s, result.ID, 1)
-	waitDeliveries(t, s, result.ID, 1)
+	waitReminderEvents(t, s, result.ID, 1)
 	if err := s.SaySession(result.ID, "again"); err != nil {
 		t.Fatal(err)
 	}
 	waitAwaitingInput(t, s, result.ID, 2)
-	waitDeliveries(t, s, result.ID, 2)
-	deliveries, err := s.ListDeliveriesByJob(result.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(deliveries) != 2 {
-		t.Fatalf("want one reminder per wait, got %+v", deliveries)
+	if n := waitReminderEvents(t, s, result.ID, 2); n != 2 {
+		t.Fatalf("want one reminder event per wait, got %d", n)
 	}
 	_ = s.Cancel(result.ID)
 }
