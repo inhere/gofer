@@ -32,7 +32,7 @@ func TestSupervisionCountsJobsAndSubagents(t *testing.T) {
 	_, err := s.Register(RegisterInput{SessionID: "sv-j", Agent: "claude"})
 	assert.NoErr(t, err)
 	a := jobstore.AgentSession{SessionID: "sv-j", CallerID: "claude-sv"}
-	seedCallerJob(t, s, "job-sv-1", "claude-sv", "running", now.Unix()-60)
+	seedSourceSessionJob(t, s, "job-sv-1", "sv-j", "claude-sv", "self", "local", "", "running", now.Unix()-60)
 	subBeat(t, s, "sv-j", EventSubagentStart, "a1")
 	v := s.Supervision(a)
 	assert.Eq(t, Supervision{Jobs: 1, Subagents: 1}, v)
@@ -47,7 +47,7 @@ func TestSupervisionIgnoresSwitch(t *testing.T) {
 	_, err := s.Register(RegisterInput{SessionID: "sv-o", Agent: "claude"})
 	assert.NoErr(t, err)
 	a := jobstore.AgentSession{SessionID: "sv-o", CallerID: "claude-so", RelayMode: jobstore.RelayModeOff}
-	seedCallerJob(t, s, "job-so-1", "claude-so", "running", now.Unix()-10)
+	seedSourceSessionJob(t, s, "job-so-1", "sv-o", "claude-so", "self", "local", "", "running", now.Unix()-10)
 	assert.Eq(t, 1, s.Supervision(a).Jobs)
 }
 
@@ -69,4 +69,36 @@ func TestSupervisingDetailIgnoresWatches(t *testing.T) {
 	d, ok := s.supervisingDetail(a)
 	assert.False(t, ok)
 	assert.Eq(t, "", d)
+}
+
+// Only this session's own jobs count: a same-caller job from another session
+// does not, a resident session job waiting for a person does not, and a job
+// this session submitted does.
+func TestSupervisionIsPerSession(t *testing.T) {
+	s := newSvc(t)
+	s.SupervisingWindowSec = 7200
+	now := time.Now()
+	s.nowFn = func() time.Time { return now }
+	a := jobstore.AgentSession{SessionID: "sv-mine", CallerID: "default"}
+
+	seedSourceSessionJob(t, s, "job-pj-other", "sv-other", "default", "self", "local", "", "running", now.Unix()-5)
+	assert.False(t, s.Supervision(a).Any())
+
+	seedSourceSessionJob(t, s, "job-pj-mine", "sv-mine", "default", "self", "local", "", "running", now.Unix()-5)
+	assert.Eq(t, 1, s.Supervision(a).Jobs)
+	finishJob(t, s, "job-pj-mine", "done")
+	assert.False(t, s.Supervision(a).Any())
+
+	// A resident session job parked in awaiting_input is waiting for a person.
+	seedSourceSessionJob(t, s, "job-pj-sess", "sv-mine", "default", "self", "local", "", "awaiting_input", now.Unix()-5)
+	rec, ok, err := s.store.GetJob("job-pj-sess")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	rec.SessionStateJSON = `{"turn":1}`
+	assert.NoErr(t, s.store.UpsertJob(rec))
+	assert.False(t, s.Supervision(a).Any())
+
+	// A plain job awaiting input is still live work.
+	seedSourceSessionJob(t, s, "job-pj-plain", "sv-mine", "default", "self", "local", "", "awaiting_input", now.Unix()-5)
+	assert.Eq(t, 1, s.Supervision(a).Jobs)
 }
