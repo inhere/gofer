@@ -19,8 +19,8 @@ type recordingRelayNotifier struct {
 	released []string
 }
 
-func (n *recordingRelayNotifier) NotifySessionAttention(_, _, _, _ string)        {}
-func (n *recordingRelayNotifier) NotifySessionHandedOff(_, _, _, _ string)        {}
+func (n *recordingRelayNotifier) NotifySessionAttention(_, _, _, _ string) {}
+func (n *recordingRelayNotifier) NotifySessionHandedOff(_, _, _, _ string) {}
 func (n *recordingRelayNotifier) NotifySessionTakeoverReleased(sid, _, _, jobID, reason string) {
 	n.mu.Lock()
 	defer n.mu.Unlock()

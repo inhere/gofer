@@ -10,6 +10,7 @@ import (
 	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/waitnotice"
 	"github.com/inhere/gofer/internal/webpush"
 )
 
@@ -20,6 +21,7 @@ type WebPushService interface {
 	DeleteSubscription(callerID, endpoint string) (bool, error)
 	QueueTestIn(lang i18n.Lang, callerID string) (int, error)
 	Act(token, option string) (job.Interaction, error)
+	NotifyWaiting(n waitnotice.Notice)
 }
 
 type deletePushSubscriptionReq struct {

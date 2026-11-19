@@ -415,6 +415,8 @@ type Server struct {
 	today *today.Service
 	// seatSvc is the seat roster service, built on first use (seat_handler.go).
 	seatSvc seatHolder
+	// waitNotices is the 「等我」 notice scanner, built on first use (waiting_notice.go).
+	waitNotices waitNoticeHolder
 	// synthesis runs explicit daily memory syntheses (nil without a job store).
 	synthesis *engine.Engine
 	// overview is the dashboard statistics wall (GET /v1/stats/overview, cached).

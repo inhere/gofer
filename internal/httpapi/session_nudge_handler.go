@@ -229,7 +229,8 @@ const nudgeSweepInterval = 30 * time.Second
 
 // StartNudgeSweeper runs the session-nudge sweeper (N2 §E) until stop closes: one pass at
 // startup, then every nudgeSweepInterval. It is the server's own goroutine because the
-// relay service lives here; serve only starts it.
+// relay service lives here; serve only starts it. The 「等我」 notice scan runs on the same
+// tick (sweepWaitingNotices).
 func (s *Server) StartNudgeSweeper(stop <-chan struct{}) {
 	if s.relay == nil {
 		return
@@ -238,6 +239,7 @@ func (s *Server) StartNudgeSweeper(stop <-chan struct{}) {
 		ctx, cancel := contextFromStop(stop)
 		defer cancel()
 		s.relay.SweepNudges(ctx, time.Now().Unix())
+		s.sweepWaitingNotices()
 		t := time.NewTicker(nudgeSweepInterval)
 		defer t.Stop()
 		for {
@@ -246,6 +248,7 @@ func (s *Server) StartNudgeSweeper(stop <-chan struct{}) {
 				return
 			case <-t.C:
 				s.relay.SweepNudges(ctx, time.Now().Unix())
+				s.sweepWaitingNotices()
 			}
 		}
 	}()
