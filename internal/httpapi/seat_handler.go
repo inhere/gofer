@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strings"
 	"sync"
-	"unicode/utf8"
 
 	"github.com/gookit/rux/v2"
 
@@ -172,18 +171,31 @@ func seatViewOf(st seat.Status) seatView {
 }
 
 // sessionSeatView is the `seat` object of a session view: only present when the session sits
-// in a seat.
+// in a seat. It carries what the session's hook needs to inject the seat block — the name, the
+// purpose and the charter (or the repository-relative path it lives in, which the hook reads
+// itself so the file's current content wins) — and, on the registration answer only, the
+// one-time continuation text.
 type sessionSeatView struct {
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	Purpose        string `json:"purpose,omitempty"`
-	CharterSummary string `json:"charter_summary,omitempty"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Purpose string `json:"purpose,omitempty"`
+	// Charter is the charter text cut to seat.CharterBudget; empty when CharterPath is set.
+	Charter string `json:"charter,omitempty"`
+	// CharterPath is the repository-relative path of the charter file (the seat's charter was
+	// written as "@<path>").
+	CharterPath string `json:"charter_path,omitempty"`
+	// Root is the project root CharterPath is relative to, in the spelling of this session's cwd
+	// (a session inside a container gets the container path).
+	Root string `json:"root,omitempty"`
+	// Continuation is the text a session that has just taken the seat must see once; it rides
+	// the registration answer and is marked delivered in the same request, so later answers
+	// leave it empty.
+	Continuation string `json:"continuation,omitempty"`
 }
 
-const charterSummaryRunes = 200
-
-// seatOfSession returns the seat a session sits in for its view; nil when none.
-func (s *Server) seatOfSession(sid string) *sessionSeatView {
+// seatOfSession returns the seat a session sits in for its view; nil when none. cwd picks the
+// project root spelling a charter path is resolved against.
+func (s *Server) seatOfSession(sid, cwd string) *sessionSeatView {
 	svc := s.seats()
 	if svc == nil {
 		return nil
@@ -192,11 +204,40 @@ func (s *Server) seatOfSession(sid string) *sessionSeatView {
 	if err != nil || !ok {
 		return nil
 	}
-	sum := strings.TrimSpace(x.Charter)
-	if utf8.RuneCountInString(sum) > charterSummaryRunes {
-		sum = string([]rune(sum)[:charterSummaryRunes]) + "…"
+	v := &sessionSeatView{ID: x.ID, Name: x.Name, Purpose: x.Purpose}
+	if p, text := seat.SplitCharter(x.Charter); p != "" {
+		v.CharterPath, v.Root = p, seatRootFor(s.projectRoots(x.ProjectKey), cwd)
+	} else {
+		v.Charter = seat.Cut(strings.TrimSpace(text), seat.CharterBudget)
 	}
-	return &sessionSeatView{ID: x.ID, Name: x.Name, Purpose: x.Purpose, CharterSummary: sum}
+	return v
+}
+
+// seatRootFor picks the project root a session's relative charter path is joined to: the root
+// the session's cwd sits under (host or container spelling), else the first one.
+func seatRootFor(roots []string, cwd string) string {
+	cwd = strings.ReplaceAll(cwd, "\\", "/")
+	best := ""
+	for _, r := range roots {
+		r = strings.TrimRight(strings.ReplaceAll(r, "\\", "/"), "/")
+		if r == "" {
+			continue
+		}
+		if cwd == r || strings.HasPrefix(cwd, r+"/") {
+			if len(r) > len(best) {
+				best = r
+			}
+		}
+	}
+	if best != "" {
+		return best
+	}
+	for _, r := range roots {
+		if strings.TrimSpace(r) != "" {
+			return r
+		}
+	}
+	return ""
 }
 
 // maySeat is the owner rule of the seat routes: a seat's owner needs nothing, anyone else needs

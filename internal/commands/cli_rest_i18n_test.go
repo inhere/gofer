@@ -24,7 +24,7 @@ var (
 
 // restHelpRoots are the command subtrees this step migrates.
 var restHelpRoots = []string{
-	"agent", "auth", "hook", "issue", "mcp", "memory", "repo", "schedule",
+	"agent", "auth", "hook", "issue", "mcp", "memory", "repo", "schedule", "seat",
 	"settings", "steward", "template", "tool", "tunnel", "work", "workflow", "doctor",
 }
 

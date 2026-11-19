@@ -420,7 +420,7 @@ func (s *Server) toSessionView(lang i18n.Lang, a jobstore.AgentSession) sessionV
 		CanResume: resume.Can, ResumeReason: resume.Reason, ResumeMessage: resume.Message,
 		Usage:    s.withEstimate(sessionUsageViewOf(a.UsageJSON)),
 		Language: string(s.textLanguage(a.ProjectKey)),
-		Seat:     s.seatOfSession(a.SessionID),
+		Seat:     s.seatOfSession(a.SessionID, a.Cwd),
 	}
 }
 
@@ -604,7 +604,17 @@ func (s *Server) handleRegisterSession(c *rux.Context) {
 			"only the authenticated owner may refresh an existing session")
 		return
 	}
-	c.JSON(http.StatusOK, s.toSessionView(s.requestLang(c), a))
+	view := s.toSessionView(s.requestLang(c), a)
+	// A session that has just taken a seat is told once where the earlier conversation stopped:
+	// the notice is handed out and marked delivered in this one request (the registration is a
+	// write; the read paths leave it owed).
+	if view.Seat != nil && s.seats() != nil {
+		if text, ok, err := s.seats().TakeContinuationNotice(a.SessionID, s.requestLang(c)); err == nil && ok {
+			// The registration itself succeeded; a lost notice is not worth failing it.
+			view.Seat.Continuation = text
+		}
+	}
+	c.JSON(http.StatusOK, view)
 }
 
 // handleListSessions lists sessions (GET /v1/sessions?project=&state=&agent=&cwd=&all=1).
