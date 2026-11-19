@@ -55,13 +55,7 @@ func (h mailResidentHost) StartSession(sp mail.ResidentSpec) (string, error) {
 		// field: the mailbox names a job, not its plumbing).
 		MailResident: true,
 	}
-	if sid := strings.TrimSpace(sp.ResumeSessionID); sid != "" && sp.ResumeFromJobID != "" &&
-		h.canResume(sp.Agent) {
-		// A continuation LOADS the conversation: ResumedFrom + SessionID is exactly what the
-		// executor reads (job.resumeLoadSessionID).
-		req.SessionID = sid
-		req.ResumedFrom = sp.ResumeFromJobID
-	}
+	job.StampSessionResume(&req, h.canResume(sp.Agent), sp.ResumeSessionID, sp.ResumeFromJobID)
 	res, err := h.jobs.Submit(req)
 	if err != nil {
 		return "", err
@@ -72,14 +66,7 @@ func (h mailResidentHost) StartSession(sp mail.ResidentSpec) (string, error) {
 // canResume reports whether the agent declares loadSession (an agent that cannot load its own
 // past session starts fresh).
 func (h mailResidentHost) canResume(agentKey string) bool {
-	if h.agents == nil {
-		return false
-	}
-	ac, ok := h.agents.Get(agentKey)
-	if !ok {
-		return false
-	}
-	return agent.ResumeCapabilities(agentKey, ac).LoadSession
+	return job.CanLoadSession(h.agents, agentKey)
 }
 
 func (h mailResidentHost) Job(jobID string) (mail.ResidentJob, bool) {
