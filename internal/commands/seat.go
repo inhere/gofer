@@ -516,7 +516,7 @@ func runSeatBind(c *gcli.Command, _ []string) error {
 // hook when the check cannot see the session's machine or the agent has no gofer hook template.
 func seatBindRelayHint(c *gcli.Command, cli *client.Client, x client.Seat, a client.AgentSession) {
 	agent := strings.TrimSpace(a.Agent)
-	if r := strings.TrimSpace(a.Runner); r != "" && config.NormalizeRunnerName(r) != config.BuiltinLocalRunner {
+	if r := strings.TrimSpace(a.Runner); r != "" && !config.IsLocalRunnerName(r) {
 		c.Printf("  the session runs on %s: gofer cannot check its hooks from here (run `gofer init hooks` there if the charter does not arrive)\n", r)
 		return
 	}
