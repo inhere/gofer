@@ -2,7 +2,7 @@
 
 > 一句话定位：把 codex / claude 等 agent 与普通命令桥接成可追踪、可验收的异步任务（job）的控制平面，提供 CLI / HTTP / MCP / Web 四种入口；自身不内置模型。
 >
-> **适用版本：截至 v0.216.0**（CHANGELOG 最新已发布版本，2026-11-18）。
+> **适用版本：截至 v0.217.0**（CHANGELOG 最新已发布版本，2026-11-19）。
 
 ## 维护说明
 
@@ -56,6 +56,7 @@
 | 续接 | 中断后续跑同一 agent 会话；继承旧会话开新会话；运行中追加需求；worktree 已失效时续跑（含自动续跑、待办接续、故障转移与重试）被拒绝、不回落主 checkout，`job rerun` 续跑类 job 沿用其 worktree（v0.214.0） | CLI `job resume`、`job run --from-session`；`job follow-up` 相关命令；MCP `gofer_job_follow_up` | 稳定 | job-advanced.md「中断后续跑」「继承旧会话」 |
 | ACP 持续会话 | `--session` 持续对话，下一轮 `job say`、结束 `job end`；结束后可在 Web 找到并接着对话（会话页 ACP 页签按会话列出，进工作台回看与续接，v0.213.0）；worker 进程重启（含升级）后用原 job id 接回，serve 重启时停在提问上的会话接回到等待输入、旧提问记为已失效（v0.216.0） | CLI `job say` / `job end`；MCP `gofer_job_say` / `gofer_job_end`；Web 会话页 ACP 页签、工作台 | 未标注 | job-advanced.md「ACP 持续会话」 |
 | 托管常驻会话 | `--hosted` 的持续会话不因空闲结束、没有最长时限，只在 `job end` 或出错时结束；需要协议 ≥ v32 的 worker | CLI `job run --session --hosted`；HTTP / MCP 字段 `hosted`；Web 新建会话「托管」、job 详情与工作台线程「托管」标记 | 实验（v0.216.0） | job-advanced.md「ACP 持续会话」 |
+| 常驻会话（seat） | 给长期会话一个稳定身份：名字、用途、章程（charter）、当前绑定的会话与历史；章程在每次 SessionStart 注入，新会话坐上去时注入一次续接告知；`seat open` 打印回到该会话的命令（不带 job 全局参数、写明执行机器），已结束的 ACP seat 可重启；附流程约定章程模板 | CLI `seat ls\|add\|show\|set\|rm\|bind\|unbind\|open`；HTTP `/v1/seats*` | 实验（v0.217.0） | sessions-relay.md「常驻会话（seat）」 |
 | 交互 pty | agent 以交互 pty 方式启动，可在 Web 附着终端 | CLI `job run --interactive`（以 `--help` 为准）；Web 工作台 | 未标注 | job-advanced.md「agent 的两种启动方式与交互 pty job」 |
 | 人工验收（needs_review） | `--review` 使 job 停在待验收，一屏看汇报、验收标准、提交、diff、越界文件、发现；通过或打回（可自动续跑） | CLI `job review` / `accept` / `reject --note [--resume]` / `findings [--create-issues]`；Web「待验收」`/review` | 稳定 | [guide/en/features.md](guide/en/features.md#review-and-quality-gates) |
 | 验收标准与范围 | `--acceptance` / `--scope` 注入验收标准与交付约定；独占 job 的目录锁会由 `--scope` 收窄，汇报按约定回写发现与经验 | CLI `job run --acceptance --scope` | 稳定 | job-advanced.md「人工验收、验收标准与改动范围」 |
@@ -107,7 +108,7 @@
 | 会话提问 | 终端会话里的 AskUserQuestion 转到 Web 作答；会话间提问 | MCP `gofer_session_ask`；Web 今天 | 未标注 | [design/2026-10-12-session-question-relay-design.md](design/2026-10-12-session-question-relay-design.md) |
 | Web 消息转达与附图 | 在 Web 向会话发消息，输入框可带图片 | HTTP `/v1/attachments*`；Web 工作台 / 会话抽屉 | 未标注 | [design/2026-10-19-workbench-image-attachments-design.md](design/2026-10-19-workbench-image-attachments-design.md) |
 | 传话类会话附图 | 在执行机上直接启动并登记的终端会话（relay）可在 Web 聊天里附图：agent 送达模板配置 `deliver_image_args`（必须含 `{{image}}`）后，附件先放到执行机，再以绝对路径加到送达命令；内置 suga 使用 `--image {{image}}`；会话进程版本过旧（退出码 5）时明确拒绝且不重试 | 配置 `deliver_image_args`；HTTP `/v1/attachments*`；Web 工作台 / 会话抽屉 | 未标注（v0.204.0 新增） | [sessions-relay.md](../skills/gofer-usage/references/sessions-relay.md)、[design/2026-10-19-workbench-image-attachments-design.md](design/2026-10-19-workbench-image-attachments-design.md) |
-| 收件箱与「等我」 | 「要处理」= 唯一的「等我」列表：只由结构化事实按顺序判定（待你批准 / 待你回答 / 待你验收 / 待你收尾 / 计划卡住 / 你本人提交的任务失败 / 投递待确认），不读模型摘要，今天页首屏与顶栏徽标同源；agent / 会话 / job 凭据派出的 job 不进收件箱；「仅知会」只有你本人提交的 job 的完成。按调用方汇总两栏与未读数，已读 / 清理 / 恢复状态按调用方记录；`server.inbox` 规则加载时校验，`GET /v1/inbox/rules` 列出生效归栏；Web `/inbox` 双栏（手机页签）、单条 / 整栏已读、清理与恢复，侧栏徽标只算「要处理」 | HTTP `GET /v1/inbox`、`POST /v1/inbox/state`；配置 `server.inbox`；Web `/inbox` | 实验（v0.204.0 后端，v0.206.0 Web，v0.208.0 改为「等我」） | [server-config.md](../skills/gofer-usage/references/server-config.md)、[design/2026-10-28-inbox-triage-design.md](design/2026-10-28-inbox-triage-design.md) |
+| 收件箱与「等我」 | 「要处理」= 唯一的「等我」列表：只由结构化事实按顺序判定（待你批准 / 待你回答 / 待你验收 / 待你收尾 / 计划卡住 / 你本人提交的任务失败 / 投递待确认），不读模型摘要；托管 ACP / suga 会话一轮以 needs-reply 标记结尾且过了宽限期也进「待你回答」（v0.217.0），今天页首屏与顶栏徽标同源；agent / 会话 / job 凭据派出的 job 不进收件箱；「仅知会」只有你本人提交的 job 的完成。按调用方汇总两栏与未读数，已读 / 清理 / 恢复状态按调用方记录；`server.inbox` 规则加载时校验，`GET /v1/inbox/rules` 列出生效归栏；Web `/inbox` 双栏（手机页签）、单条 / 整栏已读、清理与恢复，侧栏徽标只算「要处理」 | HTTP `GET /v1/inbox`、`POST /v1/inbox/state`；配置 `server.inbox`；Web `/inbox` | 实验（v0.204.0 后端，v0.206.0 Web，v0.208.0 改为「等我」） | [server-config.md](../skills/gofer-usage/references/server-config.md)、[design/2026-10-28-inbox-triage-design.md](design/2026-10-28-inbox-triage-design.md) |
 | 今天与待我决策 | 汇总等人的事（审批、提问、验收、待你收尾、等回复、计划卡住、失败的任务、待指派的信）为「等我」卡片列表；会话等回复只在 agent 末行标 `[needs-reply]`、会话没在监督 job 且已等满 5 分钟时进入（v0.213.0） | Web `/today`；HTTP `/v1/today`；MCP `gofer_today_list` / `gofer_today_card` | 稳定 | [../skills/gofer-usage/references/web-console.md](../skills/gofer-usage/references/web-console.md) |
 | 工作项与收集箱 | 显式创建的长期工作项（控制台 / CLI、计划绑定、会话首次 `work report`；不再按会话自动生成，旧自动项可 `work archive-auto` 一键归档）、随手记收集箱与分派、会话汇报进度；模型推断的字段只作折叠参考，不驱动提醒 | CLI `work capture\|ls\|show\|new\|set\|note\|report\|...`；MCP `gofer_work_*`；Web `/work` | 稳定性速览未列（收集箱 / 管家 stability.md 标实验） | [../skills/gofer-usage/references/work-items.md](../skills/gofer-usage/references/work-items.md) |
 | 管家 steward | 整理工作项；主动巡检默认只记录（`steward observations` 查看，`steward.act_proactively` 开启后才执行），人显式触发照常；会话按统一 runner 续接与轮换；默认关闭 | CLI `steward status\|start\|restart\|stop\|ask\|notes\|review\|merges\|observations`；`gofer tool bg-agent ls\|reset` | 变化中 | work-items.md |
@@ -154,6 +155,7 @@
 | 出站白名单 | 出站总开关、`allow_hosts`、`allow_http` 等全局设置，可在 Web 编辑 | 配置 `server.notification`；Web 设置 → 通知 → 全局设置 | 未标注 | im-notification.md |
 | 桌面通知 | server 在所在主机弹系统通知，默认订阅审批 / 提问 / 等回复等事件 | 配置 `server.notification.desktop` | 未标注 | server-config.md（桌面通知段） |
 | 浏览器推送与 PWA | Web Push、可安装为应用，审批通知可直接允许 / 拒绝 | Web 设置 → 通知；HTTP `/v1/ws` 实时推送 | 未标注 | [runbook/web-push.md](runbook/web-push.md)、[runbook/https-pwa.md](runbook/https-pwa.md) |
+| 「等我」通知 | 会话进入「等我」时由服务端发一次、超过 `reminder_after_min`（默认 30 分钟）再提醒一次；桌面、webhook、Web Push 同口径，只带会话名与类别、不带回合正文；重启不重发不漏发，升级后已在等的项不补发 | 配置 `server.notification.reminder_after_min` | 实验（v0.217.0） | server-config.md、sessions-relay.md |
 | event hooks | 事件发生时在 server 主机跑命令，只读旁路；只能改配置文件 | 配置 `server.event_hooks`；改后 `serve reload` | 未标注 | [design/2026-10-11-event-hooks-design.md](design/2026-10-11-event-hooks-design.md)、im-notification.md「事件钩子」 |
 | 决策 hook | 提交前 `job.submit` / 交付前 `job.deliver` 外部判定，只能否决或收紧 | 配置 `server.decision_hooks`；CLI `tool hook-test` | 变化中（D1 已落地，D2 / D3 未做） | [runbook/decision-hooks.md](runbook/decision-hooks.md) |
 | 入站触发 | 外部系统按事件派受约束 job：文件专属的 `server.triggers` 配置、HMAC + 时间窗校验、非 root owner 的派活身份与权限上限（每次派活按 owner 当前权限准入）、按 `dedup.key` / `Idempotency-Key` 持久去重、令牌桶限流、receipt 清理与恢复、审计；`config validate` 列出各 trigger 状态。入口 `POST /v1/triggers/{name}/invoke`，provider：generic（HMAC + 时间戳）、github（`X-Hub-Signature-256`、delivery 去重、事件过滤）、dingtalk、feishu（IM 文本消息，过滤机器人自身与非文本）；不匹配的事件 200 ignored；只读管理路由需 `trigger.read` | 配置 `server.triggers`（仅文件）；HTTP invoke 与读路由；CLI `tool trigger ls\|show\|invoke`；MCP `gofer_trigger_list\|show` | 实验（v0.204.0 内核，v0.207.0 开放 HTTP / GitHub / IM 入口；默认 disabled） | [design/2026-10-28-trigger-design.md](design/2026-10-28-trigger-design.md) |
