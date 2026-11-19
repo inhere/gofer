@@ -2815,6 +2815,23 @@ type AgentSession struct {
 	Scope       []string `json:"scope,omitempty"`
 	TopicSource string   `json:"topic_source,omitempty"`
 	TopicAt     int64    `json:"topic_at,omitempty"`
+	// Seat is the resident seat this session sits in (nil = none): its name, purpose and
+	// charter. Continuation is the one-time text of a session that has just taken the seat;
+	// the server hands it out on the registration answer only.
+	Seat *SessionSeat `json:"seat,omitempty"`
+}
+
+// SessionSeat is the seat of a session as the session view carries it.
+// CharterPath is the repository-relative file holding the charter (the seat wrote "@<path>");
+// Root is the project root in the spelling of the session's cwd.
+type SessionSeat struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Purpose      string `json:"purpose,omitempty"`
+	Charter      string `json:"charter,omitempty"`
+	CharterPath  string `json:"charter_path,omitempty"`
+	Root         string `json:"root,omitempty"`
+	Continuation string `json:"continuation,omitempty"`
 }
 
 // Relay wait reasons reported by the server (see sessionrelay.WaitReason); the

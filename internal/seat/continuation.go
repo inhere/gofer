@@ -21,7 +21,12 @@ const (
 // path that puts a session into a seat (T4's SessionStart injection, an ACP restart) says the
 // same thing. The text is cut to a budget on a rune boundary.
 func (s *Service) ContinuationText(x jobstore.Seat) (string, error) {
-	lang := s.lang()
+	return s.continuationText(x, s.lang())
+}
+
+// continuationText is ContinuationText in an explicit language (the session registration knows
+// the language of the session it answers).
+func (s *Service) continuationText(x jobstore.Seat, lang i18n.Lang) (string, error) {
 	var b strings.Builder
 	b.WriteString(i18n.T(lang, "seat.continuation.intro", "name", x.Name))
 	if p := strings.TrimSpace(x.Purpose); p != "" {
@@ -39,6 +44,29 @@ func (s *Service) ContinuationText(x jobstore.Seat) (string, error) {
 	}
 	b.WriteString("\n\n" + i18n.T(lang, "seat.continuation.fresh"))
 	return cutRunes(b.String(), continuationBudget), nil
+}
+
+// TakeContinuationNotice hands the continuation text to the session that has just taken its
+// seat and marks it delivered for that ref in the same step: ok is false when the session sits
+// in no seat or was already told (its second SessionStart). Only a write path (the session
+// registration) may call it; the read views leave the notice owed.
+func (s *Service) TakeContinuationNotice(ref string, lang i18n.Lang) (text string, ok bool, err error) {
+	x, sits, err := s.SeatOfRef(ref)
+	if err != nil || !sits {
+		return "", false, err
+	}
+	taken, err := s.store.TakeSeatNotice(x.ID, ref)
+	if err != nil || !taken {
+		return "", false, err
+	}
+	if lang == "" {
+		lang = s.lang()
+	}
+	t, err := s.continuationText(x, lang)
+	if err != nil {
+		return "", false, err
+	}
+	return t, true, nil
 }
 
 // charterReminder is the short opening of a session that loaded its old conversation.

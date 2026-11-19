@@ -327,3 +327,13 @@ gofer session screen <sid> [-n 50] [--json]
 - **把会话转给该 caller**：web 的会话列表 / 详情会亮出「归属被拒」并给「转给 <caller>」按钮；CLI 是 `gofer session owner <sid> <caller>`（需要 `session.transfer`；未知 caller 报错列不出就是没配在 `server.callers`）。转移成功后 owner 变成目标 caller、被拒记录清空，它的心跳立即生效；状态、轮次、job 关注都不受影响。该会话自己名下的授权在同一事务里被撤销（见「会话授权」）。
 - **让手机响一下**：配钉钉 / 飞书群机器人并显式订阅 `session.waiting`（不在默认集），消息带直达会话的链接。见 <https://github.com/inhere/gofer/blob/main/docs/runbook/im-notification.md>。
 - 更多细节：<https://github.com/inhere/gofer/blob/main/docs/runbook/session-relay.md>。
+
+## 常驻会话（seat）
+
+- 一个 **seat** 是一个项目里长期的工作位置：名字、用途、章程、目录；坐进去的会话会换（终端会话重启、换机器、`/clear` 出新 id），位置不变。
+- `gofer seat ls` 看自己项目的位置（`-p` 换项目、`--archived`、`--all` 需要 `seat.manage.others`）；名字跨项目用 `name@project`。
+- `gofer seat add <name> --purpose "审查 PR" --charter "..."`：`--charter` 可写正文，也可写 `@docs/xxx.md` 指向仓库里的文件（每次启动重新读，改文件即生效）；`--charter-template flow` 直接套内置的「设计 → 评审 → 计划 → 实施 → 验证」约定（源文件 `docs/examples/templates/seat-charter-flow.md`）。`--kind acp` 是 gofer 的托管会话 job，`--cwd` 指定目录。
+- `gofer seat bind <name>`：把当前目录的会话放进去（`--ref` 指定别的会话，`--replace` 从正坐着的会话手里接过）。**位置被占时会 409 并提示加 `--replace`**；成功后若该 agent 没装 relay hook 会警告——章程是 hook 注入的，没 hook 就注不进去（`gofer init hooks`）。
+- **章程注入**：坐在某个 seat 上的会话，每次 SessionStart（启动 / 续接 / 压缩）都会收到一节「常驻会话：<名字>（<用途>）」加章程正文；位置换到新会话后，新会话第一次启动额外收到一次续接告知（含最近的 work report / 计划交接），之后不再重复。
+- `gofer seat open <name>`：打印回这个位置要敲的命令和**在哪台机器上敲**（`--shell sh|ps` 选写法；命令是给人敲的，不含 job 用的 `global_args`）；位置空着或不能续时给「新开」命令；`acp` 类给工作台线程，会话已结束时提示 `gofer seat open <name> --restart`。
+- `gofer seat set <name> --purpose/--charter/--agent`（`-` 清空）、`gofer seat rm <name>`（归档，名字重新可用，历史保留）、`gofer seat unbind <name>`（让出位置，会话仍注册着）。

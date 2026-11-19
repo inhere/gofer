@@ -1335,6 +1335,7 @@ var schemaStmts = []string{
   kind        TEXT NOT NULL DEFAULT 'terminal',
   agent       TEXT NOT NULL DEFAULT '',
   current_ref TEXT NOT NULL DEFAULT '',
+  notice_ref  TEXT NOT NULL DEFAULT '',
   archived_at INTEGER,
   created_at  INTEGER NOT NULL,
   updated_at  INTEGER NOT NULL
@@ -1919,6 +1920,9 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := s.migrateWakeups(); err != nil {
+		return err
+	}
+	if err := s.migrateSeats(); err != nil {
 		return err
 	}
 	if err := s.markProvenanceSince(); err != nil {

@@ -209,7 +209,7 @@ func Run(api API, p Payload, opts Options) (Result, error) {
 		if err != nil {
 			return Result{}, nil // logged; the next event re-registers
 		}
-		return r.needsReplyReminder(r.topicReminder(r.catchUp(Result{}, a), a), a), nil
+		return r.needsReplyReminder(r.seatReminder(r.topicReminder(r.catchUp(Result{}, a), a), a), a), nil
 	case "UserPromptSubmit":
 		// Only a prompt a HUMAN typed means "back at the keyboard" (auto-off).
 		// Claude Code also raises UserPromptSubmit for harness-generated turns:

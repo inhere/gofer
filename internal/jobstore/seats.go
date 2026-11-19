@@ -77,6 +77,10 @@ type Seat struct {
 	// CurrentRef is the terminal session id (kind terminal) or the ACP job id (kind acp)
 	// sitting in the seat; "" = vacant.
 	CurrentRef string
+	// NoticeRef is the ref that already received the seat's continuation notice: a session that
+	// takes the seat (bind, ACP restart) is told once what the seat is, and not again. "" = the
+	// current session still owes it.
+	NoticeRef string
 	// ArchivedAt is 0 while the seat is active.
 	ArchivedAt int64
 	CreatedAt  int64
@@ -132,13 +136,30 @@ func newSeatID() string {
 }
 
 const selectSeatCols = `SELECT id, caller_id, project_key, name, rel_cwd, purpose, charter, charter_by, kind, agent,
-  current_ref, COALESCE(archived_at,0), created_at, updated_at FROM seats`
+  current_ref, notice_ref, COALESCE(archived_at,0), created_at, updated_at FROM seats`
 
 func scanSeat(sc rowScanner) (Seat, error) {
 	var x Seat
 	err := sc.Scan(&x.ID, &x.CallerID, &x.ProjectKey, &x.Name, &x.RelCwd, &x.Purpose, &x.Charter, &x.CharterBy,
-		&x.Kind, &x.Agent, &x.CurrentRef, &x.ArchivedAt, &x.CreatedAt, &x.UpdatedAt)
+		&x.Kind, &x.Agent, &x.CurrentRef, &x.NoticeRef, &x.ArchivedAt, &x.CreatedAt, &x.UpdatedAt)
 	return x, err
+}
+
+// migrateSeats adds the seat columns introduced after the table's first schema (the table
+// itself comes from the base schema, so it always exists here). Additive only; idempotent on
+// every Open.
+func (s *Store) migrateSeats() error {
+	cols, err := s.tableColumns("seats")
+	if err != nil {
+		return err
+	}
+	if _, ok := cols["notice_ref"]; ok {
+		return nil
+	}
+	if _, err := s.db.Exec(`ALTER TABLE seats ADD COLUMN notice_ref TEXT NOT NULL DEFAULT ''`); err != nil {
+		return fmt.Errorf("jobstore: migrate add seats.notice_ref: %w", err)
+	}
+	return nil
 }
 
 func isSeatUniqueErr(err error, col string) bool {
@@ -368,7 +389,7 @@ func (s *Store) BindSeat(id, ref string, replace bool, by string) (Seat, error) 
 		return Seat{}, fmt.Errorf("jobstore: check seat ref: %w", err)
 	}
 	now := s.unixNow()
-	if _, err := tx.Exec(`UPDATE seats SET current_ref=?, updated_at=? WHERE id=?`, ref, now, cur.ID); err != nil {
+	if _, err := tx.Exec(`UPDATE seats SET current_ref=?, notice_ref='', updated_at=? WHERE id=?`, ref, now, cur.ID); err != nil {
 		if isSeatUniqueErr(err, "seats.current_ref") {
 			return Seat{}, fmt.Errorf("%w: %s", ErrSeatRefTaken, ref)
 		}
@@ -386,7 +407,43 @@ func (s *Store) BindSeat(id, ref string, replace bool, by string) (Seat, error) 
 		return Seat{}, fmt.Errorf("jobstore: commit bind seat: %w", err)
 	}
 	cur.CurrentRef, cur.UpdatedAt = ref, now
+	cur.NoticeRef = ""
 	return cur, nil
+}
+
+// TakeSeatNotice claims the right to deliver the seat's continuation notice to ref: it is true
+// exactly once per session sitting in the seat (the first claim stamps notice_ref, every later
+// claim is false). A read never calls it, so a session view cannot consume the notice.
+func (s *Store) TakeSeatNotice(id, ref string) (bool, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return false, nil
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return false, fmt.Errorf("jobstore: begin seat notice: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var current, noticed string
+	err = tx.QueryRow(`SELECT current_ref, notice_ref FROM seats WHERE id = ?`, strings.TrimSpace(id)).Scan(&current, &noticed)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, ErrSeatNotFound
+	}
+	if err != nil {
+		return false, fmt.Errorf("jobstore: read seat %q: %w", id, err)
+	}
+	if current != ref || noticed == ref {
+		return false, nil
+	}
+	if _, err := tx.Exec(`UPDATE seats SET notice_ref=? WHERE id=?`, ref, strings.TrimSpace(id)); err != nil {
+		return false, fmt.Errorf("jobstore: mark seat notice %q: %w", id, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("jobstore: commit seat notice: %w", err)
+	}
+	return true, nil
 }
 
 // UnbindSeat empties the seat and records who sat there. A seat with nobody in it is left
