@@ -1,7 +1,7 @@
 # gofer 命令参考
 
 > 每组命令「是什么 + 常用写法 + 去哪看细节」。完整 flag 一律以 `gofer <cmd> [<sub>] --help` 为准。连接、project key、agent / runner 的通用规则见 SKILL.md。
-> 顶级命令分组：配置（`init` `config` `settings` `project` `agent` `mcp` `hook` `doctor`）· 仓库跟踪（`issue` `memory` `repo`）· 控制面（`serve` `worker` `tunnel` `auth`）· 任务（`job` `plan` `workflow` `schedule` `session` `work` `steward` `template`）· 工具（`tool`）。
+> 顶级命令分组：配置（`init` `config` `settings` `project` `agent` `mcp` `hook` `doctor`）· 仓库跟踪（`issue` `memory` `repo`）· 控制面（`serve` `worker` `tunnel` `auth`）· 任务（`job` `plan` `workflow` `schedule` `session` `seat` `work` `steward` `template`）· 工具（`tool`）。
 
 ## 目录
 
@@ -10,6 +10,7 @@
 - [workflow（别名 wf）](#workflow别名-wf)
 - [issue / memory / repo](#issue--memory--repo)
 - [session（别名 sess）与 hook](#session别名-sess与-hook)
+- [seat](#seat)
 - [work（别名 wk）/ steward（别名 stw）](#work别名-wk-steward别名-stw)
 - [schedule（别名 sch）](#schedule别名-sch)
 - [template](#template)
@@ -121,6 +122,25 @@ gofer hook claude|codex|omp|jcode|generic [--agent <key>] [--wait N]   # hook �
 ```
 
 细节见 [sessions-relay.md](sessions-relay.md)。
+
+## seat
+
+```bash
+gofer seat ls [-p <project>] [--archived] [--all]                 # --all 列全部调用方的位置（需 seat.manage.others）
+gofer seat add <name> [--purpose "…"] [--charter "正文" | --charter '@<仓库相对路径>' | --charter-template flow]
+                     [--kind terminal|acp] [-a <agent>] [--cwd <目录>] [-p <project>]
+gofer seat show <name>
+gofer seat set <name> [--purpose …] [--charter … | --charter-template …] [-a <agent>]   # 值为 - 表示清空
+```
+
+```bash
+gofer seat bind <name> [--ref <会话 id>] [--replace]        # 省略 --ref 用当前目录的会话
+gofer seat unbind <name>
+gofer seat rm <name>                                        # 归档：名字重新可用，历史保留
+gofer seat open <name> [--shell sh|ps] [--restart]           # 打印回这个位置要敲的命令（acp 类给工作台线程）
+```
+
+一个 seat 是项目里长期的工作位置（名字、用途、章程、目录），坐进去的会话会换，位置不变。`<name>` 在当前项目直接写名字，跨项目写 `name@project`。坐在里面的会话每次 SessionStart（启动 / 续接 / 压缩）都收到一节「常驻会话：名字（用途）」加章程正文；路径型章程由 hook 按项目根现读，改文件即生效。位置换到新会话后，新会话第一次启动额外收到一次续接告知（含最近的 work report 或计划交接）。章程只有装了 relay hook（`gofer init hooks`）的 agent 才注得进去，`bind` 会提示。细节见 [sessions-relay.md](sessions-relay.md)「常驻会话（seat）」。
 
 ## work（别名 wk）/ steward（别名 stw）
 
