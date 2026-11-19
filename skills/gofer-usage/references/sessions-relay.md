@@ -65,6 +65,8 @@ gofer session find <关键词|路径>                    # 找哪个会话在做
 
 **约定**：用户说「打开中继 / 我要离开了 / 交给 web」→ 执行 `gofer session relay on`，然后正常结束回合；之后每次回合结束都在 web 等回复，直到 web 回复 `/off`、终端有人输入、或 `relay off`。
 
+会话 id 只能通过 `--session` 给：`gofer session relay on <sid>` 这类多余的位置参数直接报错（不再静默忽略去操作当前目录的会话）。
+
 ## 三态开关 on / off / auto
 
 按会话存在 server，缺省 `auto`：

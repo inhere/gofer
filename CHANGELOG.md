@@ -18,6 +18,7 @@
 - `gofer seat open` 打印的目录改成**会话自己上报的 cwd**：坐在容器 worker 上的位置现在给容器内路径（`/d/work/...`），不再给在这台机上无效的主机路径；位置空着时仍用项目的主机路径。
 - `gofer seat` 的显示：`seat show` 把章程作者那一行标成 `charter by:`（原来写成 `charter:`，和下面的章程正文同名）；`seat bind` / `seat ls` 里 acp 位置的 job id 显示全名（原来截成 8 位），终端会话 id 仍显示可读前缀。
 - `gofer seat add --cwd <相对路径>` 不再报「无法判断属于哪个项目」：相对目录先按当前目录解成绝对路径再找项目。`seat rm / show / set / bind / unbind / open` 补上了 `-p, --project`（之前只有 `ls` / `add` 有）。
+- `gofer session relay on <sid>` 这类多余的位置参数现在报错并提示用 `--session <id>`，不再静默忽略、把当前目录的会话当成目标；`session inject-mode` / `session watch` / `session topic` 同样处理。
 
 ## [0.217.0] - 2026-11-19
 
