@@ -42,7 +42,7 @@
 
 ### 4.1 实体
 
-`resident`（常驻会话）：
+`seat`（常驻会话，CLI `gofer seat`；不叫 `resident`，因为代码里 resident 已指 ACP 持续会话 job（`job resume --mode session`、`MailResidentAgent` 等），同名会混淆）：
 
 | 字段 | 说明 |
 |---|---|
@@ -58,8 +58,8 @@
 
 ### 4.2 绑定与续接
 
-- **绑定**：终端会话里执行 `gofer resident bind <name>`（或 web 上从会话行「设为常驻」）；之后同一 agent 会话 id（Claude Code `--resume` / `--continue` 后 id 不变的情况）自动续绑；换了新会话 id 时，SessionStart 注入里提示「本目录有常驻会话 X，是否绑定」，由 agent 执行一条命令确认，不做猜测。
-- **找回**：`gofer resident open <name>` 打印（或直接执行）进入目录并续接的命令（如 `cd <cwd> && claude --resume <id>`）；web 名册行上「在终端继续」一键复制同一条命令；`acp` 类直接打开工作台线程。
+- **绑定**：终端会话里执行 `gofer seat bind <name>`（或 web 上从会话行「设为常驻」）；之后同一 agent 会话 id（Claude Code `--resume` / `--continue` 后 id 不变的情况）自动续绑；换了新会话 id 时，SessionStart 注入里提示「本目录有常驻会话 X，是否绑定」，由 agent 执行一条命令确认，不做猜测。
+- **找回**：`gofer seat open <name>` 打印（或直接执行）进入目录并续接的命令（如 `cd <cwd> && claude --resume <id>`）；web 名册行上「在终端继续」一键复制同一条命令；`acp` 类直接打开工作台线程。
 - **续接告知**：续接不上（会话文件不在、agent 不支持）时新开，并注入 charter + 上次的进展摘要（取最近的 `work report` / plan handoff），明确告诉 agent「这是新会话」，不假装记得（参照 Multica 续接提示）。
 - **固定会话定时**：`schedule` 到点时向 `current` 会话送一轮固定话术（复用现有送话 / 唤醒）；会话不在线时，`acp` 类拉起托管会话，`terminal` 类进「等我」提示人去打开（不替人起终端）。
 
@@ -133,4 +133,4 @@
 - **Q3 自动推进放权**：推荐先上线「记录 + 提醒」两档，像 plan 推进引擎一样量化一致率后再开「自动」。备选：一上来就自动送「继续下一步」。
 - **Q4 Team 形态**：推荐 leader + 成员 + 信箱 + 确定性路由，leader 不实现、done 留人；不做自由群聊。
 - **Q5 分期顺序**：推荐一期 A + C（直接解决「难找难续」「需要我时没人找」），二期 B，三期 D。备选：先做 B（流程提醒），名册后做。
-- **Q6 名称**：「常驻会话」（resident）还是复用「工作项」概念扩展。推荐新实体 `resident`：工作项是「一件事」，常驻会话是「一个长期的人手」，一个常驻会话会先后跟进多个工作项。
+- **Q6 名称**：新实体还是复用「工作项」概念扩展。定为新实体，名为 `seat`（中文仍叫「常驻会话」）：工作项是「一件事」，常驻会话是「一个长期的人手」，一个常驻会话会先后跟进多个工作项。原推荐名 `resident` 与代码里已有的 resident（ACP 持续会话 job）冲突，2026-11-19 改为 `seat`。
