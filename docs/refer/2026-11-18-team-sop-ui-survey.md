@@ -1,6 +1,6 @@
 # 参考调研：Team / 共享对话 / SOP / 界面（LoopForge、Multica、LobeHub，2026-11-18）
 
-> 参考文档，只做参考。源码阅读，未运行。版本：LoopForge `f8dcd1e`（2026-11-18）、Multica `3a181ffc8`（2026-11-18）、LobeHub 2026-11-11 快照。
+> 参考文档，只做参考。源码阅读，未运行。版本：LoopForge `f8dcd1e`（2026-11-18）、Multica `3a181ffc8`（2026-11-18）、LobeHub 2026-11-11 快照（2026-11-19 按 `6dc91bf8fa` 复核，变化见 §7）。
 > 已有笔记不重复：`reference-projects.md`（Multica 09-20、LobeHub 11-11 两节）、`2026-11-15-loopforge-notes.md`（L1–L7）、`2026-11-11-super-agent-workflow-survey.md`（①–㉗）。
 > 用于设计 `docs/design/2026-11-18-resident-sessions-and-team-design.md`（gofer-0py5）。
 
@@ -17,7 +17,7 @@
 - **leader 协议文本**（Multica `server/internal/handler/squad_briefing.go:34-347`）：每次 leader 领任务都注入「协议 + 花名册 + 小队指令」。协议：读任务 → @ 派活（简短、不复述）→ **必须**记一条评估 `action | no_action | failed --reason` → 派完即停；无事只记 no_action、不发言。状态权限：本队任务 leader 推到 in_review，done 留给人；被别人 @ 进来不改状态。
 - **路由默认值**（Multica `comment.go:1481-1530`、`squad.go:1192-1295`）：成员不带 @ 的进展 → 唤醒 leader；工作 agent 只 @ 人也回 leader；人 @ 人不触发 agent；显式 @ 只跑被点名者；leader 不自触发；已有排队轮次就合并。
 - **成员状态五档**（Multica `squad.go:618-674`）：archived / working / idle / unstable / offline；接口同时给每个成员正在跑和排队的任务。
-- **Channel 路由**（LobeHub `apps/server/src/services/channel/README.md`、`ChannelRoutingService.ts`）：@、私聊、1 对 1 直接投；无 @ 时按成员自己的规则（点名、跟进窗口、职责、排除）；回 `NO_REPLY` 记沉默，连续沉默的成员不再凭猜测唤醒；agent 回复不触发路由（防互相拉起）；每次判定落库可审计。
+- **Channel 路由**（LobeHub `apps/server/src/services/channel/README.md`、`ChannelRoutingService.ts`）：@、私聊、1 对 1 直接投；无 @ 时按成员自己的规则（点名、跟进窗口、职责、排除）；回 `NO_REPLY` 记沉默，连续沉默的成员不再凭猜测唤醒；agent 回复不触发路由（防互相拉起；11-19 已改为可触发、限跳数，见 §7）；每次判定落库可审计。
 - **上下文分层**（LobeHub）：频道是公开层；每个 agent 对每个「请求人 + 分支」保留私有会话；每次只推最近 5 条未看消息，有遗漏加一个 gap 块，更早的按需用工具读。
 - **挂起 → 等齐 N 个成员 → 再唤醒**（LobeHub `agent-runtime/src/groupOrchestration/`、`AgentRuntimeService/groupMember.ts`）：带 maxRounds、成员超时。
 - **主持人 + 原生子 agent**（LoopForge `internal/httpapi/assistant_subagents.go:51-137`）：角色渲染成 CLI subagent 文件，禁用主持人专属工具，按 agentId 续用；UI 有子 agent 面板。
@@ -68,3 +68,27 @@
 - 多人项目成员 / 职位 / RBAC、多工作区可见性（SaaS 取向；LoopForge Room / Space 公开版 UI 也未接入）。
 - 模型生成的通知摘要；定时任务以完全权限执行。
 - 流程状态靠模型自己调脚本维护（LoopForge devflow）——gofer 把状态放在服务端判定。
+
+## 7. LobeHub 复核（`6dc91bf8fa`，2026-11-19）
+
+§1–§5 引用的 LobeHub 路径都还在。行为有变化的：
+
+- **agent 回复可触发路由**（`a1b0dc2ddc`）：回复里的 `@Name` 成为真 mention。防环靠规则而不是禁止：回复 @ 最多 3 跳（`MAX_REPLY_MENTION_HOPS`）、`askAgent` 最多追问 3 次且被问方不能再转问、跨 Channel 中继只一跳、中继消息带幂等键 `agent-relay:<operationId>:<toolCallId>`、来源记在 `metadata.via/exchange`。
+- **一个主响应者**（`53fc8b08c0`，`apps/server/src/services/channel/README.md`、`packages/database/src/repositories/channel/claim.ts`）：无 @ 的消息只让一个成员先答，其余排成 `awaiting_primary`，主响应者结束后带着它的回复再跑，只补不同的部分或沉默。
+- **写者锁按「成员 × 分支」**（`dc17faa7c1`）：同一 agent 可在不同 Thread 并行；同一设备目录另有一把锁，一次一个写者。
+- **弹卡关闭记录落服务端**（`a8d7733ecd`，`src/features/GlobalApprovalNotification/useIslandDismissals.ts`）：跨客户端同步。
+- **静音成员**（`50d629699b`）：`channel_members.config.muted`，只在被 @ 时响应。
+
+新出现、可参考的：
+
+- **替请求人发**（`ChannelMessagingService`、`requirePeerRelation`）：agent 代发时身份仍是请求人，agent 只记在 `via`，触达范围等于请求人手动能触达的范围。
+- **先确认再干活**（`apps/server/src/services/channel/replyOpening.ts`）：确认「已收到」后这个 job 就欠一个回答，不能以沉默结束。
+- **未读与 @ 计数**（`src/features/Channels/ChannelList.tsx`、`3c0762a057`）：共用一个读位置，只计本人，发送者自己的消息算已读，Thread 里的 @ 单列。
+- **置顶 / 隐藏 / 分组存在成员行上**（迁移 0220）：每人独立，不是全员共享。
+- **注入的缓存友好放法**（`553d091d29`、`c2ca24f4d7`）：文档索引每个 topic 固定一份快照，压缩后刷新，期间的变化以注释附在用户消息上，不动系统提示。
+- **Queue / Steer 两种插话**（`4ffc770792`）：排队按回合送，或在下一个工具边界写进运行中的会话；停止时未送达的退回。
+- **外部事件投递到固定会话**（`572f463e6a`）：webhook 结果带 `delivery:{channelId,threadId?}`，作为 agent 消息无头运行；会话不可用记 `channel_unavailable`。
+- **Goal 标记**（`packages/builtin-tool-goal`、`1a49740448`）：run 之间留 pattern / hazard / dead_end 等结构化标记并注入后续 run，可作 SOP「沉淀」步骤的参考。
+- **界面密度**（`6dc91bf8fa`）：`--lobe-density-*` 变量与数值 token 集中定义，加一致性测试。
+
+不借鉴：用小模型决定回复开场形式、0.7 概率阈值选主响应者（只借「一个主响应者」的结构）、联系人 / 共享 Agent 等多人 SaaS 功能、IM 机器人接入、Goal 的评估器打分（完成判定留在服务端确定性规则）、MCP Events 草案。
