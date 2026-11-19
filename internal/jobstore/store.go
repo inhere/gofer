@@ -1318,6 +1318,48 @@ var schemaStmts = []string{
   PRIMARY KEY (name, project)
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_mail_resident_status ON mail_resident_agents(status)`,
+	// seats is the roster of long-lived working positions (design 2026-11-18 resident-sessions
+	// §4): one row per (caller, project, name); current_ref is the terminal session id or the
+	// ACP job id sitting in it ('' = vacant). Ordering and pinning are NOT stored here (the
+	// workbench layout owns them). New tables and indexes only (IF NOT EXISTS) — no migrate()
+	// ALTER; an older binary simply ignores them.
+	`CREATE TABLE IF NOT EXISTS seats (
+  id          TEXT PRIMARY KEY,
+  caller_id   TEXT NOT NULL DEFAULT '',
+  project_key TEXT NOT NULL DEFAULT '',
+  name        TEXT NOT NULL,
+  rel_cwd     TEXT NOT NULL DEFAULT '',
+  purpose     TEXT NOT NULL DEFAULT '',
+  charter     TEXT NOT NULL DEFAULT '',
+  charter_by  TEXT NOT NULL DEFAULT 'user',
+  kind        TEXT NOT NULL DEFAULT 'terminal',
+  agent       TEXT NOT NULL DEFAULT '',
+  current_ref TEXT NOT NULL DEFAULT '',
+  archived_at INTEGER,
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
+)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS idx_seats_name ON seats(caller_id, project_key, name) WHERE archived_at IS NULL`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS idx_seats_current_ref ON seats(current_ref) WHERE current_ref <> ''`,
+	`CREATE TABLE IF NOT EXISTS seat_bindings (
+  id       INTEGER PRIMARY KEY AUTOINCREMENT,
+  seat_id  TEXT NOT NULL,
+  action   TEXT NOT NULL,
+  from_ref TEXT NOT NULL DEFAULT '',
+  to_ref   TEXT NOT NULL DEFAULT '',
+  by       TEXT NOT NULL DEFAULT '',
+  at       INTEGER NOT NULL
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_seat_bindings_seat ON seat_bindings(seat_id, id)`,
+	`CREATE TABLE IF NOT EXISTS seat_charter_history (
+  id       INTEGER PRIMARY KEY AUTOINCREMENT,
+  seat_id  TEXT NOT NULL,
+  purpose  TEXT NOT NULL DEFAULT '',
+  charter  TEXT NOT NULL DEFAULT '',
+  by       TEXT NOT NULL DEFAULT '',
+  at       INTEGER NOT NULL
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_seat_charter_history_seat ON seat_charter_history(seat_id, id)`,
 	// attachments is the workbench image-attachment index (design 2026-10-19-workbench-image-
 	// attachments-design.md 「附件存储（server）」): one row per uploaded file, the file itself
 	// lives under <config-dir>/attachments/ (path is relative to that root). thread_id is empty

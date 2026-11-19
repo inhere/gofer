@@ -633,6 +633,7 @@ var resourceKinds = map[string]resourceKind{
 	"workflow":  {id: paramID("id"), scope: projectScope(workflowProjects)},
 	"session":   {id: paramID("sid"), scope: projectScope(sessionProjects)},
 	"work_item": {id: paramID("id"), scope: projectScope(workItemProjects)},
+	"seat":      {id: paramID("id"), scope: projectScope(seatProjectsOf)},
 	"tracker_repo": {
 		id: func(c *rux.Context) string {
 			if v := strings.TrimSpace(c.Param("tracker_id")); v != "" {

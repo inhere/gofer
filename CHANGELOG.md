@@ -29,6 +29,7 @@
 
 ### 新增
 
+- **常驻会话（seat）名册的服务端**：`/v1/seats*` 管理「长期的人手位置」——名字、用途、章程、所在项目与目录，当前坐在里面的终端会话或 ACP 会话。支持创建 / 编辑 / 归档 / 删除、绑定与解绑（并发绑定同一空位只有一个成功）、绑定候选、「怎么打开」（给人在自己终端里敲的命令，主机路径、不带 job 用的 `global_args`，sh 与 PowerShell 两种写法；已结束的 ACP 会话可按原会话 id 重启）。会话重新登记、结束都不丢位置，会话被删除时位置自动清空并留记录；会话视图多一个 `seat`。读写他人的位置需要新权限 `seat.manage.others`（默认只有根管理员，不可授予会话）。字段见 `docs/reference/http-api.md`。
 - **受管 server 的异常退出可查**：supervisor 遇到「非正常退出」（退出码非 0，且没人要求停）时记一条，`gofer serve status` 多一行 `last_exit: <时间> exit_code=<十进制> (0x<十六进制>) uptime=<活了多久>`，`--json` 多 `last_exit`（`at` / `exit_code` / `pid` / `uptime_sec`）；不再只靠 `serve logs` / supervisor 日志里的 `exit_code=` 一行。主动 `stop` 与升级重启不算异常退出。Linux 由 systemd 重启、不填这项。
 
 ## [0.216.0] - 2026-11-18

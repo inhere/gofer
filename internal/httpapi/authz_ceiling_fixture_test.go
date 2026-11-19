@@ -37,6 +37,7 @@ type ceilWorld struct {
 	mergeSugID, candidateID                       string
 	mailID                                        string
 	attachmentID                                  string
+	seatID                                        string
 }
 
 // allPermissionNames lists every permission of the catalog: a caller granted all of them is
@@ -202,6 +203,10 @@ func seedCeilingWorld(t *testing.T, s *Server, project string) ceilWorld {
 	must("mail", err)
 	w.mailID = fmt.Sprint(m.ID)
 
+	sx, err := st.CreateSeat(jobstore.Seat{CallerID: ceilOwner, ProjectKey: project, Name: "seat " + project})
+	must("seat", err)
+	w.seatID = sx.ID
+
 	// A SENT attachment: bound to the world's job thread, so it belongs to this project.
 	w.attachmentID = "att00000000000000-" + project
 	must("attachment", st.InsertAttachment(jobstore.Attachment{
@@ -218,7 +223,7 @@ func (w ceilWorld) ids() []string {
 		w.jobID, w.planID, w.todoID, w.scheduleID, w.workflowID, w.sessionID, w.workItemID, w.workItem2ID,
 		w.trackerID, w.issueID, w.xferID, w.wakeupID, w.retryID, w.nudgeID,
 		"item " + w.project, "plan " + w.project, "sch " + w.project, "issue " + w.project,
-		"content " + w.project, "candidate " + w.project, "mailbody-" + w.project,
+		"content " + w.project, "candidate " + w.project, "mailbody-" + w.project, w.seatID, "seat " + w.project,
 	}
 }
 

@@ -50,6 +50,10 @@ func TestOpenUpgradesPreviousReleaseSchema(t *testing.T) {
 			if err != nil {
 				t.Fatalf("reopen the migrated %s database: %v", fixture, err)
 			}
+			// The seat roster tables exist on an upgraded database and take a row.
+			if _, err := s.CreateSeat(Seat{CallerID: "up", ProjectKey: "p", Name: "n"}); err != nil {
+				t.Fatalf("create a seat on the migrated database: %v", err)
+			}
 			// The token lifetime columns of auth_callers are added to an old database, and the
 			// admin audit table exists.
 			if err := s.WithCallerTx(func(tx CallerTx) error {

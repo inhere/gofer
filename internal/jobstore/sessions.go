@@ -1344,6 +1344,9 @@ func (s *Store) DeleteAgentSession(sid string) (bool, error) {
 	if _, err := s.db.Exec("DELETE FROM session_nudges WHERE session_id=?", sid); err != nil {
 		return false, fmt.Errorf("jobstore: clear session nudges %q: %w", sid, err)
 	}
+	if err := s.clearSeatRefLocked(sid, SeatActionSessionDeleted); err != nil {
+		return false, err
+	}
 	res, err := s.db.Exec("DELETE FROM agent_sessions WHERE session_id=?", sid)
 	if err != nil {
 		return false, fmt.Errorf("jobstore: delete agent session %q: %w", sid, err)
