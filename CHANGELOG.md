@@ -14,6 +14,7 @@
 ### 修复
 
 - 常驻会话（seat）的续接告知不再声称上下文丢失：只有 `source=startup`（全新会话）才说「之前的对话不在你的上下文里」，`resume` / `compact` 起改为中性措辞（你现在坐在哪个位置、用途与章程）。同一个 SessionStart 里章程也只出现一次（续接告知不再重贴章程正文）。
+- `gofer seat bind` 不再误报 relay hook 缺失：hook 检查同时看项目级与用户级 settings（`gofer init hooks --global` 装的用户级 hook 确实生效），会话在别的机器上跑或该 agent 没有 hook 模板时只给温和提示；`--kind acp` 的位置不再输出这条提示（它的章程由会话 job 的开口 prompt 注入）。
 
 ## [0.217.0] - 2026-11-19
 

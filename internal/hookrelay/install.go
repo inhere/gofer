@@ -251,6 +251,40 @@ func HasRelayHooks(agent, dir string) bool {
 // HasRelayHooksAt is HasRelayHooks for an explicit config file path.
 func HasRelayHooksAt(agent, path string) bool { return hasRelayHooksAt(agent, path) }
 
+// Where gofer's relay hook for an agent was found (FindRelayHooks).
+const (
+	// RelayHooksNone: installed at neither level gofer writes to.
+	RelayHooksNone = ""
+	// RelayHooksProject: under the project root (the default `gofer init hooks`).
+	RelayHooksProject = "project"
+	// RelayHooksUser: the user's own config (`gofer init hooks --global`, ~/.claude/settings.json).
+	RelayHooksUser = "user"
+)
+
+// FindRelayHooks reports where gofer's relay hooks for agent are installed: RelayHooksProject,
+// RelayHooksUser or RelayHooksNone. An agent's SessionStart hook fires from either level, so a
+// check that looks at the project alone reports a missing hook for the common user-level install
+// (`gofer init hooks --global`). known is false when the agent's hook config paths cannot be
+// resolved at all, i.e. nothing can be said about this agent.
+func FindRelayHooks(agent, root string) (level string, known bool) {
+	home, homeErr := os.UserHomeDir()
+	globalPath, globalErr := "", error(nil)
+	if homeErr == nil {
+		globalPath, globalErr = GlobalConfigFileFor(agent, home)
+	}
+	if _, err := ConfigFileFor(agent, root); err != nil && globalErr != nil {
+		return RelayHooksNone, false
+	}
+	// jcode reads one user-level config.toml only: a project directory means nothing to it.
+	if agent != AgentJcode && root != "" && HasRelayHooks(agent, root) {
+		return RelayHooksProject, true
+	}
+	if globalErr == nil && hasRelayHooksAt(agent, globalPath) {
+		return RelayHooksUser, true
+	}
+	return RelayHooksNone, true
+}
+
 func hasRelayHooksAt(agent, path string) bool {
 	raw, err := os.ReadFile(path)
 	if err != nil {

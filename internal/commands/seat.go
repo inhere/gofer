@@ -451,16 +451,38 @@ func runSeatBind(c *gcli.Command, _ []string) error {
 		return err
 	}
 	c.Printf("seat %s now holds session %s\n", got.Name, shortSID(got.CurrentRef))
+	if x.Kind == jobstore.SeatKindACP {
+		// An acp seat is a gofer session job: its opening prompt carries the seat block, so no
+		// terminal relay hook is involved and there is nothing to warn about.
+		return nil
+	}
 	c.Printf("  charter injection needs the relay hook: `gofer init hooks`\n")
 	if d, derr := cli.GetSession(ref, 0, ""); derr == nil {
 		a = d.Session
-		if hookrelay.HasRelayHooks(a.Agent, seatRootForAgent(cli, got)) {
-			c.Printf("  relay hook installed for %s: the charter reaches it on the next start\n", a.Agent)
-		} else {
-			c.Printf("  WARNING: %s has no gofer relay hook in this project, so the charter will NOT be injected; install it with `gofer init hooks`\n", dash(a.Agent))
-		}
+		seatBindRelayHint(c, cli, x, a)
 	}
 	return nil
+}
+
+// seatBindRelayHint says whether the seat's charter will reach the session. It looks where gofer
+// installs relay hooks — under the project root and at the user level — because a session's
+// SessionStart fires from either one, and it says "cannot tell" instead of claiming a missing
+// hook when the check cannot see the session's machine or the agent has no gofer hook template.
+func seatBindRelayHint(c *gcli.Command, cli *client.Client, x client.Seat, a client.AgentSession) {
+	agent := strings.TrimSpace(a.Agent)
+	if r := strings.TrimSpace(a.Runner); r != "" && config.NormalizeRunnerName(r) != config.BuiltinLocalRunner {
+		c.Printf("  the session runs on %s: gofer cannot check its hooks from here (run `gofer init hooks` there if the charter does not arrive)\n", r)
+		return
+	}
+	level, known := hookrelay.FindRelayHooks(agent, seatRootForAgent(cli, x))
+	switch {
+	case !known:
+		c.Printf("  gofer cannot check the %s hook config; if the charter does not arrive, install it with `gofer init hooks`\n", dash(agent))
+	case level != "":
+		c.Printf("  relay hook installed for %s (%s level): the charter reaches it on the next start\n", agent, level)
+	default:
+		c.Printf("  WARNING: %s has no gofer relay hook in this project or at the user level, so the charter will NOT be injected; install it with `gofer init hooks`\n", dash(agent))
+	}
 }
 
 func runSeatUnbind(c *gcli.Command, _ []string) error {
