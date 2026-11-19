@@ -24,11 +24,23 @@ describe('workbench thread groups', () => {
     expect(got).toEqual({
       blocked: 'need',
       review: 'need',
-      awaiting_input: 'need',
+      awaiting_input: 'idle',
       working: 'active',
       idle: 'idle',
       done: 'ended',
     })
+  })
+
+  // 服务端的 attention 才决定 awaiting_input 的线程要不要进「需要你」。
+  it('puts an awaiting_input thread in need only when the server says attention', () => {
+    expect(threadGroup('awaiting_input', true)).toBe('need')
+    expect(threadGroup('awaiting_input', false)).toBe('idle')
+    const waiting = { ...thread('w', 'awaiting_input'), attention: true }
+    const report = { ...thread('r', 'awaiting_input'), attention: false }
+    const legacy = thread('l', 'awaiting_input')
+    const groups = groupThreads([waiting, report, legacy], 2)
+    expect(groups.need.map((t) => t.id)).toEqual(['w'])
+    expect([...groups.idle, ...groups.active].map((t) => t.id).sort()).toEqual(['l', 'r'])
   })
 
   it('keeps the group order stable and labels each group', () => {

@@ -9,13 +9,17 @@ export const THREAD_GROUP_ORDER: readonly ThreadGroup[] = ['need', 'active', 'id
 const GROUP_OF: Record<WorkbenchStatus, ThreadGroup> = {
   blocked: 'need',
   review: 'need',
-  awaiting_input: 'need',
+  // awaiting_input 本身只是「会话停在等输入」：是否真要人处理看服务端给的 attention（见 threadGroup）。
+  awaiting_input: 'idle',
   working: 'active',
   idle: 'idle',
   done: 'ended',
 }
 
-export function threadGroup(status: WorkbenchStatus): ThreadGroup {
+// attention 是服务端对该线程「现在要不要人处理」的结论（与「等我」同口径：回合带标记、过了宽限期、
+// 无人监督）。awaiting_input 的线程当且仅当 attention 为真才进「需要你」。
+export function threadGroup(status: WorkbenchStatus, attention = false): ThreadGroup {
+  if (status === 'awaiting_input' && attention) return 'need'
   return GROUP_OF[status] ?? 'idle'
 }
 
@@ -31,7 +35,7 @@ export function lastActivity(thread: Pick<WorkbenchThread, 'updated_at' | 'seen_
 
 // groupOfThread 在状态分组之上加时间维度：idle 但最近活跃、且没有离线的会话归「活跃」。
 export function groupOfThread(thread: WorkbenchThread, nowSec: number): ThreadGroup {
-  const group = threadGroup(thread.status)
+  const group = threadGroup(thread.status, thread.attention === true)
   if (group === 'idle' && thread.raw_status !== 'offline' && nowSec - lastActivity(thread) <= RECENT_ACTIVE_SEC) {
     return 'active'
   }

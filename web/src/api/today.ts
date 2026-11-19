@@ -7,6 +7,8 @@ export type TodayCardKind =
   | 'interaction'
   | 'decision'
   | 'relay'
+  // 托管 ACP / suga 会话停在 awaiting_input、该轮带 [needs-reply] 标记且过了宽限期（服务端从存储事实生成）
+  | 'acp_reply'
   // 终端 agent 的工具授权请求（Claude Code PermissionRequest），只有会话本人能答
   | 'permission'
   | 'review'
