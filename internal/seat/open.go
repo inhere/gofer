@@ -29,7 +29,9 @@ type OpenPlan struct {
 	// Runner is the machine the sitting session registered on ("" = unknown / vacant): the
 	// command is typed there.
 	Runner string
-	// Cwd is the seat's directory on the host (project host path + rel_cwd).
+	// Cwd is the directory the command is typed in: the sitting session's own reported cwd (the
+	// path as the machine that runs the session sees it — a container worker reports the container
+	// spelling), else the seat's directory on the host (project host path + rel_cwd).
 	Cwd string
 	// Resumable is true when Sh / PowerShell continue the sitting session.
 	Resumable bool
@@ -74,6 +76,11 @@ func (s *Service) OpenPlan(id string) (OpenPlan, error) {
 		} else if ok {
 			plan.Runner, sessionID = a.Runner, a.SessionID
 			plan.Alive = a.State != jobstore.SessionEnded && a.State != jobstore.SessionOffline
+			// The session reports the directory in the spelling of its own machine, so a seat on a
+			// container worker is opened with the container path, not the host one.
+			if cwd := strings.TrimSpace(a.Cwd); cwd != "" {
+				plan.Cwd = cwd
+			}
 			if agentKey == "" {
 				agentKey = a.Agent
 			}
