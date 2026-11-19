@@ -9,8 +9,7 @@ import (
 
 // CountActiveJobsBySourceSession counts the jobs this one session submitted
 // (jobs.source_session_id) that are still in flight and started at or after
-// `since` (unix seconds; 0 = no lower bound). Unlike CountActiveJobsByCaller it
-// never looks at the caller, so another terminal session sharing the same
+// `since` (unix seconds; 0 = no lower bound). It never looks at the caller, so another terminal session sharing the same
 // caller does not count. A resident session job (one carrying session state)
 // parked in awaiting_input is excluded: it is itself waiting for a person, not
 // work someone is watching. An empty sessionID counts nothing.
