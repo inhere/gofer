@@ -191,7 +191,7 @@ func TestWaitingNoticeSupervisionEndsThenNotifies(t *testing.T) {
 	seedWaitingTurns(t, s)
 	now := time.Now().Unix()
 	if err := s.jobs.Meta().UpsertJob(jobstore.JobRecord{ID: "watched", ProjectKey: "p1", Agent: "exec", Runner: "local", Status: "running", Cwd: ".",
-		CallerID: "plain", StartedAt: now, UpdatedAt: now}); err != nil {
+		CallerID: "plain", SourceSessionID: "sess-p", StartedAt: now, UpdatedAt: now}); err != nil {
 		t.Fatal(err)
 	}
 	s.sweepWaitingNotices()
@@ -201,7 +201,7 @@ func TestWaitingNoticeSupervisionEndsThenNotifies(t *testing.T) {
 		}
 	}
 	if err := s.jobs.Meta().UpsertJob(jobstore.JobRecord{ID: "watched", ProjectKey: "p1", Agent: "exec", Runner: "local", Status: "done", Cwd: ".",
-		CallerID: "plain", StartedAt: now, UpdatedAt: now, EndedAt: now}); err != nil {
+		CallerID: "plain", SourceSessionID: "sess-p", StartedAt: now, UpdatedAt: now, EndedAt: now}); err != nil {
 		t.Fatal(err)
 	}
 	s.sweepWaitingNotices()
