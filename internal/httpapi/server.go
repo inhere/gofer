@@ -413,6 +413,8 @@ type Server struct {
 	workbench *workbench.Service
 	// today is the N3 「今天」 decision-home aggregation (nil without a job store).
 	today *today.Service
+	// seatSvc is the seat roster service, built on first use (seat_handler.go).
+	seatSvc seatHolder
 	// synthesis runs explicit daily memory syntheses (nil without a job store).
 	synthesis *engine.Engine
 	// overview is the dashboard statistics wall (GET /v1/stats/overview, cached).
@@ -1573,6 +1575,15 @@ func (s *Server) buildRouter() *rux.Router {
 		// writes for job credentials, and handlers additionally require a user caller.
 		// N3 「今天」: the decision queue + digest + status bar, the action audit and the
 		// 「已处理」 drawer. Reads are every person's; the audit write is a person's.
+		r.GET("/seats", s.handleSeatList)
+		r.POST("/seats", s.handleSeatCreate)
+		r.GET("/sessions/{sid}/seat-candidates", s.handleSeatCandidates)
+		r.GET("/seats/{id}", s.handleSeatGet)
+		r.PATCH("/seats/{id}", s.handleSeatPatch)
+		r.DELETE("/seats/{id}", s.handleSeatDelete)
+		r.POST("/seats/{id}/bind", s.handleSeatBind)
+		r.POST("/seats/{id}/unbind", s.handleSeatUnbind)
+		r.GET("/seats/{id}/open-plan", s.handleSeatOpenPlan)
 		r.GET("/inbox", s.handleInbox)
 		r.GET("/inbox/rules", s.handleInboxRules)
 		r.POST("/inbox/state", s.handleInboxState)

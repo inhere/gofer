@@ -20,7 +20,7 @@ var kindParam = map[string]string{
 	"session": "sid", "work_item": "id", "tracker_repo": "tracker_id", "worker": "id",
 	"xfer": "id", "wakeup": "wid", "retry": "rid", "decision": "id", "nudge": "id",
 	"workbench_thread": "id", "merge_suggestion": "n", "memory_candidate": "n",
-	"issue": "id", "mail": "id", "attachment": "id",
+	"issue": "id", "mail": "id", "attachment": "id", "seat": "id",
 }
 
 // kindID is the id of the world's record of `kind`.
@@ -69,6 +69,8 @@ func (w ceilWorld) kindID(kind string) string {
 		return w.mailID
 	case "attachment":
 		return w.attachmentID
+	case "seat":
+		return w.seatID
 	}
 	return "x"
 }
@@ -305,6 +307,7 @@ var ceilingStateCases = []struct {
 	{"memory_candidate", "POST /v1/memory-candidates/{n}/accept", true},
 	{"merge_suggestion", "POST /v1/work-items/merge-suggestions/{n}/accept", false},
 	{"mail", "POST /v1/mail/{id}/cancel", true},
+	{"seat", "POST /v1/seats/{id}/unbind", true},
 	// A sent attachment is judged by the handler (thread visibility), which answers 404 — not a
 	// permission 403 — to a caller that may not read it.
 	{"attachment", "GET /v1/attachments/{id}", false},

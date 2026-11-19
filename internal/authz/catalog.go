@@ -256,6 +256,7 @@ const (
 	// plans and their todos, schedules.
 	PermPlanManageOthers     = "plan.manage.others"
 	PermPlanSuperviseOthers  = "plan.supervise.others"
+	PermSeatManageOthers     = "seat.manage.others"
 	PermScheduleManageOthers = "schedule.manage.others"
 	// PermSchedulePrecheck sets or changes a schedule's pre-run check: a command the
 	// server itself runs before each due tick (design 2026-11-12 §2).
@@ -379,6 +380,10 @@ var catalog = []Permission{
 	},
 	{
 		Name: PermPlanSuperviseOthers, Risk: RiskMedium, SessionGrantable: false,
+		Scope: ScopeYes, Source: SourceRoot,
+	},
+	{
+		Name: PermSeatManageOthers, Risk: RiskMedium, SessionGrantable: false,
 		Scope: ScopeYes, Source: SourceRoot,
 	},
 	{

@@ -245,6 +245,9 @@ type sessionView struct {
 	Transcript string `json:"transcript,omitempty"`
 	TmuxPane   string `json:"tmux_pane,omitempty"`
 	State      string `json:"state"`
+	// Seat is the seat this session sits in (name, purpose, charter summary); absent when it
+	// sits in none.
+	Seat *sessionSeatView `json:"seat,omitempty"`
 	// RelayMode is the three-state switch (auto|on|off, R1) — what the CLI/web
 	// toggle writes. WaitReason says whether a Stop would wait right now and WHY
 	// (mode_on / idle_probe / turn_age, empty = does not wait); it is what the
@@ -417,6 +420,7 @@ func (s *Server) toSessionView(lang i18n.Lang, a jobstore.AgentSession) sessionV
 		CanResume: resume.Can, ResumeReason: resume.Reason, ResumeMessage: resume.Message,
 		Usage:    s.withEstimate(sessionUsageViewOf(a.UsageJSON)),
 		Language: string(s.textLanguage(a.ProjectKey)),
+		Seat:     s.seatOfSession(a.SessionID),
 	}
 }
 
