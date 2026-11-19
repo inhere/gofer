@@ -15,6 +15,7 @@ import (
 var inboxKindEvents = map[string][]string{
 	"interaction":           {"interaction.created"},
 	"relay":                 {"session.awaiting_reply"},
+	"acp_reply":             {"session.awaiting_reply"},
 	"approval":              {"job.awaiting_approval"},
 	"work":                  {"work.needs_me", "work.remind"},
 	"plan_blocked":          {"plan.blocked"},
