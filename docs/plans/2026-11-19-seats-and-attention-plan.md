@@ -140,3 +140,8 @@
 - 布局：`web/src/App.vue`、`web/src/ui/AppShell.vue:173–383`、`utils/shell.ts`；`web/src/components/workbench/WorkbenchSidebar.vue`、`threadGroups.ts`。
 - 先例：`internal/jobstore/mail_resident.go`；`internal/sessionrelay/nudge.go:66/210/254`。
 - 第二版补充：`internal/job/session_notify.go:24–79`（awaiting_reply 内存定时）；`internal/job/notify_dispatch.go:247–259`（`NotifySessionWaiting` 带正文）；`internal/sessionrelay/resume.go:73–98`（takeover 前置检查）；`internal/sessionrelay/nudge.go:210–240`、`internal/jobstore/sessions.go:1337`（nudge 随会话结束 / 删除）；`internal/jobstore/workbench.go:14`（`WorkbenchThreadPref`）；`web/src/components/workbench/threadGroups.ts:12`（`awaiting_input → need`）；`internal/jobstore/inbox_state.go`（seen / cleared）；`internal/jobstore/store.go:346`（schedules）；`internal/jobstore/mail_resident.go:48`（`name@project`）；`internal/hookrelay/run.go:935/1058`（generic 方言与 `splitNeedsReply`）；`internal/webpush/dispatch.go:82`（tag）。
+
+## 附录 B T0 结论（2026-11-19）
+
+- ACP 加载终端会话：可以。主机上 `claude -p` 建的会话，用现有的 `gofer job resume <job> --agent claude-acp --mode session` 在同一目录续上，模型答出了上一轮记住的内容。终端 seat 迁到托管 ACP 可直接走这条路，不需要新机制。
+- suga 终端会话走 `gofer hook generic`（suga 文档 `docs/usage/gofer-personal-agent.md`）。generic 方言已在 `CatchUpAgent` 里，SessionStart 会注入 needs-reply 约定；suga 的 Stop payload 带 `last_assistant_message`，`splitNeedsReply` 会解析它。所以终端 suga 已覆盖。iuiq 实际缺的是 ACP / suga **job 会话**，T1 第 2–4 步已经覆盖。
