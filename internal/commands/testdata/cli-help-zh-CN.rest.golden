@@ -945,6 +945,7 @@ seat bind	desc	把一个会话放进这个位置（默认当前目录的会话�
 seat bind	help	
 seat bind	examples	
 seat bind	flag config	path to the gofer config file
+seat bind	flag project	只看一个项目（默认取当前目录所在项目）
 seat bind	flag ref	会话 id（terminal）或 job id（acp）；默认取当前目录的会话
 seat bind	flag replace	从正坐着的会话手里接过这个位置
 seat bind	flag server	server address (overrides config server.addr)
@@ -962,6 +963,7 @@ seat open	desc	打印怎么回到这个位置：要敲的命令、在哪台机�
 seat open	help	
 seat open	examples	
 seat open	flag config	path to the gofer config file
+seat open	flag project	只看一个项目（默认取当前目录所在项目）
 seat open	flag restart	把已结束的 ACP 会话重新起起来
 seat open	flag server	server address (overrides config server.addr)
 seat open	flag shell	打印哪种命令写法：sh | ps（默认本机的）
@@ -970,6 +972,7 @@ seat remove	desc	归档常驻会话（名字重新可用，历史保留）
 seat remove	help	
 seat remove	examples	
 seat remove	flag config	path to the gofer config file
+seat remove	flag project	只看一个项目（默认取当前目录所在项目）
 seat remove	flag server	server address (overrides config server.addr)
 seat remove	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 seat set	desc	改常驻会话的用途 / 章程 / agent（用 "-" 清空某个字段）
@@ -979,6 +982,7 @@ seat set	flag agent	该位置的 agent key（默认取坐着的会话）
 seat set	flag charter	常驻约定正文，或 @<仓库相对路径> 指向存放它的文件
 seat set	flag charter-template	用内置章程模板代替 --charter（flow：设计 → 评审 → 计划 → 实施 → 验证）
 seat set	flag config	path to the gofer config file
+seat set	flag project	只看一个项目（默认取当前目录所在项目）
 seat set	flag purpose	一句话用途
 seat set	flag server	server address (overrides config server.addr)
 seat set	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
@@ -986,12 +990,14 @@ seat show	desc	看一个常驻会话：状态、当前会话、用途与章程
 seat show	help	
 seat show	examples	
 seat show	flag config	path to the gofer config file
+seat show	flag project	只看一个项目（默认取当前目录所在项目）
 seat show	flag server	server address (overrides config server.addr)
 seat show	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 seat unbind	desc	让出这个位置（会话仍注册着，只是不再坐在这个位置上）
 seat unbind	help	
 seat unbind	examples	
 seat unbind	flag config	path to the gofer config file
+seat unbind	flag project	只看一个项目（默认取当前目录所在项目）
 seat unbind	flag server	server address (overrides config server.addr)
 seat unbind	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 settings	desc	Read and write the server's extension settings (thresholds, exclusion lists, prompt overrides)
