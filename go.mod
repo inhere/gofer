@@ -6,7 +6,7 @@ require (
 	github.com/coder/websocket v1.8.15
 	github.com/goccy/go-yaml v1.19.2
 	github.com/google/uuid v1.6.0
-	github.com/gookit/cliui v0.5.3
+	github.com/gookit/cliui v0.5.4
 	github.com/gookit/color v1.6.3
 	github.com/gookit/gcli/v3 v3.8.6
 	github.com/gookit/gopty v0.1.2
