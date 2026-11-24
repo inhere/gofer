@@ -1,9 +1,10 @@
 // 常驻会话（seat）的接口（docs/reference/http-api.md「Seats」）：
 // GET /v1/seats 列表（座位 + 由坐在里面的会话推出的 state / waiting / unread / thread_id）、
-// GET/PATCH 单个、bind / unbind、open-plan（回座位要敲的命令），以及会话的候选座位。
+// GET/PATCH 单个、bind / unbind、open-plan（回座位要敲的命令）、history（绑定与章程历史），
+// 以及会话的候选座位。
 // CLI 侧的写操作（content 里的 charter 等）仍走各自接口，这里只做名册用到的部分。
 import { request } from './client'
-import type { SeatOpenPlan, SeatPatch, SeatView } from './types'
+import type { SeatHistory, SeatOpenPlan, SeatPatch, SeatView } from './types'
 
 interface SeatsResp {
   seats: SeatView[]
@@ -53,6 +54,11 @@ export function unbindSeat(id: string): Promise<SeatView> {
 
 export function seatOpenPlan(id: string): Promise<SeatOpenPlan> {
   return request<SeatOpenPlan>(`/v1/seats/${encodeURIComponent(id)}/open-plan`)
+}
+
+// seatHistory 是位置的绑定记录与章程每次修改（编辑弹窗里的历史）；权限与看单个位置相同。
+export function seatHistory(id: string): Promise<SeatHistory> {
+  return request<SeatHistory>(`/v1/seats/${encodeURIComponent(id)}/history`)
 }
 
 // seatCandidates 会先把会话读出来：未知会话 404，别人的会话要 seat.manage.others。

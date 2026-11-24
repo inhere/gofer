@@ -4,7 +4,7 @@
 // 渲染与行菜单在 SeatRoster.vue。
 import { ref, watch } from 'vue'
 import type { SeatView } from '../../api/types'
-import { listSeats, patchSeat, seatOpenPlan } from '../../api/seats'
+import { listSeats, patchSeat, seatHistory, seatOpenPlan } from '../../api/seats'
 import { useLiveTopic } from '../../utils/useLiveTopic'
 import { useWaiting } from '../../composables/useWaiting'
 import { seatWaitingKey } from './seatRoster'
@@ -50,6 +50,7 @@ watch(() => props.reload, () => { void refresh() })
     :waiting-keys="waitingKeys"
     :fetch-open-plan="seatOpenPlan"
     :patch-seat="patchSeat"
+    :fetch-history="seatHistory"
     @refresh="refresh"
   />
 </template>

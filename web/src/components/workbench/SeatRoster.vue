@@ -6,13 +6,15 @@
 // 取数在 SeatRosterPanel.vue。动作走 seatActions.ts，接口同样由父组件给。
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import type { SeatPatch, SeatOpenPlan, SeatView } from '../../api/types'
+import type { SeatHistory, SeatPatch, SeatOpenPlan, SeatView } from '../../api/types'
 import { t } from '../../i18n'
 import Icon from '../../ui/Icon.vue'
 import { ChevronDown, ChevronRight, Copy, Ellipsis } from '@lucide/vue'
+import { formatDateTime } from '../../utils/format'
 import { copyText } from '../../utils/sessionMessaging'
 import {
   charterBySession,
+  charterHistoryRows,
   detectShell,
   groupSeats,
   seatCommand,
@@ -20,6 +22,7 @@ import {
   seatRefLabel,
   seatThreadID,
   type SeatDot,
+  type SeatHistoryRow,
   type SeatProjectGroup,
   type SeatShell,
 } from './seatRoster'
@@ -33,6 +36,8 @@ const props = defineProps<{
   waitingKeys: string[]
   fetchOpenPlan: (seatID: string) => Promise<SeatOpenPlan>
   patchSeat: (seatID: string, patch: SeatPatch) => Promise<SeatView>
+  // 编辑弹窗里的章程历史（GET /v1/seats/{id}/history）
+  fetchHistory: (seatID: string) => Promise<SeatHistory>
 }>()
 
 const emit = defineEmits<{
@@ -49,6 +54,12 @@ const menuSeatID = ref('')
 const editing = ref<SeatView | null>(null)
 const draftPurpose = ref('')
 const draftCharter = ref('')
+// 章程历史：弹窗打开时拉一次；loading / error 只影响历史那一节，不影响编辑本身。
+const history = ref<SeatHistoryRow[]>([])
+const historyLoading = ref(false)
+const historyError = ref('')
+// 展开了完整正文的那一条（0 = 全部折着）
+const historyOpenID = ref(0)
 const continuing = ref<{ seat: SeatView; result: ContinueResult } | null>(null)
 const archiving = ref('')
 const busy = ref(false)
@@ -116,6 +127,34 @@ function startEdit(seat: SeatView): void {
   editing.value = seat
   draftPurpose.value = seat.purpose ?? ''
   draftCharter.value = seat.charter ?? ''
+  void loadHistory(seat.id)
+}
+
+// loadHistory 拉这个位置的章程历史（最近的在上）。拉不到不挡编辑，只在历史那一节写一句原因。
+async function loadHistory(seatID: string): Promise<void> {
+  history.value = []
+  historyError.value = ''
+  historyOpenID.value = 0
+  historyLoading.value = true
+  try {
+    const got = await props.fetchHistory(seatID)
+    // 拉的过程中把人已经在编辑的位置换掉了：这份结果不要
+    if (editing.value?.id === seatID) history.value = charterHistoryRows(got?.charter)
+  } catch (e) {
+    if (editing.value?.id === seatID) historyError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+function toggleHistory(id: number): void {
+  historyOpenID.value = historyOpenID.value === id ? 0 : id
+}
+
+// historyAuthor 是历史行的作者：本人（user）或从哪个会话里改的。
+function historyAuthor(by: string): string {
+  const sid = charterBySession(by)
+  return sid ? t('workbench.seat.historyBySession', { sid }) : t('workbench.seat.historyByUser')
 }
 
 async function saveEdit(): Promise<void> {
@@ -272,7 +311,7 @@ function reasonText(reason: string): string {
       </template>
     </div>
 
-    <!-- 编辑用途 / 章程：显示章程是谁改的（charter_by） -->
+    <!-- 编辑用途 / 章程：显示章程是谁改的（charter_by），下面是每次修改的历史 -->
     <div v-if="editing" class="seat-sheet" role="dialog" data-test="seat-edit">
       <p class="sheet-title">{{ t('workbench.seat.editTitle', { name: editing.name }) }}</p>
       <p class="sheet-line">
@@ -297,7 +336,24 @@ function reasonText(reason: string): string {
         </button>
         <button class="btn sm" type="button" @click="editing = null">{{ t('workbench.seat.cancel') }}</button>
       </div>
-      <p class="sheet-note">{{ t('workbench.seat.historyUnavailable') }}</p>
+      <div class="sheet-history" data-test="seat-history">
+        <p class="sheet-line">{{ t('workbench.seat.history') }}</p>
+        <p v-if="historyLoading" class="sheet-note">{{ t('workbench.seat.historyLoading') }}</p>
+        <p v-else-if="historyError" class="sheet-note">
+          {{ t('workbench.seat.historyError', { error: historyError }) }}
+        </p>
+        <p v-else-if="!history.length" class="sheet-note">{{ t('workbench.seat.historyEmpty') }}</p>
+        <ul v-else class="history-list">
+          <li v-for="row in history" :key="row.id" class="history-row" :data-test="`seat-history-${row.id}`">
+            <button class="history-head" type="button" :aria-expanded="historyOpenID === row.id" @click="toggleHistory(row.id)">
+              <span class="history-at">{{ formatDateTime(row.at) }}</span>
+              <span class="history-by">{{ historyAuthor(row.by) }}</span>
+              <span class="history-preview">{{ row.preview || t('workbench.seat.historyBlank') }}</span>
+            </button>
+            <pre v-if="historyOpenID === row.id" class="history-body">{{ row.body }}</pre>
+          </li>
+        </ul>
+      </div>
     </div>
   </section>
 </template>
@@ -362,6 +418,9 @@ function reasonText(reason: string): string {
 }
 .dot[data-state='ended'] {
   background: var(--done);
+}
+.dot[data-state='failed'] {
+  background: var(--fail);
 }
 .dot[data-state='none'] {
   background: transparent;
@@ -521,5 +580,56 @@ function reasonText(reason: string): string {
   display: flex;
   gap: var(--s1);
   justify-content: flex-end;
+}
+.sheet-history {
+  margin-top: var(--s2);
+}
+.history-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.history-head {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: var(--s2);
+  align-items: baseline;
+  padding: 2px var(--s1);
+  background: none;
+  border: 0;
+  border-radius: var(--r-ctl);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-xs);
+  text-align: left;
+  cursor: pointer;
+}
+.history-head:hover {
+  background: var(--sunken);
+}
+.history-at,
+.history-by {
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.history-preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.history-body {
+  margin: var(--s1) 0;
+  padding: var(--s1);
+  background: var(--sunken);
+  border-radius: var(--r-ctl);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 </style>

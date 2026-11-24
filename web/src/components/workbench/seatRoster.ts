@@ -1,14 +1,14 @@
 // 工作台「常驻会话」名册的纯逻辑（设计稿 2026-11-18-resident-sessions §4、计划 T5）：
 // 状态点怎么从 seat 的 state +「等我」推出来、按项目分组且顺序稳定、回座位要敲哪条命令。
 // 渲染在 SeatRoster.vue，取数在 SeatRosterPanel.vue；这里只放可穷举的单测逻辑。
-import type { SeatOpenPlan, SeatView, WorkbenchThread } from '../../api/types'
+import type { SeatCharterRow, SeatOpenPlan, SeatView, WorkbenchThread } from '../../api/types'
 
 // SeatDot 是行上那个状态点。「等我」既可能来自 seat 自己的 waiting 字段（服务端算的），
 // 也可能来自推送的「等我」快照（useWaiting，实时的那一份）——后者更及时，两者取并集。
 //
-// 注意：接口的 state 只有 none / running / awaiting / offline / ended，ended 不区分成功与失败，
-// 所以名册上没有单独的「失败」点：已结束的座位显示「已结束」。
-export type SeatDot = 'waiting' | 'running' | 'awaiting' | 'offline' | 'ended' | 'none'
+// 接口的 state：none / running / awaiting / offline / ended / failed。failed 只看 acp 位置
+// （job 以失败类收尾），终端会话结束一律是 ended。
+export type SeatDot = 'waiting' | 'running' | 'awaiting' | 'offline' | 'ended' | 'failed' | 'none'
 
 // seatWaitingKey 是座位在「等我」列表里的主体 key：终端座位是会话主体，acp 座位是 job 主体
 // （与 internal/inbox/waiting.go 的 signalsOf 同一口径）。空位没有 key。
@@ -44,6 +44,8 @@ export function seatDot(
       return 'offline'
     case 'ended':
       return 'ended'
+    case 'failed':
+      return 'failed'
     default:
       return 'none'
   }
@@ -163,6 +165,37 @@ export function seatRefLabel(seat: Pick<SeatView, 'current_ref' | 'kind'>): stri
 export function charterBySession(by: string | undefined): string {
   const value = (by ?? '').trim()
   return value.startsWith('session:') ? value.slice('session:'.length) : ''
+}
+
+// charterHistoryRows 把接口给的章程历史排成编辑弹窗里要显示的那些行：最近的在上（同秒按
+// 行 id 倒序），preview 是一行折叠预览，body 是完整正文（展开时看）。
+export interface SeatHistoryRow {
+  id: number
+  at: number
+  by: string
+  purpose: string
+  body: string
+  preview: string
+}
+
+export function charterHistoryRows(
+  rows: readonly SeatCharterRow[] | undefined,
+  max = 60,
+): SeatHistoryRow[] {
+  const out = (rows ?? []).map((r) => {
+    const purpose = (r.purpose ?? '').trim()
+    const body = (r.charter ?? '').trim()
+    return { id: r.id, at: r.at, by: r.by ?? '', purpose, body, preview: foldText(body || purpose, max) }
+  })
+  out.sort((a, b) => b.at - a.at || b.id - a.id)
+  return out
+}
+
+// foldText 把正文折成一行预览：换行与连续空白压成一个空格，超长用 … 截断（展开看全文）。
+export function foldText(text: string, max = 60): string {
+  const one = (text ?? '').replace(/\s+/g, ' ').trim()
+  if (max <= 0 || one.length <= max) return one
+  return `${one.slice(0, max - 1)}…`
 }
 
 // seatThreadMatches 判断工作台线程是不是某个座位的（会话行上用）。
