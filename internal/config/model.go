@@ -759,6 +759,9 @@ func DefaultInboxRules() []InboxRule {
 			// pick it up now.
 			// schedule.paused: a schedule gofer stopped after max_failures consecutive failed runs.
 			"job.failed", "job.child_wake_failed", "schedule.paused",
+			// seat_schedule: a schedule that delivers to a seat fell due while nobody could take the
+			// text (vacant seat, offline or ended terminal session); a person has to open the seat.
+			"seat_schedule",
 			// caller.token_expiring: a stored caller's token expires within 7 days (or has).
 			// server.health: a server self-check item (storage / disk / sweep / notification) kept
 			// failing past server.health.fail_threshold; only a person can put it right.

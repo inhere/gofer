@@ -195,7 +195,8 @@ export function cardLink(card: TodayCard): string {
       // worker 自助注册：卡片的唯一动作就是跳 Runners 页的「待接受」区
       return ENROLLMENTS_LINK
     case 'schedule.paused':
-      // 被自动暂停的定时任务：动作里带 value=/schedules，未知时也回到定时页
+    case 'seat_schedule':
+      // 被自动暂停的定时任务 / 没人能收的 seat 定时消息：动作里带 value=/schedules，未知时也回到定时页
       return '/schedules'
     case 'caller.token_expiring':
       // 设计 2026-11-14 §4：调用方页能看到到期 / 最近使用，并在那里轮换。

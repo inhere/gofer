@@ -54,6 +54,14 @@ const (
 	// queue card: advice cannot be written for it. The card goes away when the schedule is
 	// enabled again.
 	KindSchedulePaused = "schedule.paused"
+	// KindSeatSchedule is the card of a schedule that delivers to a seat and fell due while
+	// nobody could take the text: the seat is vacant, or its terminal session is offline or
+	// ended (inbox.SeatScheduleCards builds it outside this package from the schedule row and
+	// the seat's session). gofer never starts a terminal for a person, so the card asks them
+	// to open the seat. Like KindSchedulePaused it enters the 「等我」 list but is not a queue
+	// card: advice cannot be written for it. It goes away once the session is online again,
+	// the next delivery lands, or the schedule is disabled.
+	KindSeatSchedule = "seat_schedule"
 	// KindCallerTokenExpiring is the card of a stored caller whose token expires within 7
 	// days, or already has (inbox.CallerTokenCards builds it outside this package from the
 	// auth_callers rows). It enters the 「等我」 list under the attention class, only for a
@@ -191,6 +199,8 @@ type Refs struct {
 	PlanID      string   `json:"plan_id,omitempty"`
 	TodoID      string   `json:"todo_id,omitempty"`
 	ScheduleID  string   `json:"schedule_id,omitempty"`
+	// SeatID (seat_schedule cards) is the seat that has to be opened.
+	SeatID string `json:"seat_id,omitempty"`
 	// CallerID (caller.token_expiring cards) is the caller whose token expires.
 	CallerID string `json:"caller_id,omitempty"`
 }
