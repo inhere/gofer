@@ -651,6 +651,10 @@ type Schedule struct {
 	// Context is "on" or "off": whether each run gets its run number and the previous
 	// run's outcome.
 	Context string `json:"context,omitempty"`
+	// Target is "" (submit the request as a job) or "seat:<seat id>"; LastResult is how the
+	// last delivery to a seat ended.
+	Target     string `json:"target,omitempty"`
+	LastResult string `json:"last_result,omitempty"`
 }
 
 // CreateScheduleRequest is POST /v1/schedules. Enabled/CatchUp are pointers so
@@ -677,6 +681,8 @@ type CreateScheduleRequest struct {
 	Precheck *job.SchedulePrecheck `json:"precheck,omitempty"`
 	// Context is "on" or "off"; "" = the server default (on).
 	Context string `json:"context,omitempty"`
+	// Target is "seat:<seat id>" to deliver request.prompt to a seat instead of submitting a job.
+	Target string `json:"target,omitempty"`
 }
 
 // PatchScheduleRequest is PATCH /v1/schedules/{id} (design 2026-10-22 §D4). Every field
