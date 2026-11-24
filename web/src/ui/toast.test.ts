@@ -88,14 +88,17 @@ describe('Toast callers', () => {
     expect(undoSrc).toContain(':meta="`${current.left}s`"')
   })
 
-  it('the needs-me and agent-probe prompts use Toast, navigate on body click and auto-dismiss on phones', () => {
-    for (const src of [needsMeSrc, agentsSrc]) {
-      expect(src).toContain('<Toast')
-      expect(src).toContain('body-action')
-      expect(src).toContain(':duration="toastDuration()"')
-      expect(src).toContain('router.push(to)')
-      expect(src).not.toContain('InteractionToast')
-    }
+  it('the agent-probe prompt uses Toast, navigates on body click and auto-dismisses on phones', () => {
+    expect(agentsSrc).toContain('<Toast')
+    expect(agentsSrc).toContain('body-action')
+    expect(agentsSrc).toContain(':duration="toastDuration()"')
+    expect(agentsSrc).toContain('router.push(to)')
+    expect(agentsSrc).not.toContain('InteractionToast')
+  })
+
+  it('drops the old needs-me toast: the top waiting pop card took its place (T5)', () => {
+    expect(needsMeSrc).not.toContain('<Toast')
+    expect(needsMeSrc).not.toContain('toastDuration')
   })
 })
 

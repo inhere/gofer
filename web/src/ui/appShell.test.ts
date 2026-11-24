@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 const raw = (g: Record<string, unknown>): string => Object.values(g)[0] as string
 const needsMe = raw(import.meta.glob('./NeedsMeButton.vue', { eager: true, query: '?raw', import: 'default' }))
 const shell = raw(import.meta.glob('./AppShell.vue', { eager: true, query: '?raw', import: 'default' }))
-const alerts = raw(import.meta.glob('../utils/pendingAlert.ts', { eager: true, query: '?raw', import: 'default' }))
+const popCard = raw(import.meta.glob('./WaitingPopCard.vue', { eager: true, query: '?raw', import: 'default' }))
 
 describe('NeedsMeButton (waiting-on-me badge)', () => {
   it('counts the unread of the one waiting list, same as the inbox badge', () => {
@@ -21,13 +21,29 @@ describe('NeedsMeButton (waiting-on-me badge)', () => {
     expect(needsMe).toContain(':aria-expanded="overlayOpen"')
   })
 
-  it('keeps the resident top-bar subscriptions and the pending alert toast', () => {
+  it('keeps the resident top-bar subscriptions and leaves the popping to the waiting pop card', () => {
     expect(needsMe).toContain("useLiveTopic('meta'")
     expect(needsMe).toContain("useLiveTopic('stats'")
-    expect(needsMe).toContain("useLiveTopic('pending'")
-    expect(needsMe).toContain('const r = pendingAlert(seen, toast.value, lists)')
-    // 弹哪一条是 utils/pendingAlert 的纯逻辑，铃铛只接线
-    expect(alerts).toContain('const kept = toast && items.some((it) => it.key === toast.key) ? toast : null')
+    // T5：原来的 pendingAlert 提示条已由顶部弹卡接替（按钮的计数与列表都还在）
+    expect(needsMe).not.toContain("from '../utils/pendingAlert'")
+    expect(needsMe).not.toContain('<Toast')
+    expect(shell).toContain('<WaitingPopCard />')
+  })
+})
+
+describe('WaitingPopCard (top waiting pop, T5)', () => {
+  it('pops one session item at a time, with +N for the rest and the four buttons', () => {
+    expect(popCard).toContain('data-test="waiting-pop"')
+    expect(popCard).toContain('data-test="waiting-pop-extra"')
+    for (const id of ['waiting-pop-reply', 'waiting-pop-approve', 'waiting-pop-open', 'waiting-pop-snooze', 'waiting-pop-close']) {
+      expect(popCard).toContain(`data-test="${id}"`)
+    }
+    // 队列 / 关闭写 seen / 答复批准稍后走今天页的提交路径都在 composable 里
+    const pop = raw(import.meta.glob('../composables/useWaitingPop.ts', { eager: true, query: '?raw', import: 'default' }))
+    expect(pop).toContain("markInbox('seen', { keys: [key] })")
+    expect(pop).toContain('actOnCard')
+    expect(pop).toContain('snoozeCard')
+    expect(pop).toContain('waiting.onEnter(')
   })
 })
 
