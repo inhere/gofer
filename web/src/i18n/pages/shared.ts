@@ -641,17 +641,11 @@ export const shared = {
     'util.msg.replyVia': '{name} · 回复（经传话人收到）',
     'util.msg.reply': '{name} · 回复',
 
-    // utils/pendingAlert.ts：待处理提示条
-    'util.alert.needsHumanTitle': '⚠ 新的人工介入请求 · needs_human',
-    'util.alert.needsHumanText': '等待人工介入',
-    'util.alert.approvalTitle': '⏸ job 等你批准',
-    'util.alert.permQuestionTitle': '会话在等你回答 · {name}',
-    'util.alert.permGrantTitle': '会话需要授权 · {name}',
-    'util.alert.permText': '终端在等待工具授权',
-    'util.alert.relayTitle': '会话等待回复 · {name}',
-    'util.alert.relayText': '会话停下等你回复',
-    'util.alert.decisionTitle': '新的决策请求 · {name}',
-    'util.alert.decisionText': '等待人工作答',
+    // ui/WaitingPopCard.vue：顶部「等我」弹卡（会话主体等回复 / 等批准；替换了原来的待办提示条）
+    'util.pop.title': '有会话在等你',
+    'util.pop.extra': '+{n}',
+    'util.pop.open': '打开',
+    'util.pop.close': '关闭（别的端也不再弹）',
 
     // utils/grantRenew.ts：会话授权续期
     'util.renew.expired': '已到期',
@@ -1761,16 +1755,10 @@ export const shared = {
     'util.msg.replyVia': '{name} · reply (received via messenger)',
     'util.msg.reply': '{name} · reply',
 
-    'util.alert.needsHumanTitle': '⚠ New manual-intervention request · needs_human',
-    'util.alert.needsHumanText': 'Waiting for a person to step in',
-    'util.alert.approvalTitle': '⏸ job is waiting for your approval',
-    'util.alert.permQuestionTitle': 'The session is waiting for your answer · {name}',
-    'util.alert.permGrantTitle': 'The session needs permission · {name}',
-    'util.alert.permText': 'The terminal is waiting for a tool permission',
-    'util.alert.relayTitle': 'The session is waiting for a reply · {name}',
-    'util.alert.relayText': 'The session stopped and waits for your reply',
-    'util.alert.decisionTitle': 'New decision request · {name}',
-    'util.alert.decisionText': 'Waiting for someone to answer',
+    'util.pop.title': 'A session is waiting for you',
+    'util.pop.extra': '+{n}',
+    'util.pop.open': 'Open',
+    'util.pop.close': 'Close (other devices stop popping it too)',
 
     'util.renew.expired': 'Expired',
     'util.renew.remainingSec': '{n}s left',

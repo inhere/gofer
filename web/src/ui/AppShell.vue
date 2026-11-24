@@ -15,6 +15,7 @@ import MailButton from '../components/MailButton.vue'
 import QuickCapture from '../components/QuickCapture.vue'
 import ThemeToggle from '../components/ThemeToggle.vue'
 import NeedsMeButton from './NeedsMeButton.vue'
+import WaitingPopCard from './WaitingPopCard.vue'
 import CommandPalette from './CommandPalette.vue'
 import Wire from './Wire.vue'
 import LangToggle from './LangToggle.vue'
@@ -326,6 +327,9 @@ onUnmounted(() => {
       </header>
 
       <Wire />
+
+      <!-- 顶部「等我」弹卡（T5）：会话主体等回复 / 等批准时一次弹一件，其余 +N -->
+      <WaitingPopCard />
 
       <main
         class="content"
