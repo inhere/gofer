@@ -1542,3 +1542,97 @@ func TestDecisionHooksAreFileOnly(t *testing.T) {
 		}
 	}
 }
+
+// notificationReminderFixtureYAML is notificationFixtureYAML with a configured
+// server.notification.reminder_after_min; an empty min leaves the member out, which is
+// the "operator never set it" shape.
+func notificationReminderFixtureYAML(t *testing.T, min string) string {
+	t.Helper()
+	yamlText := notificationFixtureYAML(t)
+	if min == "" {
+		return yamlText
+	}
+	yamlText = strings.Replace(yamlText, "  notification:\n", "  notification:\n    reminder_after_min: "+min+"\n", 1)
+	if !strings.Contains(yamlText, "reminder_after_min: "+min) {
+		t.Fatalf("fixture injection failed:\n%s", yamlText)
+	}
+	return yamlText
+}
+
+// TestNotificationReminderAfterMin (B2B): the 「等我」 re-reminder delay is visible in
+// the config view (the effective value plus whether it is merely the default) and the
+// notification patch can write it — 0 means "no reminder" rather than "unset", and a
+// negative value is refused with the config validator's message instead of being
+// saved as something the next reload would reject.
+func TestNotificationReminderAfterMin(t *testing.T) {
+	t.Parallel()
+	s, cr, cfgPath := newConfigWriteTestServer(t, notificationReminderFixtureYAML(t, ""), agent.NoopDetector{})
+
+	// Unset in the file: the view carries the default AND says it came from one, so the
+	// console can label it (an explicit 30 is not the same fact).
+	v := getConfigView(t, s, adminToken)
+	nv := v.Server.Notification
+	if nv == nil || nv.ReminderAfterMin != config.DefaultReminderAfterMin || !nv.ReminderAfterMinDefault {
+		t.Fatalf("notification view=%+v, want the default %d marked as default", nv, config.DefaultReminderAfterMin)
+	}
+
+	// A set value: echoed as configured, not marked as default.
+	if resp := do(t, s, http.MethodPut, "/v1/config/server", adminToken, map[string]any{
+		"notification": map[string]any{"reminder_after_min": 45},
+	}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT reminder_after_min=45 status=%d, want 200: %s", resp.StatusCode, bodyText(t, resp))
+	}
+	live := cr.Jobs.Config().Server.Notification
+	if live == nil || live.ReminderAfterMin == nil || *live.ReminderAfterMin != 45 {
+		t.Fatalf("live notification=%+v, want reminder_after_min=45", live)
+	}
+	if disk := string(readFile(t, cfgPath)); !strings.Contains(disk, "reminder_after_min: 45") {
+		t.Fatalf("the file lost reminder_after_min:\n%s", disk)
+	}
+	if nv = getConfigView(t, s, adminToken).Server.Notification; nv.ReminderAfterMin != 45 || nv.ReminderAfterMinDefault {
+		t.Fatalf("notification view=%+v after the write, want 45 not marked as default", nv)
+	}
+
+	// Negative is a 400 from the config validator, and nothing is persisted.
+	before := readFile(t, cfgPath)
+	resp := do(t, s, http.MethodPut, "/v1/config/server", adminToken, map[string]any{
+		"notification": map[string]any{"reminder_after_min": -1},
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("PUT reminder_after_min=-1 status=%d, want 400: %s", resp.StatusCode, bodyText(t, resp))
+	}
+	raw := bodyText(t, resp)
+	var refused configWriteErrorBody
+	if err := json.Unmarshal([]byte(raw), &refused); err != nil {
+		t.Fatalf("400 body is not JSON: %v (%s)", err, raw)
+	}
+	if !strings.Contains(refused.Detail, "server.notification.reminder_after_min must be >= 0") {
+		t.Fatalf("400 detail does not name the field: %s", raw)
+	}
+	if len(refused.ErrorFields) != 1 || refused.ErrorFields[0] != "server.notification" {
+		t.Fatalf("400 error_fields=%v, want server.notification", refused.ErrorFields)
+	}
+	if !bytes.Equal(before, readFile(t, cfgPath)) {
+		t.Fatal("a refused reminder_after_min write changed the file")
+	}
+	if live = cr.Jobs.Config().Server.Notification; live.ReminderAfterMin == nil || *live.ReminderAfterMin != 45 {
+		t.Fatalf("live notification=%+v after the refused write, want 45", live)
+	}
+
+	// 0 is a choice ("no reminder"), not a reset to the default.
+	if resp = do(t, s, http.MethodPut, "/v1/config/server", adminToken, map[string]any{
+		"notification": map[string]any{"reminder_after_min": 0},
+	}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT reminder_after_min=0 status=%d, want 200: %s", resp.StatusCode, bodyText(t, resp))
+	}
+	if live = cr.Jobs.Config().Server.Notification; live.EffectiveReminderAfterMin() != 0 {
+		t.Fatalf("effective reminder after an explicit 0 = %d, want 0 (no reminder)", live.EffectiveReminderAfterMin())
+	}
+	if nv = getConfigView(t, s, adminToken).Server.Notification; nv.ReminderAfterMin != 0 || nv.ReminderAfterMinDefault {
+		t.Fatalf("notification view=%+v after an explicit 0, want 0 not marked as default", nv)
+	}
+	// The other member of the block is untouched by a patch that does not mention it.
+	if live.IsEnabled() == false || live.AllowHosts == nil {
+		t.Fatalf("notification=%+v, want the configured members kept", live)
+	}
+}
