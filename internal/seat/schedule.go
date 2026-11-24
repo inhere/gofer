@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/msgprefix"
 )
 
 // ScheduleOperator is the operator label of a message a seat schedule sends.
@@ -25,7 +25,9 @@ var ErrSeatArchived = errors.New("seat is archived")
 //   - An ACP seat whose job lives gets it as a say; one whose job ended is restarted and the
 //     text is its opening turn (sent once, inside the restart).
 //   - A vacant seat, or a terminal session that is offline or ended, takes nothing: gofer does
-//     not start a terminal for a person. The outcome is jobstore.ScheduleResultOffline.
+//     not start a terminal for a person. The outcome is jobstore.ScheduleResultOffline, and the
+//     text is queued (jobstore.SeatPending) to go out once the seat can take it (FlushPending,
+//     and Bind) — see pending.go.
 func (s *Service) DeliverToSeat(ctx context.Context, req job.SeatDeliverRequest) (job.SeatDeliverResult, error) {
 	x, err := s.Get(req.SeatID)
 	if err != nil {
@@ -35,17 +37,37 @@ func (s *Service) DeliverToSeat(ctx context.Context, req job.SeatDeliverRequest)
 		return job.SeatDeliverResult{}, fmt.Errorf("%w: %s", ErrSeatArchived, x.ID)
 	}
 	text := s.scheduledText(req)
-	offline := job.SeatDeliverResult{Outcome: jobstore.ScheduleResultOffline}
 	st, err := s.Status("", x)
 	if err != nil {
 		return job.SeatDeliverResult{}, err
 	}
+	res, err := s.deliverNow(ctx, x, st, text, req)
+	if err != nil {
+		return job.SeatDeliverResult{}, err
+	}
+	if res.Outcome == jobstore.ScheduleResultOffline {
+		if _, err := s.store.EnqueueSeatPending(x.ID, req.ScheduleID, req.ScheduleName, req.Text, req.Origin); err != nil {
+			return job.SeatDeliverResult{}, err
+		}
+		return res, nil
+	}
+	// A run that went straight through supersedes what an earlier offline run left queued.
+	if err := s.store.DropSeatPendingOf(x.ID, req.ScheduleID); err != nil {
+		return job.SeatDeliverResult{}, err
+	}
+	return res, nil
+}
+
+// deliverNow hands the text to the session sitting in the seat, or answers
+// jobstore.ScheduleResultOffline when nobody can take it (nothing is sent then). It is the
+// one delivery path of a due run and of a queued text sent late.
+func (s *Service) deliverNow(ctx context.Context, x jobstore.Seat, st Status, text string, req job.SeatDeliverRequest) (job.SeatDeliverResult, error) {
 	if x.Kind == jobstore.SeatKindACP {
 		return s.deliverACP(ctx, x, st, text, req)
 	}
 	switch st.State {
 	case StateNone, StateOffline, StateEnded:
-		return offline, nil
+		return job.SeatDeliverResult{Outcome: jobstore.ScheduleResultOffline}, nil
 	}
 	if s.d.Messenger == nil {
 		return job.SeatDeliverResult{}, errors.New("seat: this server cannot message sessions")
@@ -83,5 +105,5 @@ func (s *Service) scheduledText(req job.SeatDeliverRequest) string {
 	if name == "" {
 		name = req.ScheduleID
 	}
-	return i18n.T(s.lang(), "seat.schedule.prefix", "name", name) + "\n" + req.Text
+	return msgprefix.ScheduleIn(s.lang(), name) + "\n" + req.Text
 }

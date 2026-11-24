@@ -520,6 +520,9 @@ func (s *Store) ArchiveSeat(id, by string) (Seat, error) {
 	if err := pauseSeatSchedulesTx(tx, cur.ID, SchedulePausedSeatArchived, now); err != nil {
 		return Seat{}, fmt.Errorf("jobstore: pause schedules of seat %q: %w", id, err)
 	}
+	if err := dropSeatPendingTx(tx, cur.ID, now); err != nil {
+		return Seat{}, fmt.Errorf("jobstore: drop pending messages of seat %q: %w", id, err)
+	}
 	if err := tx.Commit(); err != nil {
 		return Seat{}, fmt.Errorf("jobstore: commit archive seat: %w", err)
 	}
@@ -537,7 +540,7 @@ func (s *Store) DeleteSeat(id string) (bool, error) {
 		return false, fmt.Errorf("jobstore: begin delete seat: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	for _, q := range []string{`DELETE FROM seat_bindings WHERE seat_id=?`, `DELETE FROM seat_charter_history WHERE seat_id=?`} {
+	for _, q := range []string{`DELETE FROM seat_bindings WHERE seat_id=?`, `DELETE FROM seat_charter_history WHERE seat_id=?`, `DELETE FROM seat_pending_messages WHERE seat_id=?`} {
 		if _, err := tx.Exec(q, id); err != nil {
 			return false, fmt.Errorf("jobstore: delete seat history %q: %w", id, err)
 		}
