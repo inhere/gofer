@@ -404,6 +404,7 @@ web 使用，脚本一般不需要。
 - `POST /v1/notify/test`（`config.write`）body `{target:"webhook",index:N}` 或 `{target:"desktop"}` -> `200 {ok,target,index?,kind?,error?,code?,host?,skipped?}`。用**当前配置**发一条测试消息：webhook 按 `kind` 渲染（钉钉 / 飞书带关键词与加签，`secret_env` 只读环境变量名，值从进程环境取），上报 `X-Gofer-Event: notify.test`；当 hostname 不在 `allow_hosts` 时返回 `code:"host_not_allowed"` 与不含凭据的 `host`，方便 web 引导回全局通知设置；`desktop` 走 server 本机弹窗。IM 的业务错误（如 `Key Words Not Found`、`keywords not in content`）原样放在 `error` 里返回（`ok:false`），`skipped:true` 表示桌面频道因环境原因（无交互会话 / 没装通知工具）没有弹出。target 非法或 `index` 没有对应的 webhook 是 `400`。
 - `PUT /v1/config/server` 的 `notification` 补丁多了 `desktop` 成员：`{enabled,events,projects,merge_sec}`，逐成员生效（body 没提的成员保留原值，`events: []` 恢复频道默认事件集）；`desktop: {"enabled": false}` 只暂停，不清掉事件 / 项目。
 - `GET /v1/config` 的 `server.notification.webhooks[]` 多了 `url_redacted`：同一个 URL 遮掉 userinfo 与查询串的值（`redactConfigURL` 的规则），列表显示用它；`url` 仍是原始值（写入是整表替换）。
+- `GET /v1/config` 的 `server.notification` 带 `reminder_after_min`（「等我」超过这么久没处理就再提醒一次，**实际生效值**）与 `reminder_after_min_default`（`true` = 配置文件没写这个值、用的是默认 30；显式写 30 时为 `false`）。`PUT /v1/config/server` 的 `notification` 补丁接受这个成员：`0` = 不再提醒（不是「用默认」），负数由配置校验拒绝（`400`，`error_fields: ["server.notification"]`），未提到的成员保留原值；改完立即生效——扫描每轮读当前配置，不需要重启。
 
 ## Today and "needs my decision"
 

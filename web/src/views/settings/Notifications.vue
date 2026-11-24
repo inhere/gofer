@@ -22,7 +22,7 @@ import type {
   NotifyTestResp,
   PushSubscriptionView,
 } from '../../api/types'
-import { botPolicy, globalForm, globalPatch, hostsWithBot, testResultMessage, type GlobalNotifyForm } from './notifyPolicy'
+import { botPolicy, globalForm, globalPatch, hostsWithBot, reminderAfterMinValue, DEFAULT_REMINDER_AFTER_MIN, testResultMessage, type GlobalNotifyForm } from './notifyPolicy'
 import { t } from '../../i18n'
 import NotifyEventsPicker from '../../components/NotifyEventsPicker.vue'
 import NotifyProjectsField from '../../components/NotifyProjectsField.vue'
@@ -78,6 +78,9 @@ const bots = ref<BotForm[]>([])
 const botsSaving = ref(false)
 const globalNotify = reactive<GlobalNotifyForm>(globalForm())
 const globalSaving = ref(false)
+// 配置文件没写 reminder_after_min 时后端用默认值并标记出来（reminder_after_min_default）；
+// 页面照实说明，因为「显式写 30」和「没写、用默认 30」不是同一件事。
+const reminderIsDefault = computed(() => config.value?.server.notification?.reminder_after_min_default === true)
 const addBotToAllowlist = ref(true)
 const drawerOpen = ref(false)
 const editingIndex = ref<number | null>(null)
@@ -282,6 +285,7 @@ async function saveBots(): Promise<void> {
         max_attempts: Number(globalNotify.maxAttempts) || 0,
         max_text_runes: Number(globalNotify.maxTextRunes) || 0,
         session_reply_delay_sec: Number(globalNotify.sessionReplyDelaySec) || 120,
+        reminder_after_min: reminderAfterMinValue(globalNotify),
         webhooks: bots.value.map((b) => {
           const row: Record<string, unknown> = {
             url: b.url,
@@ -571,6 +575,11 @@ onMounted(() => {
         <label class="field"><span class="field-name">{{ t('settings.notify.maxAttempts') }}</span><input v-model="globalNotify.maxAttempts" class="input" data-testid="notify-max-attempts" /></label>
         <label class="field"><span class="field-name">{{ t('settings.notify.maxTextRunes') }}</span><input v-model="globalNotify.maxTextRunes" class="input" data-testid="notify-max-text-runes" /></label>
         <label class="field"><span class="field-name">{{ t('settings.notify.sessionReplyDelay') }}</span><input v-model="globalNotify.sessionReplyDelaySec" class="input" data-testid="notify-session-delay" /></label>
+        <label class="field">
+          <span class="field-name">{{ t('settings.notify.reminderAfter') }}</span>
+          <input v-model="globalNotify.reminderAfterMin" class="input" data-testid="notify-reminder-after" :placeholder="String(DEFAULT_REMINDER_AFTER_MIN)" />
+          <span class="hint" data-testid="notify-reminder-after-hint">{{ reminderIsDefault ? t('settings.notify.reminderAfterDefault') : t('settings.notify.reminderAfterHint') }}</span>
+        </label>
       </div>
       <button class="btn btn--primary" type="button" data-testid="notify-global-save" :disabled="globalSaving" @click="saveGlobalNotify">{{ t('act.save') }}</button>
     </FormSection>

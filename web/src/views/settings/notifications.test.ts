@@ -113,6 +113,16 @@ describe('notification settings page', () => {
     expect(page).toContain("t('settings.notify.desktopMachine')")
   })
 
+  it('edits the 「等我」 reminder delay next to the other global knobs', () => {
+    expect(page).toContain('data-testid="notify-reminder-after"')
+    expect(page).toContain('globalNotify.reminderAfterMin')
+    // 0 是有效选择（不再提醒），所以提交值走 helper（留空 = 默认），不用 `|| 30` 之类的兜底。
+    expect(page).toContain('reminder_after_min: reminderAfterMinValue(globalNotify)')
+    expect(page).not.toContain('Number(globalNotify.reminderAfterMin) ||')
+    // 后端说这个值是默认值时就照实说明（显式写 30 不是同一件事）。
+    expect(page).toContain('reminder_after_min_default')
+  })
+
   it('calls the documented endpoints', () => {
     expect(api).toContain("request<NotifyEventsResp>('/v1/notify/events')")
     expect(api).toContain("request<NotifyTestResp>('/v1/notify/test'")

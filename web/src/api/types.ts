@@ -1186,6 +1186,10 @@ export interface NotificationView {
   // S4：出站通知总开关（nil = 开）。关掉只停止入队新投递，已入队的仍会发完。
   enabled: boolean
   session_reply_delay_sec: number
+  // B2B：「等我」再提醒的延迟（分钟）。0 = 不提醒（与「没配置」不是一回事）；
+  // reminder_after_min_default 为 true 表示配置文件里没写这个值、后端用的是默认 30。
+  reminder_after_min: number
+  reminder_after_min_default: boolean
   // gofer-4uk5：server.notification.desktop（server 主机的桌面推送）；块未配置时不返回。
   desktop?: DesktopNotifyView
 }

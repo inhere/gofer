@@ -241,6 +241,13 @@ type notificationView struct {
 	// omitted `enabled` in a patch leaves the configured value alone.
 	Enabled              bool `json:"enabled"`
 	SessionReplyDelaySec int  `json:"session_reply_delay_sec"`
+	// ReminderAfterMin is the 「等我」 re-reminder delay in minutes, already resolved to
+	// config.DefaultReminderAfterMin when the file sets none (0 = no reminder, which is
+	// a meaning of its own and therefore never the same as "unset"). ReminderAfterMinDefault
+	// says the value came from that default, so the console can label it instead of
+	// presenting it as an operator choice.
+	ReminderAfterMin        int  `json:"reminder_after_min"`
+	ReminderAfterMinDefault bool `json:"reminder_after_min_default"`
 	// Desktop is the server-host desktop channel (server.notification.desktop). Absent
 	// when the block is not configured.
 	Desktop *desktopNotifyView `json:"desktop,omitempty"`
@@ -705,6 +712,9 @@ func buildNotificationView(n *config.NotificationConfig) *notificationView {
 		IntervalSec:          n.IntervalSec,
 		Enabled:              n.IsEnabled(),
 		SessionReplyDelaySec: n.EffectiveSessionReplyDelaySec(),
+		// B2B: the value the server acts on, plus whether it is merely the default.
+		ReminderAfterMin:        n.EffectiveReminderAfterMin(),
+		ReminderAfterMinDefault: n.ReminderAfterMin == nil,
 	}
 	if n.Desktop != nil {
 		dn := buildDesktopNotifyView(n.Desktop)
