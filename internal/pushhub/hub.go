@@ -37,6 +37,10 @@ const (
 	TopicWorkflows = "workflows"
 	TopicSchedules = "schedules"
 	TopicWork      = "work"
+	// TopicWaiting is the 「等我」 list as a snapshot (key, category, kind, project, since
+	// when it waits — never the text of a turn): a person's attention list, pushed when its
+	// set changes so the console does not poll the whole of GET /v1/today.
+	TopicWaiting = "waiting"
 	// TopicWorkerEnrollments is a pure invalidation (no payload) for worker enrollment
 	// requests; subscribing needs worker.manage (httpapi.wsTopicAllowed).
 	TopicWorkerEnrollments = "worker-enrollments"
@@ -47,6 +51,7 @@ const (
 var globalTopics = map[string]bool{
 	TopicStats: true, TopicPending: true, TopicJobs: true, TopicSessions: true,
 	TopicRunners: true, TopicMeta: true, TopicPlans: true, TopicWorkflows: true, TopicSchedules: true, TopicWork: true,
+	TopicWaiting:           true,
 	TopicWorkerEnrollments: true,
 }
 
@@ -75,6 +80,11 @@ const (
 	DefaultInvalInterval = 300 * time.Millisecond
 	// DefaultPendingInterval keeps the bell snappy while still merging a burst.
 	DefaultPendingInterval = 200 * time.Millisecond
+	// DefaultWaitingInterval spaces the recomputation of the 「等我」 snapshot: its payload is
+	// the whole waiting judgement (the same reads GET /v1/today does), and the writes that
+	// change it come in bursts of job / session events. The coalescer still pushes the first
+	// change of a burst at once.
+	DefaultWaitingInterval = 2 * time.Second
 
 	maxTopicsPerConn  = 64
 	maxBackfillEvents = 500
@@ -141,6 +151,7 @@ type Options struct {
 	SessionsInterval  time.Duration
 	InvalInterval     time.Duration
 	PendingInterval   time.Duration
+	WaitingInterval   time.Duration
 	// Version is stamped on the hello frame; a changed value tells the page a new build
 	// is running.
 	Version func() string
@@ -195,6 +206,9 @@ func New(o Options) *Hub {
 	if o.PendingInterval <= 0 {
 		o.PendingInterval = DefaultPendingInterval
 	}
+	if o.WaitingInterval <= 0 {
+		o.WaitingInterval = DefaultWaitingInterval
+	}
 	if o.Now == nil {
 		o.Now = time.Now
 	}
@@ -219,6 +233,7 @@ func New(o Options) *Hub {
 		TopicWorkflows:         o.InvalInterval,
 		TopicSchedules:         o.InvalInterval,
 		TopicWork:              o.InvalInterval,
+		TopicWaiting:           o.WaitingInterval,
 		TopicWorkerEnrollments: o.InvalInterval,
 	}
 	for topic, iv := range intervals {
@@ -543,6 +558,8 @@ func (h *Hub) NoteEvent(scope string, ev JobEvent) {
 		// interaction only for a job of its own projects (gofer-7798 第二期).
 		project := h.projectOfJob(scope)
 		h.NotifyProject(TopicPending, project)
+		// A pending interaction also waits for a person (「待你批准」 / 「待你回答」).
+		h.NotifyProject(TopicWaiting, project)
 		h.NotifyProject(TopicStats, project)
 	case t == "job.awaiting_approval", strings.HasPrefix(t, "job.hold_"):
 		// A job parking for approval, and the approval / rejection / expiry that ends
@@ -551,6 +568,15 @@ func (h *Hub) NoteEvent(scope string, ev JobEvent) {
 		// a job that parked. The literals are internal/job's EventJobAwaitingApproval /
 		// EventJobHold* (this package is a leaf and must not import job).
 		h.NotifyProject(TopicPending, h.projectOfJob(scope))
+		// A held job is 「待你批准」 in the waiting list too; the event names the job, so its
+		// project is resolved the same way the pending poke above does.
+		h.NotifyProject(TopicWaiting, h.projectOfJob(scope))
+	case t == "job.awaiting_input", t == "job.turn_started":
+		// A managed session job parking in awaiting_input may wait for a reply (its turn
+		// carries the needs-reply mark), and the next turn starting ends that wait. The
+		// literals are internal/job's EventJobAwaitingInput / EventJobTurnStarted (leaf
+		// package rule as above).
+		h.NotifyProject(TopicWaiting, h.projectOfJob(scope))
 	case strings.HasPrefix(t, "plan."):
 		h.Notify(TopicPlans)
 	case strings.HasPrefix(t, "workflow."), strings.HasPrefix(t, "step."), strings.HasPrefix(t, "subworkflow."):
