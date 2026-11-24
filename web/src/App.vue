@@ -11,6 +11,7 @@ import { installTodayGlobals, startToday, stopToday } from './store/today'
 import { startInbox, stopInbox } from './store/inbox'
 import { startWorkNeedsMe, stopWorkNeedsMe } from './store/workNeedsMe'
 import { startUpdateAvailable, stopUpdateAvailable } from './store/updateAvailable'
+import { startWaitingNotifier, stopWaitingNotifier } from './composables/useWaitingNotifier'
 
 const router = useRouter()
 const route = useRoute()
@@ -27,11 +28,15 @@ watch(
       startToday()
       startInbox()
       startUpdateAvailable()
+      // 「等我」的浏览器通知（S9 T6）：订阅了 Web Push 由服务端推，没订阅时页面隐藏才由一个
+      // 标签页弹系统通知；非安全上下文降级为标题计数。判定与选主在 utils/waitingNotify。
+      startWaitingNotifier(router)
     } else {
       stopWorkNeedsMe()
       stopToday()
       stopInbox()
       stopUpdateAvailable()
+      stopWaitingNotifier()
     }
   },
   { immediate: true },

@@ -844,6 +844,15 @@ export const shared = {
     'util.webPush.noNotification': '当前浏览器不支持系统通知。',
     'util.webPush.noPush': '当前浏览器不支持 Web Push。',
     'util.webPush.denied': '系统通知权限已被拒绝，请在浏览器站点设置中重新允许。',
+    // 「等我」的浏览器通知（utils/waitingNotify.ts）：标题只带主体名与类别
+    'util.waitNotify.approval': '{name} 在等你批准',
+    'util.waitNotify.answer': '{name} 在等你回答',
+    'util.waitNotify.review': '{name} 在等你验收',
+    'util.waitNotify.awaitingMerge': '{name} 在等你确认合并',
+    'util.waitNotify.planStuck': '{name} 的计划卡住了',
+    'util.waitNotify.failed': '{name} 的任务失败了',
+    'util.waitNotify.attention': '{name} 需要你处理',
+    'util.waitNotify.delivery': '{name} 在等你确认投递',
     'util.statusBadge.holder': '等待目录锁，持有者 {holder}',
 
     // 会话授权 / 终端工具授权请求（既有 utils/sessionGrant.ts、utils/sessionPermission.ts）
@@ -1952,6 +1961,14 @@ export const shared = {
     'util.webPush.noNotification': 'This browser does not support system notifications.',
     'util.webPush.noPush': 'This browser does not support Web Push.',
     'util.webPush.denied': 'System notification permission was denied; allow it again in the browser site settings.',
+    'util.waitNotify.approval': '{name} is waiting for your approval',
+    'util.waitNotify.answer': '{name} is waiting for your answer',
+    'util.waitNotify.review': '{name} is waiting for your review',
+    'util.waitNotify.awaitingMerge': '{name} is waiting for you to confirm the merge',
+    'util.waitNotify.planStuck': 'The plan of {name} is stuck',
+    'util.waitNotify.failed': 'The job of {name} failed',
+    'util.waitNotify.attention': '{name} needs your attention',
+    'util.waitNotify.delivery': '{name} is waiting for you to confirm the delivery',
     'util.statusBadge.holder': 'Waiting for the directory lock, held by {holder}',
 
     'util.sessionGrant.expiry.hour1': '1 hour',
