@@ -232,14 +232,15 @@ export function createWaitingNotifier(deps: WaitingNotifierDeps): WaitingNotifie
 
 let shared: WaitingNotifier | null = null
 
-// useWaitingNotifier：App.vue 挂一次；重复调用只是同一个实例的 start（幂等）。
-export function useWaitingNotifier(router?: NotifyRouter): WaitingNotifier {
+// startWaitingNotifier：App 在进入导航壳时调一次（与其它 App 级订阅同处起停：/access 下没有
+// 凭据，不订阅「等我」主题）；重复调用只是同一个实例的 start（幂等）。
+export function startWaitingNotifier(router?: NotifyRouter): WaitingNotifier {
   if (!shared) shared = createWaitingNotifier({ store: useWaiting(), router })
   shared.start()
   return shared
 }
 
-// stopWaitingNotifier：整页卸载 / 测试用；下次 useWaitingNotifier 重新建。
+// stopWaitingNotifier：离开导航壳（/access）或整页卸载时调；下次 start 重新建。
 export function stopWaitingNotifier(): void {
   shared?.stop()
   shared = null

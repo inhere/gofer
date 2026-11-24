@@ -11,7 +11,7 @@ import { installTodayGlobals, startToday, stopToday } from './store/today'
 import { startInbox, stopInbox } from './store/inbox'
 import { startWorkNeedsMe, stopWorkNeedsMe } from './store/workNeedsMe'
 import { startUpdateAvailable, stopUpdateAvailable } from './store/updateAvailable'
-import { useWaitingNotifier } from './composables/useWaitingNotifier'
+import { startWaitingNotifier, stopWaitingNotifier } from './composables/useWaitingNotifier'
 
 const router = useRouter()
 const route = useRoute()
@@ -28,11 +28,15 @@ watch(
       startToday()
       startInbox()
       startUpdateAvailable()
+      // 「等我」的浏览器通知（S9 T6）：订阅了 Web Push 由服务端推，没订阅时页面隐藏才由一个
+      // 标签页弹系统通知；非安全上下文降级为标题计数。判定与选主在 utils/waitingNotify。
+      startWaitingNotifier(router)
     } else {
       stopWorkNeedsMe()
       stopToday()
       stopInbox()
       stopUpdateAvailable()
+      stopWaitingNotifier()
     }
   },
   { immediate: true },
@@ -40,10 +44,6 @@ watch(
 
 // N3：全局快捷键 g d 打开「待我决策」浮层、z 撤销；页面卸载 / 换路由时立即提交撤销窗口。
 installTodayGlobals(router)
-
-// 「等我」的浏览器通知（S9 T6）：订阅了 Web Push 的浏览器由服务端推，没订阅时页面隐藏才由
-// 一个标签页弹系统通知；非安全上下文降级为标题计数。判定与选主在 utils/waitingNotify。
-useWaitingNotifier(router)
 
 // 连接态由 AppShell 按 token 与 api/live 的实时状态自己算，App 只管子壳与全局浮层。
 </script>
