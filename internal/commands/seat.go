@@ -16,7 +16,9 @@ import (
 	"github.com/inhere/gofer/internal/seat"
 )
 
-var seatAddOpts struct {
+// seatAddFlags is reset each time the command is configured: gcli leaves a bound variable alone
+// when its flag is absent and the default is empty, so values from an earlier run would carry over.
+type seatAddFlags struct {
 	project  string
 	purpose  string
 	charter  string
@@ -25,6 +27,8 @@ var seatAddOpts struct {
 	agent    string
 	cwd      string
 }
+
+var seatAddOpts seatAddFlags
 
 var seatRefOpts struct {
 	project string
@@ -81,6 +85,7 @@ func NewSeatCmd() *gcli.Command {
 				Name: "add",
 				Desc: cliText("cli.seat.add.desc"),
 				Config: func(c *gcli.Command) {
+					seatAddOpts = seatAddFlags{}
 					bindConfigFlag(c)
 					bindServerFlags(c)
 					c.AddArg("name", cliText("cli.seat.arg.name"), true)
