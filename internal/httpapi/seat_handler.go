@@ -534,6 +534,58 @@ func (s *Server) handleSeatOpenPlan(c *rux.Context) {
 	c.JSON(http.StatusOK, openPlanView(p))
 }
 
+// seatHistoryView is the wire form of a seat's history: every binding that was made and every
+// revision of its purpose / charter, oldest first.
+type seatHistoryView struct {
+	Bindings []seatBindingView `json:"bindings"`
+	Charter  []seatCharterView `json:"charter"`
+}
+
+// seatBindingView is one history row of who sat in the seat (action is bind / unbind / archive
+// and friends, from_ref / to_ref the session or job id on either side).
+type seatBindingView struct {
+	ID      int64  `json:"id"`
+	Action  string `json:"action"`
+	FromRef string `json:"from_ref,omitempty"`
+	ToRef   string `json:"to_ref,omitempty"`
+	By      string `json:"by"`
+	At      int64  `json:"at"`
+}
+
+// seatCharterView is one history row of a seat's purpose / charter.
+type seatCharterView struct {
+	ID      int64  `json:"id"`
+	Purpose string `json:"purpose,omitempty"`
+	Charter string `json:"charter,omitempty"`
+	By      string `json:"by"`
+	At      int64  `json:"at"`
+}
+
+// GET /v1/seats/{id}/history: the binding and charter history of a seat. Read only, and the
+// owner rule is the one of GET /v1/seats/{id}.
+func (s *Server) handleSeatHistory(c *rux.Context) {
+	svc, x, ok := s.loadSeat(c)
+	if !ok {
+		return
+	}
+	bindings, charter, err := svc.History(x.ID)
+	if err != nil {
+		writeError(c, seatStatus(err), "seat history failed", err.Error())
+		return
+	}
+	out := seatHistoryView{
+		Bindings: make([]seatBindingView, 0, len(bindings)),
+		Charter:  make([]seatCharterView, 0, len(charter)),
+	}
+	for _, b := range bindings {
+		out.Bindings = append(out.Bindings, seatBindingView{ID: b.ID, Action: b.Action, FromRef: b.FromRef, ToRef: b.ToRef, By: b.By, At: b.At})
+	}
+	for _, h := range charter {
+		out.Charter = append(out.Charter, seatCharterView{ID: h.ID, Purpose: h.Purpose, Charter: h.Charter, By: h.By, At: h.At})
+	}
+	c.JSON(http.StatusOK, out)
+}
+
 // GET /v1/sessions/{sid}/seat-candidates: the seats a terminal session could be bound to.
 func (s *Server) handleSeatCandidates(c *rux.Context) {
 	svc, ok := s.seatsReady(c)

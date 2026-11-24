@@ -210,6 +210,7 @@ var routeDecls = map[string]routeDecl{
 	"POST /v1/seats/{id}/bind":                         {user: InHandler(permDeny, authz.PermSeatManageOthers), scope: Resource("seat")},
 	"POST /v1/seats/{id}/unbind":                       {user: InHandler(permDeny, authz.PermSeatManageOthers), scope: Resource("seat")},
 	"GET /v1/seats/{id}/open-plan":                     {user: InHandler(permDeny, authz.PermSeatManageOthers), scope: Resource("seat")},
+	"GET /v1/seats/{id}/history":                       {user: InHandler(permDeny, authz.PermSeatManageOthers), scope: Resource("seat")},
 	"POST /v1/seats/{id}/restart":                      {user: Require(authz.PermJobSubmit), scope: Resource("seat")},
 	"GET /v1/inbox/rules":                              {user: Public(), scope: NoProject()},
 	"POST /v1/inbox/state":                             {user: Public(), scope: NoProject(), rw: ReadSafe()},
