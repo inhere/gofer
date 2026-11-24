@@ -4,6 +4,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 )
 
 func mustSeat(t *testing.T, s *Store, caller, project, name string) Seat {
@@ -143,6 +144,86 @@ func TestSeatClearedWhenSessionDeleted(t *testing.T) {
 	h, _ := s.ListSeatBindings(x.ID)
 	if len(h) != 2 || h[1].Action != SeatActionSessionDeleted || h[1].FromRef != "sess-1" {
 		t.Fatalf("history must record the deletion: %+v", h)
+	}
+}
+
+// TestSeatClearedWhenJobDeleted: deleting the ACP job a seat points at empties the seat in the
+// same transaction and records why, so no row keeps a current_ref naming nothing.
+func TestSeatClearedWhenJobDeleted(t *testing.T) {
+	s := openTest(t)
+	x := mustSeat(t, s, "u1", "proj", "a")
+	job := sampleJob("job-del", "proj", 100)
+	job.Status, job.EndedAt, job.UpdatedAt = "done", 200, 200
+	if err := s.UpsertJob(job); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.BindSeat(x.ID, "job-del", false, "user"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteJob("job-del", "u1"); err != nil {
+		t.Fatal(err)
+	}
+	got, _, _ := s.GetSeat(x.ID)
+	if got.CurrentRef != "" {
+		t.Fatalf("current_ref must be cleared when its job is deleted, got %q", got.CurrentRef)
+	}
+	h, _ := s.ListSeatBindings(x.ID)
+	if len(h) != 2 || h[1].Action != SeatActionJobDeleted || h[1].FromRef != "job-del" || h[1].By != "system" {
+		t.Fatalf("history must record the job deletion: %+v", h)
+	}
+}
+
+// TestSeatClearedWhenJobPruned: retention must not leave a current_ref naming a job it evicted.
+func TestSeatClearedWhenJobPruned(t *testing.T) {
+	s := openTest(t)
+	now := int64(8_000_000)
+	x := mustSeat(t, s, "u1", "proj", "a")
+	if err := s.UpsertJob(termJob("job-old", "done", now-100000, now-100000)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.BindSeat(x.ID, "job-old", false, "user"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.PruneJobs(RetentionPolicy{MaxAge: time.Hour}, now); err != nil {
+		t.Fatal(err)
+	}
+	got, _, _ := s.GetSeat(x.ID)
+	if got.CurrentRef != "" {
+		t.Fatalf("current_ref must be cleared when its job is pruned, got %q", got.CurrentRef)
+	}
+	h, _ := s.ListSeatBindings(x.ID)
+	if len(h) != 2 || h[1].Action != SeatActionJobDeleted {
+		t.Fatalf("history must record the prune: %+v", h)
+	}
+}
+
+// TestSeatCharterClaimedOncePerRef: the charter goes to a ref once — binding it again, also after
+// unbinding and through --replace, is not a second delivery.
+func TestSeatCharterClaimedOncePerRef(t *testing.T) {
+	s := openTest(t)
+	x := mustSeat(t, s, "u1", "proj", "a")
+	if _, err := s.BindSeat(x.ID, "job-1", false, "user"); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.ClaimSeatCharter(x.ID, "job-1"); err != nil || !ok {
+		t.Fatalf("first claim: ok=%v err=%v", ok, err)
+	}
+	if ok, err := s.ClaimSeatCharter(x.ID, "job-1"); err != nil || ok {
+		t.Fatalf("second claim must be false: ok=%v err=%v", ok, err)
+	}
+	// a claim for the ref that does not sit there is refused
+	if ok, _ := s.ClaimSeatCharter(x.ID, "job-other"); ok {
+		t.Fatal("a claim for a ref that sits nowhere must be false")
+	}
+	// unbind + rebind the same ref: still told once
+	if _, err := s.UnbindSeat(x.ID, "user"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.BindSeat(x.ID, "job-1", true, "user"); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := s.ClaimSeatCharter(x.ID, "job-1"); ok {
+		t.Fatal("rebinding the same job must not deliver the charter twice")
 	}
 }
 

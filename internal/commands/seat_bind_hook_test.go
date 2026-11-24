@@ -94,3 +94,44 @@ func TestSeatBindACPSeatSkipsTheHookHint(t *testing.T) {
 		t.Fatalf("an acp seat needs no relay hook: %s", out)
 	}
 }
+
+// seatBindACP runs one `seat bind` of an acp seat whose bind answers charter.
+func seatBindACP(t *testing.T, charter map[string]any) string {
+	t.Helper()
+	seatHome(t)
+	stub := &seatStub{
+		seats:      []map[string]any{{"id": "seat-1", "name": "weekly", "project_key": "p1", "kind": "acp", "state": "none", "charter_by": "user"}},
+		bindAnswer: charter,
+	}
+	seatTestStub(t, stub)
+	prev := seatBindOpts.ref
+	t.Cleanup(func() { seatBindOpts.ref = prev })
+	var code int
+	out := captureOutput(t, func() {
+		code = NewApp("test").Run([]string{"seat", "bind", "weekly@p1", "--ref", "job-20261119-abcdef"})
+	})
+	if code != 0 {
+		t.Fatalf("bind exit=%d out=%s", code, out)
+	}
+	return out
+}
+
+// TestSeatBindSaysTheCharterWasSent: a live acp job got the charter as a message during the bind,
+// and the command says so.
+func TestSeatBindSaysTheCharterWasSent(t *testing.T) {
+	out := seatBindACP(t, map[string]any{"id": "seat-1", "name": "weekly", "project_key": "p1", "kind": "acp",
+		"state": "awaiting", "current_ref": "job-20261119-abcdef", "charter_by": "user", "charter_sent": true})
+	if !strings.Contains(out, "章程") {
+		t.Fatalf("bind must say the charter went out: %s", out)
+	}
+}
+
+// TestSeatBindReportsAFailedCharterMessage: the bind succeeded but the message did not go out; the
+// command says why and does not fail.
+func TestSeatBindReportsAFailedCharterMessage(t *testing.T) {
+	out := seatBindACP(t, map[string]any{"id": "seat-1", "name": "weekly", "project_key": "p1", "kind": "acp",
+		"state": "awaiting", "current_ref": "job-20261119-abcdef", "charter_by": "user", "charter_error": "session turn in progress"})
+	if !strings.Contains(out, "session turn in progress") || !strings.Contains(out, "章程") {
+		t.Fatalf("bind must report the failed charter message: %s", out)
+	}
+}

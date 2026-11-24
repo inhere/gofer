@@ -24,6 +24,9 @@ type seatStub struct {
 	patched []string
 	// paths records every request the CLI made (method and path).
 	paths []string
+	// bindAnswer is what POST /v1/seats/{id}/bind answers instead of the default row (a test
+	// needs the charter outcome of a bind).
+	bindAnswer map[string]any
 }
 
 // projectRows is the project list the stub answers for /v1/meta and /v1/projects: the default pair,
@@ -72,6 +75,10 @@ func (s *seatStub) handler() http.Handler {
 			if s.occupied && body["replace"] != true {
 				w.WriteHeader(http.StatusConflict)
 				_ = json.NewEncoder(w).Encode(map[string]any{"error": "seat is occupied", "detail": "seat-1 is held by sid-old"})
+				return
+			}
+			if s.bindAnswer != nil {
+				_ = json.NewEncoder(w).Encode(s.bindAnswer)
 				return
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": "seat-1", "name": "desk", "project_key": "p1",

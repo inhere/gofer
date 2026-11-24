@@ -11,15 +11,21 @@
 
 ## [未发布]
 
+### 修复
+
+- acp 常驻会话（seat）绑上一个**正在跑或等输入**的 job 时，现在立刻把该位置的章程 say 进去（带 gofer 系统前缀），命令提示「已向会话送去章程」：正在跑的 job 不会重启，之前只有 restart 才带章程，所以它从来没收到过。同一个 job 重复 bind（含 `--replace` 换走再换回、解绑后再绑）不重复送；已结束的 job 不送（它的 restart 会把章程放进开口 prompt）。送失败不让 bind 失败，只提示原因。
+- acp 位置坐着的 job 被删除（`gofer job rm`、保留期清理、包含工作流的 step job）后不再悬空：位置在同一事务里回到空位，历史里记一条 `job_deleted`（操作者 `system`）；旧数据库里指向已不存在 job 的 `current_ref` 也按空位（`none`）显示，定时送话按空位处理（`offline`），不再报错。
+- seat 定时消息在会话里不再显示成 `[来自 web，schedule:<id>]`（agent 会当成用户本人所说）：现在以系统前缀 `[gofer · 定时消息「<名称>」]`（英文 `[gofer · scheduled message "<name>"]`）开头；终端消息的 operator 以 `schedule:` 开头的一律走系统通道，acp 的 say / 重启文本使用同一前缀。
+
+### 变更
+
+- 会话列表（`GET /v1/sessions`，含 `q` 搜索与工作项派发目标）一次取出整页会话的位置，不再每个会话查一次库。
+
 ### 新增
 
 - **seat 定时消息离线排队补送**：定时到点时位置空着、终端会话离线或已结束、acp 位置没有 job，话不再丢弃，而是排进队列（每个位置每个定时只留一条，再次到点只更新内容并累计次数；结果仍记 `offline`）。位置重新可收时补送——有会话绑进位置时立刻送，另外服务端每 30 秒的周期扫描会检查「有待送且现在可收」的位置——走与到点送达完全相同的路径，带「补送，原定于 …，累计 N 次未送达」一行，送出后定时的 `last_result` 变为 `delivered`（acp 已结束重启则为 `restarted:<job>`）；补送失败留在队里下次再试。超过 24 小时未送出的丢弃，位置归档、定时删除时队列一并丢弃。新增表 `seat_pending_messages`。
 - 「等我」/收件箱里没人能收的 seat 定时消息卡改为「已排队，会话上线后补发（共 N 条）」，主动作改为打开位置（工作台），「看详情」（定时页）作次要动作；有排队才出现，补送后消失。
 - **「等我」提醒延迟可在控制台改**：`server.notification.reminder_after_min`（多久没处理再提醒一次，默认 30 分钟，`0` = 不再提醒）现在出现在「设置 → 通知 → 通知全局设置」与 `GET /v1/config` 的通知视图（`reminder_after_min` 是实际生效值，`reminder_after_min_default` 说明它是不是默认值）；保存走 `PUT /v1/config/server` 的 `notification` 补丁，改完立即生效（扫描每轮读当前配置），负数被配置校验拒绝（`400`，`error_fields` 指向 `server.notification`）。
-
-### 修复
-
-- seat 定时消息在会话里不再显示成 `[来自 web，schedule:<id>]`（agent 会当成用户本人所说）：现在以系统前缀 `[gofer · 定时消息「<名称>」]`（英文 `[gofer · scheduled message "<name>"]`）开头；终端消息的 operator 以 `schedule:` 开头的一律走系统通道，acp 的 say / 重启文本使用同一前缀。
 
 ## [0.218.0] - 2026-11-24
 

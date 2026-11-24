@@ -162,7 +162,8 @@ func TestPendingACPVacantThenBind(t *testing.T) {
 	if _, err := e.svc.Bind(x.ID, "job-live", false, "user"); err != nil {
 		t.Fatal(err)
 	}
-	if len(sy.said) != 1 || sy.said[0][0] != "job-live" || !strings.Contains(sy.said[0][1], "weekly report please") {
+	// A live ACP job gets the seat's charter at bind time first, then the queued text.
+	if len(sy.said) != 2 || sy.said[1][0] != "job-live" || !strings.Contains(sy.said[1][1], "weekly report please") {
 		t.Fatalf("said = %+v", sy.said)
 	}
 	if queuedCount(t, e, "sch-1") != 0 {

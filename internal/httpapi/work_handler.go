@@ -254,10 +254,22 @@ func (s *Server) handleWorkDispatchTargets(c *rux.Context) {
 		return
 	}
 	out := make([]sessionFindView, 0, len(res))
+	seats := s.seatsOfSessions(suggestedSessions(res))
+	lang := s.requestLang(c)
 	for _, r := range res {
-		out = append(out, sessionFindView{sessionView: s.toSessionView(s.requestLang(c), r.Session), Hits: r.Hits, MaybeOffline: r.MaybeOffline})
+		out = append(out, sessionFindView{sessionView: s.toSessionViewIn(lang, r.Session, seats), Hits: r.Hits, MaybeOffline: r.MaybeOffline})
 	}
 	c.JSON(http.StatusOK, map[string]any{"targets": out})
+}
+
+// suggestedSessions is the session of every dispatch-target suggestion, for the batched seat
+// lookup.
+func suggestedSessions(res []sessionrelay.SuggestResult) []jobstore.AgentSession {
+	out := make([]jobstore.AgentSession, 0, len(res))
+	for _, r := range res {
+		out = append(out, r.Session)
+	}
+	return out
 }
 
 func (s *Server) respondWorkDetail(c *rux.Context, id string, status int) {

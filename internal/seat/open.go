@@ -3,6 +3,7 @@ package seat
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strings"
 
@@ -185,6 +186,11 @@ func (s *Service) restart(ctx context.Context, id, extra string) (OpenPlan, erro
 	}
 	if _, err := s.store.BindSeat(x.ID, jobID, true, "system"); err != nil {
 		return OpenPlan{}, err
+	}
+	// The opening input of the new session above already carries the seat's charter (either the
+	// reminder or the whole continuation text), so a later bind of this job must not say it again.
+	if err := s.store.MarkSeatCharter(x.ID, jobID); err != nil {
+		slog.Warn("seat: record charter delivery of the restarted session failed", "seat", x.ID, "job", jobID, "error", err)
 	}
 	plan.Restarted, plan.NeedsRestart, plan.Reason, plan.Resumable, plan.JobID = true, false, "", true, jobID
 	return plan, nil

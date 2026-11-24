@@ -138,6 +138,12 @@ func (s *Store) PruneJobs(policy RetentionPolicy, now int64) (deleted int, prune
 			_ = tx.Rollback()
 			return 0, nil, fmt.Errorf("jobstore: prune job token %q: %w", id, err)
 		}
+		// A seat pointing at a pruned job is emptied in the same tx: retention must not leave a
+		// current_ref naming a job that no longer exists.
+		if err := s.clearSeatRefTx(tx, id, SeatActionJobDeleted, "system", s.unixNow()); err != nil {
+			_ = tx.Rollback()
+			return 0, nil, err
+		}
 		if _, err := tx.Exec("DELETE FROM jobs WHERE id = ?", id); err != nil {
 			_ = tx.Rollback()
 			return 0, nil, fmt.Errorf("jobstore: prune job %q: %w", id, err)
@@ -258,6 +264,12 @@ func (s *Store) PruneWorkflows(policy WorkflowRetentionPolicy, now int64) (delet
 		// Drop each step-job's owned rows (interactions / job_events / deliveries) and
 		// the job row itself — same连带删 set as PruneJobs (no悬挂).
 		for _, jid := range jobIDs {
+			// A seat pointing at a step-job goes vacant in the same tx (PruneJobs covers
+			// the same rule for jobs it evicts on its own).
+			if derr := s.clearSeatRefTx(tx, jid, SeatActionJobDeleted, "system", s.unixNow()); derr != nil {
+				_ = tx.Rollback()
+				return 0, nil, derr
+			}
 			for _, stmt := range []string{
 				"DELETE FROM interactions WHERE job_id = ?",
 				"DELETE FROM job_events WHERE job_id = ?",

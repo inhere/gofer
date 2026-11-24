@@ -1336,6 +1336,7 @@ var schemaStmts = []string{
   agent       TEXT NOT NULL DEFAULT '',
   current_ref TEXT NOT NULL DEFAULT '',
   notice_ref  TEXT NOT NULL DEFAULT '',
+  charter_ref TEXT NOT NULL DEFAULT '',
   archived_at INTEGER,
   created_at  INTEGER NOT NULL,
   updated_at  INTEGER NOT NULL
