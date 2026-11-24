@@ -371,6 +371,14 @@ type sessionView struct {
 // derived from the relay service's single policy (the store only keeps the raw
 // mode and readings).
 func (s *Server) toSessionView(lang i18n.Lang, a jobstore.AgentSession) sessionView {
+	return s.toSessionViewIn(lang, a, nil)
+}
+
+// toSessionViewIn is toSessionView for a caller that already holds the seats of its sessions
+// (the list asks once for the whole page instead of once per session). seats maps a session id
+// to the seat it sits in and is nil when nothing was prefetched, which falls back to the
+// per-session lookup.
+func (s *Server) toSessionViewIn(lang i18n.Lang, a jobstore.AgentSession, seats map[string]jobstore.Seat) sessionView {
 	reason, detail, permReason := "", "", ""
 	budget, permBudget, subagents := 0, 0, 0
 	watchCount := 0
@@ -420,8 +428,28 @@ func (s *Server) toSessionView(lang i18n.Lang, a jobstore.AgentSession) sessionV
 		CanResume: resume.Can, ResumeReason: resume.Reason, ResumeMessage: resume.Message,
 		Usage:    s.withEstimate(sessionUsageViewOf(a.UsageJSON)),
 		Language: string(s.textLanguage(a.ProjectKey)),
-		Seat:     s.seatOfSession(a.SessionID, a.Cwd),
+		Seat:     s.seatInOf(seats, a.SessionID, a.Cwd),
 	}
+}
+
+// seatsOfSessions prefetches the seats a whole page of sessions sits in: ONE query for the set,
+// or nil when this server has no seat roster (a bare test server) or the lookup failed — the
+// session views then look their seat up one by one, so a failed prefetch costs queries, never
+// correctness.
+func (s *Server) seatsOfSessions(list []jobstore.AgentSession) map[string]jobstore.Seat {
+	svc := s.seats()
+	if svc == nil || len(list) == 0 {
+		return nil
+	}
+	refs := make([]string, 0, len(list))
+	for _, a := range list {
+		refs = append(refs, a.SessionID)
+	}
+	m, err := svc.SeatsByRefs(refs)
+	if err != nil {
+		return nil
+	}
+	return m
 }
 
 // textLanguage is the language of the text gofer generates for a session of
@@ -659,12 +687,18 @@ func (s *Server) handleListSessions(c *rux.Context) {
 	all := s.mayListAllSessions(c)
 	caller := callerFromCtx(c)
 	list = scopeRows(s, c, list, func(a jobstore.AgentSession) string { return a.ProjectKey })
-	out := make([]sessionView, 0, len(list))
+	visible := make([]jobstore.AgentSession, 0, len(list))
 	for _, a := range list {
-		if !all && a.CallerID != caller {
-			continue
+		if all || a.CallerID == caller {
+			visible = append(visible, a)
 		}
-		out = append(out, s.toSessionView(s.requestLang(c), a))
+	}
+	// The seats of the whole page come from ONE query, not one per session.
+	seats := s.seatsOfSessions(visible)
+	lang := s.requestLang(c)
+	out := make([]sessionView, 0, len(visible))
+	for _, a := range visible {
+		out = append(out, s.toSessionViewIn(lang, a, seats))
 	}
 	c.JSON(http.StatusOK, map[string]any{"sessions": out})
 }
@@ -1432,10 +1466,21 @@ func (s *Server) findSessions(c *rux.Context, opts jobstore.ListSessionsOpts, q,
 		}
 	}
 	out := make([]sessionFindView, 0, len(res))
+	seats := s.seatsOfSessions(reportedSessions(res))
+	lang := s.requestLang(c)
 	for _, r := range res {
-		out = append(out, sessionFindView{sessionView: s.toSessionView(s.requestLang(c), r.Session), Hits: r.Hits, MaybeOffline: r.MaybeOffline})
+		out = append(out, sessionFindView{sessionView: s.toSessionViewIn(lang, r.Session, seats), Hits: r.Hits, MaybeOffline: r.MaybeOffline})
 	}
 	c.JSON(http.StatusOK, map[string]any{"sessions": out})
+}
+
+// reportedSessions is the session of every find result, for the batched seat lookup.
+func reportedSessions(res []sessionrelay.FindResult) []jobstore.AgentSession {
+	out := make([]jobstore.AgentSession, 0, len(res))
+	for _, r := range res {
+		out = append(out, r.Session)
+	}
+	return out
 }
 
 type patchSessionReq struct {

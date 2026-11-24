@@ -166,6 +166,11 @@ type seatView struct {
 	Unread     bool   `json:"unread,omitempty"`
 	ActivityAt int64  `json:"activity_at,omitempty"`
 	ThreadID   string `json:"thread_id,omitempty"`
+	// CharterSent / CharterError describe the one message a bind sends: an acp seat whose job was
+	// live when it was bound said the seat's charter into it right away. They ride the bind answer
+	// only (omitted everywhere else), and a failed send never fails the bind.
+	CharterSent  bool   `json:"charter_sent,omitempty"`
+	CharterError string `json:"charter_error,omitempty"`
 }
 
 func seatViewOf(st seat.Status) seatView {
@@ -204,6 +209,19 @@ type sessionSeatView struct {
 // seatOfSession returns the seat a session sits in for its view; nil when none. cwd picks the
 // project root spelling a charter path is resolved against.
 func (s *Server) seatOfSession(sid, cwd string) *sessionSeatView {
+	return s.seatInOf(nil, sid, cwd)
+}
+
+// seatInOf is seatOfSession against a prefetched seat map: a non-nil seats answers from it (no
+// query), a nil one falls back to the per-session lookup.
+func (s *Server) seatInOf(seats map[string]jobstore.Seat, sid, cwd string) *sessionSeatView {
+	if seats != nil {
+		x, ok := seats[sid]
+		if !ok {
+			return nil
+		}
+		return sessionSeatViewOf(x, cwd, s.projectRoots)
+	}
 	svc := s.seats()
 	if svc == nil {
 		return nil
@@ -212,9 +230,15 @@ func (s *Server) seatOfSession(sid, cwd string) *sessionSeatView {
 	if err != nil || !ok {
 		return nil
 	}
+	return sessionSeatViewOf(x, cwd, s.projectRoots)
+}
+
+// sessionSeatViewOf renders the `seat` object of a session view from the seat row. cwd picks the
+// project root spelling a charter path is resolved against.
+func sessionSeatViewOf(x jobstore.Seat, cwd string, roots func(string) []string) *sessionSeatView {
 	v := &sessionSeatView{ID: x.ID, Name: x.Name, Purpose: x.Purpose}
 	if p, text := seat.SplitCharter(x.Charter); p != "" {
-		v.CharterPath, v.Root = p, seatRootFor(s.projectRoots(x.ProjectKey), cwd)
+		v.CharterPath, v.Root = p, seatRootFor(roots(x.ProjectKey), cwd)
 	} else {
 		v.Charter = seat.Cut(strings.TrimSpace(text), seat.CharterBudget)
 	}
@@ -478,12 +502,22 @@ func (s *Server) handleSeatBind(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
 		return
 	}
-	got, err := svc.Bind(x.ID, body.Ref, body.Replace, s.seatWriter(c))
+	got, info, err := svc.BindInfo(x.ID, body.Ref, body.Replace, s.seatWriter(c))
 	if err != nil {
 		writeError(c, seatStatus(err), "bind seat failed", err.Error())
 		return
 	}
-	s.writeSeat(c, svc, got)
+	st, err := svc.Status(callerFromCtx(c), got)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "seat status failed", err.Error())
+		return
+	}
+	v := seatViewOf(st)
+	v.CharterSent = info.CharterSent
+	if info.CharterError != nil {
+		v.CharterError = info.CharterError.Error()
+	}
+	c.JSON(http.StatusOK, v)
 }
 
 // POST /v1/seats/{id}/unbind
