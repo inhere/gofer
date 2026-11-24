@@ -1559,6 +1559,18 @@ func notificationReminderFixtureYAML(t *testing.T, min string) string {
 	return yamlText
 }
 
+// TestNotificationReminderAfterMinFromFile: a reminder_after_min the operator already put
+// in the file is what the view reports, and it is not marked as the default.
+func TestNotificationReminderAfterMinFromFile(t *testing.T) {
+	t.Parallel()
+	s, _, _ := newConfigWriteTestServer(t, notificationReminderFixtureYAML(t, "90"), agent.NoopDetector{})
+
+	nv := getConfigView(t, s, adminToken).Server.Notification
+	if nv == nil || nv.ReminderAfterMin != 90 || nv.ReminderAfterMinDefault {
+		t.Fatalf("notification view=%+v, want 90 not marked as default", nv)
+	}
+}
+
 // TestNotificationReminderAfterMin (B2B): the 「等我」 re-reminder delay is visible in
 // the config view (the effective value plus whether it is merely the default) and the
 // notification patch can write it — 0 means "no reminder" rather than "unset", and a
