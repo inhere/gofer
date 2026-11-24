@@ -109,6 +109,8 @@ export const INBOX_KINDS: readonly string[] = [
   'worker_enroll',
   // 设计 2026-11-12 §1：定时任务连续失败被 gofer 自己暂停（动作：启用 / 打开）
   'schedule.paused',
+  // 发往 seat 的定时消息没人能收：去打开那个 seat
+  'seat_schedule',
   // 设计 2026-11-14 §4/§5：调用方 token 即将到期（动作：轮换 / 打开）与 server 自检项故障
   'caller.token_expiring',
   'server.health',
@@ -132,6 +134,7 @@ export function itemLink(item: Pick<InboxItem, 'kind' | 'deep_link' | 'refs'>): 
   if (item.kind === 'worker_enroll') return '/runners#enrollments'
   // 被自动暂停的定时任务（设计 2026-11-12 §1）：去定时任务页看看 / 重新启用
   if (item.kind === 'schedule.paused') return '/schedules'
+  if (item.kind === 'seat_schedule') return '/schedules'
   // 设计 2026-11-14 §4/§5：token 到期去调用方页轮换，自检故障去设置的自检页
   if (item.kind === 'caller.token_expiring') return '/settings/callers'
   if (item.kind === 'server.health') return '/settings/health'

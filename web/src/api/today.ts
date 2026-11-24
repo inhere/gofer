@@ -36,6 +36,8 @@ export type TodayCardKind =
   // 设计 2026-11-12 §1（internal/inbox/schedule_paused.go）：定时任务连续失败达阈值后被
   // gofer 自己暂停。动作 enable（立即重新启用）/ open（去定时任务页）。
   | 'schedule.paused'
+  // 发往 seat 的定时消息到点时没人能收（internal/inbox/seat_schedule.go）：去打开该 seat。
+  | 'seat_schedule'
   // 设计 2026-11-14 §4/§5：调用方 token 快到期 / 已过期（动作 rotate / open）与 server 自检项
   // 故障（动作 open），都属于「需要你处理」。
   | 'caller.token_expiring'
@@ -82,6 +84,8 @@ export interface TodayRefs {
   merge_id?: number
   // schedule.paused 卡：被暂停的定时任务 id（enable 动作的入参）。
   schedule_id?: string
+  // seat_schedule 卡：要打开的 seat id。
+  seat_id?: string
   // caller.token_expiring 卡：要轮换的调用方 id（rotate 动作的入参）。
   caller_id?: string
   // memory 卡：它针对的仓库 tracker 记忆（旧版本的记忆整理卡；服务端已不再产生）

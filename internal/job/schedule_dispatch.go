@@ -17,6 +17,8 @@ type ScheduleDispatcher struct {
 	s *Service
 	// pool bounds the pre-run checks (schedule_precheck.go).
 	pool *precheckPool
+	// seats delivers the runs of seat-targeted schedules (schedule_seat.go).
+	seats seatSlot
 }
 
 func newScheduleDispatcher(s *Service) *ScheduleDispatcher {
@@ -65,6 +67,9 @@ func (d *ScheduleDispatcher) Dispatch(permit *AdmissionPermit, rec jobstore.Sche
 	}
 	if run, skipped, err := d.overlapSkip(rec); skipped || err != nil {
 		return run, err
+	}
+	if seatID, ok := jobstore.SeatOfScheduleTarget(rec.Target); ok {
+		return d.dispatchSeat(rec, trigger, seatID, req)
 	}
 	d.attachScheduleContext(rec, trigger, &req)
 	req.ScheduleID = rec.ID

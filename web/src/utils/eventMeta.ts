@@ -129,6 +129,8 @@ export const EVENT_META: Record<string, { icon: LucideIcon }> = {
   'schedule.run_skipped': { icon: SkipForward },
   'schedule.paused': { icon: Pause },
   'schedule.run_failed': { icon: TriangleAlert },
+  // 发往 seat 的定时消息到点时没人能收，等人打开 seat
+  'schedule.seat_pending': { icon: Pause },
   // 设计 2026-11-12 §5：同一 worker_id 被另一个进程（不同 instance_id）顶替。
   'worker.replaced': { icon: CornerUpRight },
   // 设计 2026-11-14 §2/§5：worker 断线期间的事件缓冲溢出（时间线缺口）、server 自检项

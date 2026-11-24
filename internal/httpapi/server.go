@@ -928,6 +928,10 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		// The language of every text gofer writes INTO a session: the session's project
 		// language, else the server's (design 2026-10-27-i18n-design.md §3).
 		s.relay.SetLanguageFor(s.textLanguage)
+		// A schedule that targets a seat hands its text to the seat service (job cannot import seat).
+		if d := jobs.ScheduleDispatcher(); d != nil {
+			d.SetSeatDeliverer(seatScheduleDeliverer{s})
+		}
 		s.mail = mail.NewService(jobs.Meta(), s.relay)
 		// Whether a job: address can take a letter is the job service's judgement (gofer-0n6r).
 		s.mail.SetSessionJobCheck(mail.SessionJobLookup(jobs.Get))

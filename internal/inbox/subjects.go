@@ -33,6 +33,7 @@ type WaitingStore interface {
 	TerminalSource
 	ChildWakeSource
 	ScheduleSource
+	SeatScheduleSource
 }
 
 // WaitingInput carries what the caller decides: language and project scope. Store may be
@@ -52,7 +53,7 @@ type WaitingInput struct {
 // finished jobs (the inbox's second column). Every input is a store fact, so the answer
 // does not change when the server restarts.
 func WaitingSubjects(in WaitingInput, queue []today.Card) (waiting []Subject, fyi []today.Card, err error) {
-	var failed, stranded, paused []today.Card
+	var failed, stranded, paused, seatSched []today.Card
 	if in.Store != nil {
 		if failed, fyi, err = TerminalCards(in.Store, in.Lang, in.Allow); err != nil {
 			return nil, nil, err
@@ -66,9 +67,13 @@ func WaitingSubjects(in WaitingInput, queue []today.Card) (waiting []Subject, fy
 		if paused, err = SchedulePausedCards(in.Store, in.Lang, in.Allow); err != nil {
 			return nil, nil, err
 		}
+		// A seat schedule whose text had nobody to go to waits for a person to open the seat.
+		if seatSched, err = SeatScheduleCards(in.Store, in.Lang, in.Allow); err != nil {
+			return nil, nil, err
+		}
 	}
-	cards := make([]today.Card, 0, util.CapSum(len(queue), len(failed), len(stranded), len(paused), len(in.Extra)))
-	cards = append(append(append(append(cards, queue...), failed...), stranded...), paused...)
+	cards := make([]today.Card, 0, util.CapSum(len(queue), len(failed), len(stranded), len(paused), len(seatSched), len(in.Extra)))
+	cards = append(append(append(append(append(cards, queue...), failed...), stranded...), paused...), seatSched...)
 	cards = append(cards, in.Extra...)
 	return SubjectsOf(in.Lang, cards), fyi, nil
 }

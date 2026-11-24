@@ -25,6 +25,7 @@ var inboxKindEvents = map[string][]string{
 	"work.digest":           {"work.digest"},
 	"job.child_wake_failed": {"job.child_wake_failed"},
 	"schedule.paused":       {"schedule.paused"},
+	"seat_schedule":         {"schedule.seat_pending"},
 	"server.health":         {"server.health_failing"},
 }
 

@@ -26,6 +26,10 @@
 
 - 「会话在被监督」的判定只看**本会话在等的** job：用 `--notify` 关注的 job、本会话监督的 plan 派出的 job，以及运行中的子 agent，不再按调用方（单用户部署里所有终端会话共用 `default`）统计。结果：别的会话在跑的 job、挂着等回复的常驻 ACP 会话，不再让你的会话被判为「监督中」——标了 `[needs-reply]` 的回合过了宽限期照常进「等我」，Stop 上的自动接力（`auto_relay_skip_when_supervising`）也只被这些 job 跳过；会话里提交但没加 `--notify` 的 job 不再让会话算作被监督。停在等回复的常驻会话 job 自己就在等人，不算监督。「等我」与 Stop 闸门共用同一份判定。
 
+### 新增
+
+- **seat 定时送话**：`gofer seat schedule <name> --cron '<表达式>' --text '<话>'` 建一个目标是该位置的定时，到点把话送给**那一刻**坐在位置里的会话（换了会话自动跟着走，定时里不存会话 id）。终端会话在线走会话消息（带「定时消息」前缀）；acp 位置的 job 还在就 say，已结束就重启并把话作为第一轮（只送一次）；终端离线 / 已结束 / 位置空着时不替人起终端也不排队，「等我」与收件箱（待办列）出现 `seat_schedule` 卡请去打开位置，会话重新在线、下次送达或定时被关掉后卡消失。`schedules` 增加 `target` / `last_result`（`POST` / `PATCH /v1/schedules` 接受 `target: seat:<id>`，校验位置存在、未归档且调用者管得了它；`schedule list` 多一列 `TARGET`，`schedule show` 显示最近一次投递结果），沿用 cron、catch_up、失败计数与连续失败暂停；位置归档或删除时指向它的定时被停用并留原因（`seat_archived` / `seat_deleted`）。新增通知事件 `schedule.seat_pending`。
+
 ## [0.217.0] - 2026-11-19
 
 ### 修复

@@ -48,6 +48,10 @@ type createScheduleReq struct {
 	// Context is "on" (default for a new schedule) or "off": whether each run is told its
 	// run number and how the previous run ended (design 2026-11-12 §3).
 	Context string `json:"context,omitempty"`
+	// Target is where a due run goes: omitted = submit request as a job; "seat:<seat id>" =
+	// deliver request.prompt to the session sitting in that seat (the schedule only needs the
+	// text: request carries the prompt, and project_key defaults to the seat's project).
+	Target string `json:"target,omitempty"`
 }
 
 // Defaults of a newly created schedule's run health; schedules that existed before the
@@ -92,6 +96,10 @@ type scheduleView struct {
 	Precheck *job.SchedulePrecheck `json:"precheck,omitempty"`
 	// Context is "on" or "off" (see createScheduleReq).
 	Context string `json:"context"`
+	// Target is "" (a job schedule) or "seat:<seat id>"; LastResult is how the last delivery
+	// to a seat ended: delivered / restarted:<job id> / offline / failed:<reason>.
+	Target     string `json:"target,omitempty"`
+	LastResult string `json:"last_result,omitempty"`
 }
 
 func (s *Server) handleCreateSchedule(c *rux.Context) {
@@ -108,6 +116,14 @@ func (s *Server) handleCreateSchedule(c *rux.Context) {
 	}
 	if req.Name == "" {
 		writeError(c, http.StatusBadRequest, "invalid schedule", "name is required")
+		return
+	}
+	seatTarget, ok := s.seatScheduleTarget(c, req.Target, &req.Request)
+	if !ok {
+		return
+	}
+	if seatTarget && (req.Precheck.IsSet() || len(req.Params) > 0) {
+		writeError(c, http.StatusBadRequest, "invalid schedule", "a seat schedule only delivers its text: precheck and params are not supported")
 		return
 	}
 	if !s.requireProjectScope(c, req.Request.ProjectKey) {
@@ -134,9 +150,11 @@ func (s *Server) handleCreateSchedule(c *rux.Context) {
 	// G043: the stored request carries the canonical runner spelling, so a
 	// schedule created with `server` and one with `local` read back the same.
 	req.Request.Runner = s.resolveRunnerName(req.Request.Runner)
-	if err := s.validateScheduleRequest(req.Request); err != nil {
-		writeError(c, scheduleStatus(err), "invalid schedule request", err.Error())
-		return
+	if !seatTarget {
+		if err := s.validateScheduleRequest(req.Request); err != nil {
+			writeError(c, scheduleStatus(err), "invalid schedule request", err.Error())
+			return
+		}
 	}
 	// Design 2026-10-22 §D1: the declarations themselves are validated at the boundary
 	// (name shape, uniqueness, defaults fitting their type) and stored as opaque JSON.
@@ -196,6 +214,7 @@ func (s *Server) handleCreateSchedule(c *rux.Context) {
 		MaxFailures:  maxFailures,
 		PrecheckJSON: precheckJSON,
 		Context:      contextMode,
+		Target:       strings.TrimSpace(req.Target),
 		// The creator is the schedule's ceiling owner: the sweeper and the webhook submit
 		// with it, so a timer made by a restricted caller stays bounded after the creating
 		// request is gone (design 2026-10-18, 上限所有者).
@@ -427,6 +446,9 @@ func (s *Server) handleRunSchedule(c *rux.Context) {
 		writeScheduleSkipped(c, run)
 		return
 	}
+	if s.writeSeatScheduleRun(c, rec) {
+		return
+	}
 	res := run.Result
 	// §D3: the overrides a person chose are part of the schedule's own history — this is
 	// what answers "who ran it for real, and with which settings" afterwards.
@@ -576,6 +598,9 @@ func (s *Server) handleScheduleTrigger(c *rux.Context) {
 		writeScheduleSkipped(c, run)
 		return
 	}
+	if s.writeSeatScheduleRun(c, rec) {
+		return
+	}
 	res := run.Result
 	s.jobs.RecordJobEvent(res.ID, job.EventScheduleTriggered, map[string]any{
 		"source": "webhook", "schedule_id": id,
@@ -711,6 +736,8 @@ func scheduleToView(rec jobstore.ScheduleRecord) scheduleView {
 		PausedReason:        rec.PausedReason,
 		Precheck:            storedPrecheck(rec),
 		Context:             contextOrDefault(rec.Context),
+		Target:              rec.Target,
+		LastResult:          rec.LastResult,
 	}
 }
 

@@ -975,6 +975,17 @@ seat remove	flag config	path to the gofer config file
 seat remove	flag project	只看一个项目（默认取当前目录所在项目）
 seat remove	flag server	server address (overrides config server.addr)
 seat remove	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+seat schedule	desc	按 cron 定时给某个 seat 送一段话（送给到点时坐在里面的会话）；加 --ls 列出这个 seat 的定时
+seat schedule	help	
+seat schedule	examples	
+seat schedule	flag config	path to the gofer config file
+seat schedule	flag cron	5 段 cron 表达式，决定何时送
+seat schedule	flag ls	列出送往这个 seat 的定时，而不是新建
+seat schedule	flag project	只看一个项目（默认取当前目录所在项目）
+seat schedule	flag server	server address (overrides config server.addr)
+seat schedule	flag text	要送的话；会带「定时消息」前缀，让会话知道它从哪来
+seat schedule	flag title	定时任务的名字（默认用 seat 名）
+seat schedule	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 seat set	desc	改常驻会话的用途 / 章程 / agent（用 "-" 清空某个字段）
 seat set	help	
 seat set	examples	

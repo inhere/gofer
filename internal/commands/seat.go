@@ -156,6 +156,7 @@ func NewSeatCmd() *gcli.Command {
 				},
 				Func: runSeatUnbind,
 			},
+			newSeatScheduleCmd(),
 			{
 				Name: "open",
 				Desc: cliText("cli.seat.open.desc"),

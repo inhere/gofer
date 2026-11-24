@@ -404,9 +404,9 @@ func runScheduleList(c *gcli.Command, _ []string) error {
 		return nil
 	}
 	tb := table.New("", table.WithColMaxWidth(30))
-	tb.SetHeads("ID", "NAME", "TYPE", "CRON", "NEXT_RUN", "ENABLED", "RUNS", "LAST_JOB")
+	tb.SetHeads("ID", "NAME", "TYPE", "CRON", "NEXT_RUN", "ENABLED", "RUNS", "LAST_JOB", "TARGET")
 	for _, s := range list {
-		tb.AddRow(s.ID, s.Name, scheduleTypeText(s.Type), emptyDash(s.Cron), formatScheduleListTime(s.NextRunAt), scheduleEnabledText(s), scheduleRunsText(s), emptyDash(s.LastJobID))
+		tb.AddRow(s.ID, s.Name, scheduleTypeText(s.Type), emptyDash(s.Cron), formatScheduleListTime(s.NextRunAt), scheduleEnabledText(s), scheduleRunsText(s), emptyDash(s.LastJobID), emptyDash(s.Target))
 	}
 	c.Print(tb.Render())
 	return nil
@@ -440,6 +440,10 @@ func runScheduleShow(c *gcli.Command, _ []string) error {
 	c.Printf("next_run:    %s\n", formatScheduleTime(s.NextRunAt))
 	c.Printf("last_run:    %s\n", formatScheduleTime(s.LastRunAt))
 	c.Printf("last_job:    %s\n", emptyDash(s.LastJobID))
+	if s.Target != "" {
+		c.Printf("target:      %s\n", s.Target)
+		c.Printf("last_result: %s\n", emptyDash(s.LastResult))
+	}
 	c.Printf("webhook:     %s\n", webhookText(s))
 	if len(s.Params) == 0 {
 		c.Println("params:      (none declared)")

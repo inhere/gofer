@@ -47,9 +47,25 @@ func (s *Server) seats() *seat.Service {
 		if s.agents != nil {
 			d.Agents = s.agents
 		}
+		if s.relay != nil {
+			d.Messenger = s.relay
+		}
+		d.Sayer = s.jobs
 		s.seatSvc.svc = seat.New(s.jobs.Meta(), d)
 	})
 	return s.seatSvc.svc
+}
+
+// seatScheduleDeliverer is the seat service as the job package's SeatDeliverer: the seat
+// service is built on first use, so the lookup happens per delivery.
+type seatScheduleDeliverer struct{ s *Server }
+
+func (d seatScheduleDeliverer) DeliverToSeat(ctx context.Context, req job.SeatDeliverRequest) (job.SeatDeliverResult, error) {
+	svc := d.s.seats()
+	if svc == nil {
+		return job.SeatDeliverResult{}, job.ErrSeatDeliveryUnavailable
+	}
+	return svc.DeliverToSeat(ctx, req)
 }
 
 // seatProjects adapts the project registry to seat.Projects.

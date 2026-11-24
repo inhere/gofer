@@ -143,6 +143,10 @@ func signalsOf(c today.Card) (subject string, s Signals, ok bool) {
 		// A schedule gofer paused by its failure streak is no job of the person's that
 		// failed: it files under 「需要你处理」, with the schedule as its subject.
 		return "schedule:" + c.Refs.ScheduleID, Signals{Attention: true}, true
+	case today.KindSeatSchedule:
+		// A seat that cannot take its scheduled text is a position of the person's own that
+		// needs opening: it files under 「需要你处理」, with the seat as its subject.
+		return "seat:" + c.Refs.SeatID, Signals{Attention: true}, true
 	case KindCallerTokenExpiring:
 		return "caller:" + c.Refs.CallerID, Signals{Attention: true}, true
 	case KindServerHealth:

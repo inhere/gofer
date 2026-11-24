@@ -52,6 +52,7 @@ export const inbox: PageDict = {
     'inbox.kind.worker_enroll': 'worker 申请',
     // 设计 2026-11-12 §1：定时任务连续失败被 gofer 自己暂停（internal/inbox/schedule_paused.go）
     'inbox.kind.schedule.paused': '定时任务已暂停',
+    'inbox.kind.seat_schedule': 'seat 定时消息待送',
     'inbox.kind.caller.token_expiring': '调用方 token 到期',
     'inbox.kind.server.health': 'server 自检故障',
     'inbox.kind.job.terminal': '任务结束',
@@ -118,6 +119,7 @@ export const inbox: PageDict = {
     'inbox.kind.mail_held': 'Held mail',
     'inbox.kind.worker_enroll': 'Worker request',
     'inbox.kind.schedule.paused': 'Schedule paused',
+    'inbox.kind.seat_schedule': 'Seat message waiting',
     'inbox.kind.caller.token_expiring': 'Caller token expiring',
     'inbox.kind.server.health': 'Server self-check failing',
     'inbox.kind.job.terminal': 'Job finished',

@@ -50,6 +50,7 @@ export const today: PageDict = {
     'today.kind.worker_enroll': 'worker 申请',
     // 设计 2026-11-12 §1：定时任务连续失败被 gofer 自己暂停（internal/inbox/schedule_paused.go）
     'today.kind.schedule.paused': '定时任务已暂停',
+    'today.kind.seat_schedule': 'seat 定时消息待送',
     'today.kind.caller.token_expiring': '调用方 token 到期',
     'today.kind.server.health': 'server 自检故障',
 
@@ -268,6 +269,7 @@ export const today: PageDict = {
     'today.kind.mail_held': 'Unassigned mail',
     'today.kind.worker_enroll': 'Worker request',
     'today.kind.schedule.paused': 'Schedule paused',
+    'today.kind.seat_schedule': 'Seat message waiting',
     'today.kind.caller.token_expiring': 'Caller token expiring',
     'today.kind.server.health': 'Server self-check failing',
 

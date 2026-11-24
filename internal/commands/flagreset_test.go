@@ -87,6 +87,7 @@ func flagGlobals() map[string]any {
 		"seatListOpts":          &seatListOpts,
 		"seatOpenOpts":          &seatOpenOpts,
 		"seatRefOpts":           &seatRefOpts,
+		"seatScheduleOpts":      &seatScheduleOpts,
 		"seatSetOpts":           &seatSetOpts,
 		"serveOpts":             &serveOpts,
 		"serveReloadOpts":       &serveReloadOpts,

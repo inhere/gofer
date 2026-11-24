@@ -35,12 +35,14 @@ type patchScheduleReq struct {
 	Precheck json.RawMessage `json:"precheck"`
 	// Context is "on" or "off".
 	Context *string `json:"context"`
+	// Target is "seat:<seat id>" or "" (back to submitting the stored request as a job).
+	Target *string `json:"target"`
 }
 
 // patchScheduleEditable are the only body keys PATCH accepts.
 var patchScheduleEditable = map[string]bool{
 	"cron": true, "at": true, "title": true, "params": true, "enabled": true, "timeout_sec": true,
-	"overlap": true, "max_runs": true, "max_failures": true, "precheck": true, "context": true,
+	"overlap": true, "max_runs": true, "max_failures": true, "precheck": true, "context": true, "target": true,
 }
 
 // patchScheduleForbiddenKeys is the identity half: sending one of these is a 400 that says
@@ -103,6 +105,31 @@ func (s *Server) handlePatchSchedule(c *rux.Context) {
 		PrecheckJSON:        rec.PrecheckJSON,
 		PrecheckFingerprint: rec.PrecheckFingerprint,
 		Context:             contextOrDefault(rec.Context),
+		Target:              rec.Target,
+	}
+
+	// ---- where it goes ----
+	if req.Target != nil {
+		var stored job.JobRequest
+		if err := json.Unmarshal([]byte(rec.RequestJSON), &stored); err != nil {
+			writeError(c, http.StatusBadRequest, "invalid schedule request", err.Error())
+			return
+		}
+		seatTarget, ok := s.seatScheduleTarget(c, *req.Target, &stored)
+		if !ok {
+			return
+		}
+		if !seatTarget {
+			if err := s.validateScheduleRequest(stored); err != nil {
+				writeError(c, scheduleStatus(err), "invalid schedule request", err.Error())
+				return
+			}
+		}
+		upd.Target = strings.TrimSpace(*req.Target)
+	}
+	if _, seatTarget := jobstore.SeatOfScheduleTarget(upd.Target); seatTarget && (req.TimeoutSec != nil || req.Precheck != nil) {
+		writeError(c, http.StatusBadRequest, "invalid schedule patch", "a seat schedule only delivers its text: timeout_sec and precheck are not supported")
+		return
 	}
 
 	// ---- when it runs ----
@@ -278,7 +305,7 @@ func readPatchScheduleReq(c *rux.Context) (patchScheduleReq, error) {
 	var req patchScheduleReq
 	raw, _ := io.ReadAll(c.Req.Body)
 	if len(bytes.TrimSpace(raw)) == 0 {
-		return req, fmt.Errorf("empty body: send at least one of cron, at, title, params, enabled, timeout_sec, overlap, max_runs, max_failures, precheck, context, precheck")
+		return req, fmt.Errorf("empty body: send at least one of cron, at, title, params, enabled, timeout_sec, overlap, max_runs, max_failures, precheck, context, target")
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil {
@@ -291,7 +318,7 @@ func readPatchScheduleReq(c *rux.Context) (patchScheduleReq, error) {
 		if what, known := patchScheduleForbiddenKeys[key]; known {
 			return req, fmt.Errorf("%s cannot be changed by PATCH: delete the schedule and create a new one", what)
 		}
-		return req, fmt.Errorf("unknown field %q (editable: cron, at, title, params, enabled, timeout_sec, overlap, max_runs, max_failures, precheck, context)", key)
+		return req, fmt.Errorf("unknown field %q (editable: cron, at, title, params, enabled, timeout_sec, overlap, max_runs, max_failures, precheck, context, target)", key)
 	}
 	if err := json.Unmarshal(raw, &req); err != nil {
 		return req, err

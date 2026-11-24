@@ -522,7 +522,7 @@ var routeDecls = map[string]routeDecl{
 	// Creating asks job.submit always and schedule.precheck only when the body carries a
 	// non-empty pre-run check (a command the server will run before every tick): the handler
 	// decides both, because only it sees the body.
-	"POST /v1/schedules":                   {user: InHandler(permDeny, authz.PermJobSubmit, authz.PermSchedulePrecheck), scope: BodyProject()},
+	"POST /v1/schedules":                   {user: InHandler(permDeny, authz.PermJobSubmit, authz.PermSchedulePrecheck, authz.PermSeatManageOthers), scope: BodyProject()},
 	"GET /v1/schedules":                    {user: Public(), scope: Filter()},
 	"POST /v1/schedules/cron-preview":      {user: Public(), scope: NoProject(), rw: ReadSafe()},
 	"GET /v1/schedules/{id}":               {user: Public(), scope: Resource("schedule")},
@@ -537,7 +537,7 @@ var routeDecls = map[string]routeDecl{
 	// enabled:true, because that turns the cron loop loose on the stored request.
 	// Setting or changing a pre-run check additionally asks schedule.precheck (only when the
 	// body carries a non-empty one; clearing it needs nothing).
-	"PATCH /v1/schedules/{id}": {user: InHandler(permDeny, authz.PermScheduleManageOthers, authz.PermJobSubmit, authz.PermSchedulePrecheck), scope: Resource("schedule")},
+	"PATCH /v1/schedules/{id}": {user: InHandler(permDeny, authz.PermScheduleManageOthers, authz.PermJobSubmit, authz.PermSchedulePrecheck, authz.PermSeatManageOthers), scope: Resource("schedule")},
 
 	// ---- plan T1.5d: plans 与 todos、work items（含 Today 首页）----
 	//
