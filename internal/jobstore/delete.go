@@ -58,6 +58,13 @@ func (s *Store) DeleteJob(jobID, actor string) error {
 		_ = tx.Rollback()
 		return fmt.Errorf("jobstore: delete events %q: %w", jobID, err)
 	}
+	// A seat that pointed at this job is emptied in the same tx, so a delete never leaves a
+	// current_ref naming nothing (the roster, `seat show` and the seat schedules then read the
+	// seat as vacant; the history keeps who sat there).
+	if err := s.clearSeatRefTx(tx, jobID, SeatActionJobDeleted, "system", s.unixNow()); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
 	if _, err := tx.Exec(`DELETE FROM jobs WHERE id=?`, jobID); err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("jobstore: delete job %q: %w", jobID, err)

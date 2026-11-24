@@ -43,6 +43,12 @@ const (
 	SeatActionArchive        = "archive"
 )
 
+// Seat binding actions recorded for a session that no longer exists.
+const (
+	// SeatActionJobDeleted empties the seat whose session was an ACP job that was deleted.
+	SeatActionJobDeleted = "job_deleted"
+)
+
 var (
 	// ErrSeatNotFound: no seat has that id.
 	ErrSeatNotFound = errors.New("seat not found")
@@ -81,6 +87,11 @@ type Seat struct {
 	// takes the seat (bind, ACP restart) is told once what the seat is, and not again. "" = the
 	// current session still owes it.
 	NoticeRef string
+	// CharterRef is the ref that already received the seat's charter as a message (an ACP job
+	// bound while it was live): binding that same job again — also through --replace and back —
+	// does not send the charter a second time. It survives unbinding and rebinding, and moves on
+	// with the next session: "" = nobody was told yet.
+	CharterRef string
 	// ArchivedAt is 0 while the seat is active.
 	ArchivedAt int64
 	CreatedAt  int64
@@ -136,12 +147,12 @@ func newSeatID() string {
 }
 
 const selectSeatCols = `SELECT id, caller_id, project_key, name, rel_cwd, purpose, charter, charter_by, kind, agent,
-  current_ref, notice_ref, COALESCE(archived_at,0), created_at, updated_at FROM seats`
+  current_ref, notice_ref, charter_ref, COALESCE(archived_at,0), created_at, updated_at FROM seats`
 
 func scanSeat(sc rowScanner) (Seat, error) {
 	var x Seat
 	err := sc.Scan(&x.ID, &x.CallerID, &x.ProjectKey, &x.Name, &x.RelCwd, &x.Purpose, &x.Charter, &x.CharterBy,
-		&x.Kind, &x.Agent, &x.CurrentRef, &x.NoticeRef, &x.ArchivedAt, &x.CreatedAt, &x.UpdatedAt)
+		&x.Kind, &x.Agent, &x.CurrentRef, &x.NoticeRef, &x.CharterRef, &x.ArchivedAt, &x.CreatedAt, &x.UpdatedAt)
 	return x, err
 }
 
@@ -153,11 +164,16 @@ func (s *Store) migrateSeats() error {
 	if err != nil {
 		return err
 	}
-	if _, ok := cols["notice_ref"]; ok {
-		return nil
-	}
-	if _, err := s.db.Exec(`ALTER TABLE seats ADD COLUMN notice_ref TEXT NOT NULL DEFAULT ''`); err != nil {
-		return fmt.Errorf("jobstore: migrate add seats.notice_ref: %w", err)
+	for _, col := range []struct{ name, ddl string }{
+		{"notice_ref", `ALTER TABLE seats ADD COLUMN notice_ref TEXT NOT NULL DEFAULT ''`},
+		{"charter_ref", `ALTER TABLE seats ADD COLUMN charter_ref TEXT NOT NULL DEFAULT ''`},
+	} {
+		if _, ok := cols[col.name]; ok {
+			continue
+		}
+		if _, err := s.db.Exec(col.ddl); err != nil {
+			return fmt.Errorf("jobstore: migrate add seats.%s: %w", col.name, err)
+		}
 	}
 	return nil
 }
@@ -560,23 +576,79 @@ func (s *Store) DeleteSeat(id string) (bool, error) {
 // writeMu; it is the one line DeleteAgentSession adds, so a deleted session never leaves a
 // dangling current_ref.
 func (s *Store) clearSeatRefLocked(ref, action string) error {
-	var cur Seat
-	cur, err := scanSeat(s.db.QueryRow(selectSeatCols+` WHERE current_ref = ?`, ref))
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("jobstore: begin clear seat ref: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := s.clearSeatRefTx(tx, ref, action, "system", s.unixNow()); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// clearSeatRefTx empties the seat ref sits in (if any) inside the caller's transaction and
+// records why. It is what deleting a row the seat points at does — a terminal session
+// (SeatActionSessionDeleted) or an ACP job (SeatActionJobDeleted) — so a deleted session or job
+// never leaves a dangling current_ref behind.
+func (s *Store) clearSeatRefTx(tx *sql.Tx, ref, action, by string, now int64) error {
+	cur, err := scanSeat(tx.QueryRow(selectSeatCols+` WHERE current_ref = ?`, ref))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
 		return fmt.Errorf("jobstore: find seat of %q: %w", ref, err)
 	}
+	return s.vacateSeatTx(tx, cur, action, by, now)
+}
+
+// ClaimSeatCharter claims the right to send the seat's charter to ref as a message: true exactly
+// once per ref, so binding the same ACP job again (also through --replace and back) does not
+// repeat it. Only a write path (the bind) may call it.
+func (s *Store) ClaimSeatCharter(id, ref string) (bool, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return false, nil
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	tx, err := s.db.Begin()
 	if err != nil {
-		return fmt.Errorf("jobstore: begin clear seat ref: %w", err)
+		return false, fmt.Errorf("jobstore: begin seat charter: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := s.vacateSeatTx(tx, cur, action, "system", s.unixNow()); err != nil {
-		return err
+	var current, told string
+	err = tx.QueryRow(`SELECT current_ref, charter_ref FROM seats WHERE id = ?`, strings.TrimSpace(id)).Scan(&current, &told)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, ErrSeatNotFound
 	}
-	return tx.Commit()
+	if err != nil {
+		return false, fmt.Errorf("jobstore: read seat %q: %w", id, err)
+	}
+	if current != ref || told == ref {
+		return false, nil
+	}
+	if _, err := tx.Exec(`UPDATE seats SET charter_ref=? WHERE id=?`, ref, strings.TrimSpace(id)); err != nil {
+		return false, fmt.Errorf("jobstore: mark seat charter %q: %w", id, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("jobstore: commit seat charter: %w", err)
+	}
+	return true, nil
+}
+
+// MarkSeatCharter records that ref already received the seat's charter by another route (the
+// opening input of a restarted ACP session), so a later bind of that same job does not repeat it.
+func (s *Store) MarkSeatCharter(id, ref string) error {
+	if strings.TrimSpace(ref) == "" {
+		return nil
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if _, err := s.db.Exec(`UPDATE seats SET charter_ref=? WHERE id=?`, strings.TrimSpace(ref), strings.TrimSpace(id)); err != nil {
+		return fmt.Errorf("jobstore: mark seat charter %q: %w", id, err)
+	}
+	return nil
 }
 
 // ListSeatBindings returns a seat's binding history, oldest first.
