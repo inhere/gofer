@@ -4362,3 +4362,72 @@ export interface WaitingItem {
   waiting_since: number
   title?: string
 }
+
+// 常驻会话（seat）的接口形状（docs/reference/http-api.md「Seats」）：座位本身 + 由坐在里面的
+// 会话推出的状态。terminal 座位坐的是终端会话 id，acp 座位坐的是 gofer 会话 job id。
+export type SeatKind = 'terminal' | 'acp'
+
+// state 只描述坐在里面的会话：none 空着 / running 在跑 / awaiting 停在等输入 / offline 离线 /
+// ended 已结束（成功或失败，接口不再区分）。
+export type SeatState = 'none' | 'running' | 'awaiting' | 'offline' | 'ended'
+
+export interface SeatView {
+  id: string
+  caller_id?: string
+  project_key: string
+  name: string
+  // 项目相对目录，"" = 项目根
+  rel_cwd?: string
+  purpose?: string
+  // 章程正文，或 @<仓库相对路径>
+  charter?: string
+  // "user" 或 "session:<sid>"：最后一次改用途 / 章程的是谁
+  charter_by: string
+  kind: SeatKind
+  agent?: string
+  // 坐在里面的会话 id（终端）或 job id（acp）；空 = 空着
+  current_ref?: string
+  archived_at?: number
+  created_at: number
+  updated_at: number
+  state: SeatState
+  // 「等我」类别（与 GET /v1/today 的 waiting 同一套）；不在等就没有这个字段
+  waiting?: string
+  unread?: boolean
+  activity_at?: number
+  // 坐在里面的会话的工作台线程：终端是 r:<sid>，acp 是那个 job 的线程
+  thread_id?: string
+}
+
+export interface SeatPatch {
+  name?: string
+  rel_cwd?: string
+  purpose?: string
+  charter?: string
+  agent?: string
+  archived?: boolean
+}
+
+// GET /v1/seats/{id}/open-plan：怎么回到这个座位（只读，不提交 job）。
+export interface SeatOpenPlan {
+  seat_id: string
+  kind: SeatKind
+  // 坐着的会话注册在哪台机器上
+  runner?: string
+  // 命令要在哪个目录里敲
+  cwd?: string
+  resumable: boolean
+  // 终端会话还在线：此刻续接会跑起第二份
+  alive?: boolean
+  // 不能续的原因：vacant / unknown_agent / no_resume_template / no_project / needs_restart
+  reason?: string
+  sh?: string
+  powershell?: string
+  new_sh?: string
+  new_powershell?: string
+  // acp 座位的工作台线程
+  thread_id?: string
+  needs_restart?: boolean
+  restarted?: boolean
+  job_id?: string
+}

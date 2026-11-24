@@ -12,6 +12,8 @@ import RunnerTag from '../RunnerTag.vue'
 import { ChevronDown, ChevronRight } from '@lucide/vue'
 import { WORKBENCH_THREAD_DRAG_TYPE } from './layoutTree'
 import { groupOfThread, groupThreads, THREAD_GROUP_ORDER, threadGroupLabelKey } from './threadGroups'
+import SeatRosterPanel from './SeatRosterPanel.vue'
+import SeatBindMenu from './SeatBindMenu.vue'
 
 const props = defineProps<{
   threads: WorkbenchThread[]
@@ -59,6 +61,12 @@ let nowTimer: ReturnType<typeof setInterval> | undefined
 onMounted(() => { nowTimer = setInterval(() => { nowSec.value = Math.floor(Date.now() / 1000) }, 60_000) })
 onUnmounted(() => { if (nowTimer) clearInterval(nowTimer) })
 const grouped = computed(() => groupThreads(props.threads, nowSec.value))
+
+// 会话行「设为常驻」成功后，名册立即重拉一次（座位状态不随 job / session 推送单独推）。
+const seatsReload = ref(0)
+function refreshSeats(): void {
+  seatsReload.value++
+}
 
 function rowsOf(group: (typeof THREAD_GROUP_ORDER)[number]): WorkbenchThread[] {
   const rows = grouped.value[group]
@@ -175,6 +183,8 @@ defineExpose({ focusSearch })
     </div>
 
     <div class="wb-sessions">
+      <!-- 常驻会话名册（计划 T5）：按项目分组，顺序只跟名字走；取数与行菜单在组件里 -->
+      <SeatRosterPanel :project="projectFilter" :reload="seatsReload" />
       <section v-for="group in THREAD_GROUP_ORDER" :key="group" class="sess-group" :data-group="group">
         <template v-if="group === 'ended'">
           <button
@@ -194,35 +204,42 @@ defineExpose({ focusSearch })
           <span class="group-count">{{ grouped[group].length }}</span>
         </button>
         <template v-if="group !== 'ended' || endedOpen">
-          <button
+          <div
             v-for="thread in rowsOf(group)"
             :key="thread.id"
-            class="sess"
-            :class="{ selected: selectedId === thread.id, 'sess--ended': group === 'ended' }"
-            type="button"
-            :aria-current="selectedId === thread.id ? 'true' : undefined"
-            draggable="true"
-            :data-thread-group="groupOfThread(thread, nowSec)"
-            @click="emit('select', thread)"
-            @dragstart="startDrag($event, thread)"
+            class="sess-row"
+            :class="{ selected: selectedId === thread.id, 'sess-row--ended': group === 'ended' }"
           >
-            <StatusGlyph :status="thread.status" :label="t(`status.${thread.status}`)" :size="13" />
-            <span class="nm" :title="thread.title">
-              <span v-if="thread.pinned" class="pinned" aria-hidden="true">⌖</span>{{ thread.title }}
-            </span>
-            <span class="tm">{{ formatRelative(thread.updated_at) }}</span>
-            <span class="ln">
-              <span class="ln-agent">{{ thread.agent || thread.kind }}</span>
-              <span v-if="thread.hosted" class="ln-hosted" data-test="thread-hosted-badge" :title="t('sessions.hosted')">{{ t('sessions.hosted') }}</span>
-              <RunnerTag :name="thread.runner" />
-              <span v-if="turnsText(thread)" class="ln-meta">{{ turnsText(thread) }}</span>
-              <span v-if="durationText(thread)" class="ln-meta">{{ durationText(thread) }}</span>
-              <span v-if="usageText(thread)" class="ln-meta">{{ usageText(thread) }}</span>
-              <span v-if="supervisionText(thread)" class="ln-meta ln-supervising">{{ supervisionText(thread) }}</span>
-              <span v-if="thread.stalled" class="ln-stalled" :title="t('workbench.stalled')">stalled</span>
-              <span v-if="thread.status === 'awaiting_input' && !thread.seen_at" class="ln-new" aria-hidden="true">●</span>
-            </span>
-          </button>
+            <button
+              class="sess"
+              :class="{ selected: selectedId === thread.id, 'sess--ended': group === 'ended' }"
+              type="button"
+              :aria-current="selectedId === thread.id ? 'true' : undefined"
+              draggable="true"
+              :data-thread-group="groupOfThread(thread, nowSec)"
+              @click="emit('select', thread)"
+              @dragstart="startDrag($event, thread)"
+            >
+              <StatusGlyph :status="thread.status" :label="t(`status.${thread.status}`)" :size="13" />
+              <span class="nm" :title="thread.title">
+                <span v-if="thread.pinned" class="pinned" aria-hidden="true">⌖</span>{{ thread.title }}
+              </span>
+              <span class="tm">{{ formatRelative(thread.updated_at) }}</span>
+              <span class="ln">
+                <span class="ln-agent">{{ thread.agent || thread.kind }}</span>
+                <span v-if="thread.hosted" class="ln-hosted" data-test="thread-hosted-badge" :title="t('sessions.hosted')">{{ t('sessions.hosted') }}</span>
+                <RunnerTag :name="thread.runner" />
+                <span v-if="turnsText(thread)" class="ln-meta">{{ turnsText(thread) }}</span>
+                <span v-if="durationText(thread)" class="ln-meta">{{ durationText(thread) }}</span>
+                <span v-if="usageText(thread)" class="ln-meta">{{ usageText(thread) }}</span>
+                <span v-if="supervisionText(thread)" class="ln-meta ln-supervising">{{ supervisionText(thread) }}</span>
+                <span v-if="thread.stalled" class="ln-stalled" :title="t('workbench.stalled')">stalled</span>
+                <span v-if="thread.status === 'awaiting_input' && !thread.seen_at" class="ln-new" aria-hidden="true">●</span>
+              </span>
+            </button>
+            <!-- 设为常驻（会话行菜单 + 「设为 X？」提示） -->
+            <SeatBindMenu :thread="thread" :active="selectedId === thread.id" @refresh="refreshSeats" />
+          </div>
         </template>
       </section>
       <p v-if="threads.length === 0" class="empty">{{ t('workbench.list.empty') }}</p>
@@ -409,6 +426,9 @@ defineExpose({ focusSearch })
   /* 图标是 14px 的 lucide svg（ui/Icon.vue）：定宽就定成它的尺寸，不再按字符宽度算 */
   width: 14px;
   flex: none;
+}
+.sess-row {
+  position: relative;
 }
 .sess {
   width: 100%;
