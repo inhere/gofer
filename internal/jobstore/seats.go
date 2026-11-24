@@ -651,6 +651,22 @@ func (s *Store) MarkSeatCharter(id, ref string) error {
 	return nil
 }
 
+// ReleaseSeatCharter gives back a claim whose message never went out (ClaimSeatCharter succeeded,
+// the say failed), so the next bind of that ref sends the charter instead of believing it was
+// already told. It only clears the claim of ref itself.
+func (s *Store) ReleaseSeatCharter(id, ref string) error {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return nil
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if _, err := s.db.Exec(`UPDATE seats SET charter_ref='' WHERE id=? AND charter_ref=?`, strings.TrimSpace(id), ref); err != nil {
+		return fmt.Errorf("jobstore: release seat charter %q: %w", id, err)
+	}
+	return nil
+}
+
 // ListSeatBindings returns a seat's binding history, oldest first.
 func (s *Store) ListSeatBindings(seatID string) ([]SeatBinding, error) {
 	rows, err := s.db.Query(`SELECT id, seat_id, action, from_ref, to_ref, by, at FROM seat_bindings WHERE seat_id=? ORDER BY id`, seatID)

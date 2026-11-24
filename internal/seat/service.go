@@ -276,6 +276,11 @@ func (s *Service) sayCharterOnBind(x jobstore.Seat, ref string) BindInfo {
 	}
 	if err := s.d.Sayer.SaySession(ref, s.bindCharterText(x)); err != nil {
 		slog.Warn("seat: send charter to the bound session failed", "seat", x.ID, "job", ref, "error", err)
+		// The message never went out, so the claim is given back: another bind (or the next
+		// start) still owes this job its charter.
+		if rerr := s.store.ReleaseSeatCharter(x.ID, ref); rerr != nil {
+			slog.Warn("seat: release charter claim failed", "seat", x.ID, "job", ref, "error", rerr)
+		}
 		return BindInfo{CharterError: err}
 	}
 	return BindInfo{CharterSent: true}

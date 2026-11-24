@@ -96,10 +96,12 @@ func TestBindSaysNoCharterToAnEndedACPJob(t *testing.T) {
 }
 
 // TestBindCharterFailureDoesNotFailTheBind: the say is best effort — a session that cannot take the
-// message leaves the bind done and reports why.
+// message leaves the bind done and reports why; the claim is given back, so a later bind tries
+// again instead of believing the job was told.
 func TestBindCharterFailureDoesNotFailTheBind(t *testing.T) {
 	e, _, _ := scheduleEnv(t)
-	e.svc.d.Sayer = errSayer{err: errors.New("session turn in progress")}
+	refusing := errSayer{err: errors.New("session turn in progress")}
+	e.svc.d.Sayer = refusing
 	x := liveACPSeat(t, e, "desk", job.StatusAwaitingInput)
 	got, info, err := e.svc.BindInfo(x.ID, "job-live", false, "user")
 	if err != nil || got.CurrentRef != "job-live" {
@@ -107,5 +109,14 @@ func TestBindCharterFailureDoesNotFailTheBind(t *testing.T) {
 	}
 	if info.CharterSent || info.CharterError == nil {
 		t.Fatalf("bind info = %+v, want the say error", info)
+	}
+	// The next bind sends it again (a session that was mid-turn is worth retrying).
+	saying := &fakeSayer{}
+	e.svc.d.Sayer = saying
+	if _, info, err := e.svc.BindInfo(x.ID, "job-live", true, "user"); err != nil || !info.CharterSent {
+		t.Fatalf("the retry must send the charter: %+v, %v", info, err)
+	}
+	if len(saying.said) != 1 {
+		t.Fatalf("said = %+v, want one message", saying.said)
 	}
 }
