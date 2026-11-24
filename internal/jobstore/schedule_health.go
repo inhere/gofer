@@ -73,6 +73,9 @@ func (s *Store) migrateScheduleHealth() error {
 		{"precheck_fingerprint", "precheck_fingerprint TEXT NOT NULL DEFAULT ''"},
 		// Cross-run context (design 2026-11-12 §3): rows that predate it stay off.
 		{"context", "context TEXT NOT NULL DEFAULT 'off'"},
+		// Delivery target (seat schedules): rows that predate it submit jobs, as before.
+		{"target", "target TEXT NOT NULL DEFAULT ''"},
+		{"last_result", "last_result TEXT NOT NULL DEFAULT ''"},
 	} {
 		if _, ok := cols[c.name]; ok {
 			continue

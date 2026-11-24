@@ -55,9 +55,15 @@ type ScheduleRecord struct {
 	PrecheckFingerprint string
 	// Context is "on" or "off": whether a run is given its schedule context (run number,
 	// previous run, prompt section). Rows written before the column read "off".
-	Context   string
-	CreatedAt int64
-	UpdatedAt int64
+	Context string
+	// Target is where a due run goes: "" = submit the stored request as a job (the original
+	// behaviour); "seat:<seat id>" = hand the schedule's text to whatever session sits in
+	// that seat at that moment (see ScheduleTargetSeat). LastResult is how the last such
+	// delivery ended ("" = none yet; the Seat* values of schedule_target.go).
+	Target     string
+	LastResult string
+	CreatedAt  int64
+	UpdatedAt  int64
 }
 
 const selectScheduleCols = `SELECT id, name, COALESCE(NULLIF(schedule_type,''),'cron'), cron_expr, request_json, enabled,
@@ -66,7 +72,8 @@ const selectScheduleCols = `SELECT id, name, COALESCE(NULLIF(schedule_type,''),'
   COALESCE(creator_caller,''), COALESCE(params_json,''), created_at, updated_at,
   COALESCE(overlap,'allow'), COALESCE(max_runs,0), COALESCE(run_count,0), COALESCE(max_failures,0),
   COALESCE(consecutive_failures,0), COALESCE(paused_reason,''),
-  COALESCE(precheck_json,''), COALESCE(precheck_fingerprint,''), COALESCE(context,'off')
+  COALESCE(precheck_json,''), COALESCE(precheck_fingerprint,''), COALESCE(context,'off'),
+  COALESCE(target,''), COALESCE(last_result,'')
   FROM schedules`
 
 func scanSchedule(sc rowScanner) (ScheduleRecord, error) {
@@ -76,7 +83,7 @@ func scanSchedule(sc rowScanner) (ScheduleRecord, error) {
 		&r.NextRunAt, &r.LastRunAt, &r.LastJobID,
 		&r.CatchUp, &r.ProjectKey, &r.TriggerToken, &r.CreatorCaller, &r.ParamsJSON, &r.CreatedAt, &r.UpdatedAt,
 		&r.Overlap, &r.MaxRuns, &r.RunCount, &r.MaxFailures, &r.ConsecutiveFailures, &r.PausedReason,
-		&r.PrecheckJSON, &r.PrecheckFingerprint, &r.Context,
+		&r.PrecheckJSON, &r.PrecheckFingerprint, &r.Context, &r.Target, &r.LastResult,
 	)
 	return r, err
 }
@@ -99,15 +106,15 @@ func (s *Store) InsertSchedule(r ScheduleRecord) error {
   (id, name, schedule_type, cron_expr, request_json, enabled, next_run_at, last_run_at,
    last_job_id, catch_up, project_key, trigger_token, creator_caller, params_json, created_at, updated_at,
    overlap, max_runs, run_count, max_failures, consecutive_failures, paused_reason,
-   precheck_json, precheck_fingerprint, context)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+   precheck_json, precheck_fingerprint, context, target, last_result)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(q,
 		r.ID, r.Name, r.ScheduleType, r.CronExpr, r.RequestJSON, r.Enabled, r.NextRunAt, r.LastRunAt,
 		r.LastJobID, r.CatchUp, r.ProjectKey, r.TriggerToken, r.CreatorCaller, r.ParamsJSON, r.CreatedAt, r.UpdatedAt,
 		r.Overlap, r.MaxRuns, r.RunCount, r.MaxFailures, r.ConsecutiveFailures, r.PausedReason,
-		r.PrecheckJSON, r.PrecheckFingerprint, r.Context,
+		r.PrecheckJSON, r.PrecheckFingerprint, r.Context, r.Target, r.LastResult,
 	); err != nil {
 		return fmt.Errorf("jobstore: insert schedule %q: %w", r.ID, err)
 	}

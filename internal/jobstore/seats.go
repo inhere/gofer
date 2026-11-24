@@ -517,6 +517,9 @@ func (s *Store) ArchiveSeat(id, by string) (Seat, error) {
 	if _, err := tx.Exec(`UPDATE seats SET archived_at=?, current_ref='', updated_at=? WHERE id=?`, now, now, cur.ID); err != nil {
 		return Seat{}, fmt.Errorf("jobstore: archive seat %q: %w", id, err)
 	}
+	if err := pauseSeatSchedulesTx(tx, cur.ID, SchedulePausedSeatArchived, now); err != nil {
+		return Seat{}, fmt.Errorf("jobstore: pause schedules of seat %q: %w", id, err)
+	}
 	if err := tx.Commit(); err != nil {
 		return Seat{}, fmt.Errorf("jobstore: commit archive seat: %w", err)
 	}
@@ -538,6 +541,9 @@ func (s *Store) DeleteSeat(id string) (bool, error) {
 		if _, err := tx.Exec(q, id); err != nil {
 			return false, fmt.Errorf("jobstore: delete seat history %q: %w", id, err)
 		}
+	}
+	if err := pauseSeatSchedulesTx(tx, id, SchedulePausedSeatDeleted, s.unixNow()); err != nil {
+		return false, fmt.Errorf("jobstore: pause schedules of seat %q: %w", id, err)
 	}
 	res, err := tx.Exec(`DELETE FROM seats WHERE id=?`, id)
 	if err != nil {
