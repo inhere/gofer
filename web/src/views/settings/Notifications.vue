@@ -507,6 +507,7 @@ onMounted(() => {
     <p v-if="notice" class="msg msg--ok" data-testid="notify-notice">{{ notice }}</p>
 
     <FormSection :title="t('settings.notify.deviceTitle')" :desc="t('settings.notify.deviceDesc')">
+      <p class="hint" data-testid="notify-local-fallback">{{ t('settings.notify.localFallback') }}</p>
       <div class="toggle-row">
         <div class="tx">
           <b>{{ t('settings.notify.thisDevice') }}</b>
