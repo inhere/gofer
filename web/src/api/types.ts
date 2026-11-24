@@ -1,4 +1,5 @@
 // 后端 API 形状（snake_case，全部 /v1 前缀）。与 internal handler 对齐。
+import type { TodayCardKind, WaitingCategory } from './today'
 
 export type JobStatus =
   | 'queued'
@@ -4344,4 +4345,20 @@ export interface JobDiagnosis {
   evidence: string[]
   unknowns: string[]
   next_steps: string[]
+}
+
+// WS `waiting` 主题的快照行（后端 internal/httpapi/waiting_push.go）：「等我」列表的压缩形，
+// 服务端只带「等你的是什么」——key、类别、卡的 kind、项目、等待起点与标题，从不带 summary 或
+// 回合正文。整个列表由 composables/useWaiting 共用一份。
+export interface WaitingItem {
+  // 列表折叠用的主体 key（"job:<id>" / "session:<id>" / "plan:<id>" ...）
+  key: string
+  // 「等我」类别 id（与 GET /v1/today 的 waiting 字段同一套）
+  category: WaitingCategory
+  // 背后的卡 kind（interaction / relay / acp_reply / review ...）
+  kind: TodayCardKind
+  project_key?: string
+  // 开始等你的时刻，unix 秒
+  waiting_since: number
+  title?: string
 }

@@ -51,6 +51,10 @@ func (s *Server) newPushHub() *pushhub.Hub {
 		return resp, nil
 	})
 	h.SetSnapshot(pushhub.TopicPending, s.pendingSnapshot)
+	// The 「等我」 list (waiting_push.go): a snapshot so the console keeps the attention list in
+	// step without polling the whole of GET /v1/today. Its payload carries the key, class,
+	// kind, project and title of each entry — never the text of a turn.
+	h.SetSnapshot(pushhub.TopicWaiting, s.waitingListSnapshot)
 	// A connection under a caller ceiling gets its own snapshot, computed for the projects its
 	// ceiling admits (gofer-7798 第二期, plan decision 2). Without a scoped source a restricted
 	// connection would get NO snapshot at all (pushhub fails closed rather than hand it the
@@ -64,6 +68,9 @@ func (s *Server) newPushHub() *pushhub.Hub {
 	})
 	h.SetScopedSnapshot(pushhub.TopicPending, func(scope func(string) bool) (any, error) {
 		return s.pendingSnapshotFor(scope)
+	})
+	h.SetScopedSnapshot(pushhub.TopicWaiting, func(scope func(string) bool) (any, error) {
+		return s.waitingListSnapshotFor(scope)
 	})
 	h.SetBackfill(func(jobID string, since int64) ([]pushhub.JobEvent, error) {
 		if s.jobs == nil {

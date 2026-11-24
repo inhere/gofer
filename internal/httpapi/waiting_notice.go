@@ -21,6 +21,11 @@ import (
 type waitNoticeHolder struct {
 	once sync.Once
 	scan *waitnotice.Scanner
+	// judged / seen are the whole 「等我」 list the last pass read (the scan's source already
+	// reads it), handed to the `waiting` push topic so one pass costs one judgement
+	// (waiting_push.go). Written by the sweeper goroutine only (Scanner serializes passes).
+	judged bool
+	seen   []inbox.Subject
 }
 
 // waitScanner returns the notice scanner; nil when this server has no metadata store.
@@ -46,13 +51,23 @@ func (s *Server) waitScanner() *waitnotice.Scanner {
 }
 
 // sweepWaitingNotices is one pass of the scan; a failure is logged and the next pass retries.
+// The pass also feeds the `waiting` push topic: the set it judged is the one the console's
+// attention list should now show.
 func (s *Server) sweepWaitingNotices() {
 	sc := s.waitScanner()
 	if sc == nil {
 		return
 	}
+	s.waitNotices.judged = false
+	s.waitNotices.seen = nil
 	if err := sc.Sweep(); err != nil {
 		slog.Warn("waiting notice sweep failed", "event", "waitnotice.sweep_failed", "err", err)
+	}
+	// A pass whose source failed judged nothing (the scanner stops before writing), so it says
+	// nothing about the push topic either; a pass that read an empty list still counts (the
+	// list emptied, which is a change).
+	if s.waitNotices.judged {
+		s.noteWaitingSubjects(s.waitNotices.seen)
 	}
 }
 
@@ -67,6 +82,10 @@ func (w waitingNoticeSource) Waiting() ([]waitnotice.Subject, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The whole list, not just the subjects this scan tells about: it is what the `waiting`
+	// push topic reports (sweepWaitingNotices).
+	w.s.waitNotices.seen = subjects
+	w.s.waitNotices.judged = true
 	var sids, jids []string
 	var keep []inbox.Subject
 	for _, sub := range subjects {

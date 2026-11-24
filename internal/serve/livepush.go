@@ -37,15 +37,20 @@ func wireLivePush(ph *pushhub.Hub, store *jobstore.Store, jobs *job.Service, wh 
 			switch ch.Kind {
 			case jobstore.ChangeJob:
 				ph.NotifyJobProject(ch.ID, ch.Status, ch.Project) // jobs inval + job:<id> status + stats
-				ws.MarkDirty()                                    // a linked job may have reached needs_review
+				// A job entering / leaving needs_review, awaiting_approval or a terminal status
+				// changes the 「等我」 list too.
+				ph.NotifyProject(pushhub.TopicWaiting, ch.Project)
+				ws.MarkDirty() // a linked job may have reached needs_review
 			case jobstore.ChangeDecision:
 				ph.NotifyProject(pushhub.TopicPending, ch.Project)
 				ph.NotifyProject(pushhub.TopicStats, ch.Project)
 				ph.NotifyProject(pushhub.TopicSessions, ch.Project) // a relay turn is a decision on a session
+				ph.NotifyProject(pushhub.TopicWaiting, ch.Project)  // an open relay turn waits for a reply
 				ws.MarkDirty()
 			case jobstore.ChangeInteraction:
 				ph.NotifyProject(pushhub.TopicPending, ch.Project)
 				ph.NotifyProject(pushhub.TopicStats, ch.Project)
+				ph.NotifyProject(pushhub.TopicWaiting, ch.Project) // a pending interaction waits for an answer
 				if ch.ID != "" {
 					// 7798 第二期: the hint carries the change's project, so a restricted connection
 					// only hears it for a job of its own projects.
@@ -55,10 +60,12 @@ func wireLivePush(ph *pushhub.Hub, store *jobstore.Store, jobs *job.Service, wh 
 			case jobstore.ChangeSession:
 				ph.NotifyProject(pushhub.TopicSessions, ch.Project)
 				ph.NotifyProject(pushhub.TopicStats, ch.Project)
-				ws.MarkDirty() // session state drives the work item's status
+				ph.NotifyProject(pushhub.TopicWaiting, ch.Project) // a session turning to waiting_reply waits for a person
+				ws.MarkDirty()                                     // session state drives the work item's status
 			case jobstore.ChangePlan:
 				ph.NotifyProject(pushhub.TopicPlans, ch.Project)
-				ws.MarkDirty() // a linked todo may have finished (completion write-back)
+				ph.NotifyProject(pushhub.TopicWaiting, ch.Project) // a blocked plan is 「计划卡住」
+				ws.MarkDirty()                                     // a linked todo may have finished (completion write-back)
 			case jobstore.ChangeWorkflow:
 				ph.NotifyProject(pushhub.TopicWorkflows, ch.Project)
 			case jobstore.ChangeWork:
@@ -66,8 +73,12 @@ func wireLivePush(ph *pushhub.Hub, store *jobstore.Store, jobs *job.Service, wh 
 			case jobstore.ChangeSchedule:
 				ph.NotifyProject(pushhub.TopicSchedules, ch.Project)
 				ph.NotifyProject(pushhub.TopicStats, ch.Project)
+				ph.NotifyProject(pushhub.TopicWaiting, ch.Project) // a schedule gofer paused waits for a person
 			case jobstore.ChangeWorkerEnrollment:
 				ph.Notify(pushhub.TopicWorkerEnrollments) // pure invalidation, no payload, no project
+			case jobstore.ChangeMail:
+				// A letter held for nobody to receive waits for a person to readdress it.
+				ph.NotifyProject(pushhub.TopicWaiting, ch.Project)
 			}
 		})
 	}

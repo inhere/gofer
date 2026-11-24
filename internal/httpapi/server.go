@@ -417,6 +417,9 @@ type Server struct {
 	seatSvc seatHolder
 	// waitNotices is the 「等我」 notice scanner, built on first use (waiting_notice.go).
 	waitNotices waitNoticeHolder
+	// waitingPush remembers the set the last 「等我」 scan judged, so the `waiting` push topic
+	// is notified only when that set really changed (waiting_push.go).
+	waitingPush waitingPushState
 	// synthesis runs explicit daily memory syntheses (nil without a job store).
 	synthesis *engine.Engine
 	// overview is the dashboard statistics wall (GET /v1/stats/overview, cached).

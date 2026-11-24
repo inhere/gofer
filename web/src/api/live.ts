@@ -21,6 +21,11 @@ export type LiveStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 
 // （需要 worker.manage，无权限的连接订阅该主题会被服务端拒绝）。
 export const TOPIC_WORKER_ENROLLMENTS = 'worker-enrollments'
 
+// TOPIC_WAITING 是「等我」列表的**快照**主题：服务端只在该集合变化时推一帧，帧里是压缩后的列表
+// （key / 类别 / kind / 项目 / 等待起点 / 标题，不含正文）。web 侧由 useWaiting（composables/）
+// 独占订阅，整个页面共用一份。
+export const TOPIC_WAITING = 'waiting'
+
 export type LiveMessage =
   | { type: 'snap'; data: unknown }
   | { type: 'evt'; data: Record<string, unknown> }

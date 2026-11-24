@@ -298,3 +298,19 @@ func TestWorkerEnrollmentChangePublishesTopic(t *testing.T) {
 		t.Errorf("an invalidation carries no payload, got %v", m)
 	}
 }
+
+// A job write also pokes the `waiting` topic: a job entering needs_review / awaiting_approval or
+// a terminal status changes the 「等我」 list (the exact set is the snapshot source's job).
+func TestJobChangePokesWaitingTopic(t *testing.T) {
+	_, st, c := liveFixture(t)
+	c.Subscribe([]string{pushhub.TopicWaiting}, nil)
+	now := time.Now().Unix()
+	if err := st.UpsertJob(jobstore.JobRecord{
+		ID: "j-w", ProjectKey: "p", Agent: "exec", Runner: "local", Status: "needs_review",
+		ResultDir: t.TempDir(), StartedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	expectFrame(t, c, "inval", pushhub.TopicWaiting)
+}
+
