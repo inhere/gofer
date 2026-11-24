@@ -564,7 +564,7 @@ var routeDecls = map[string]routeDecl{
 	// POST /v1/plans 也是 Public：design 只在 body 带 supervisor_session_id 时要求会话属于本人
 	// 或根管理员，所以那一条分支留在 handler 里（callerIsRootAdmin，等价于仅根的
 	// plan.supervise.others），路由本身不向调用方要权限。
-	"PATCH /v1/plans/{id}":              {user: InHandler(permDeny, authz.PermPlanManageOthers, authz.PermPlanSuperviseOthers, authz.PermJobSubmit), scope: Resource("plan")},
+	"PATCH /v1/plans/{id}": {user: InHandler(permDeny, authz.PermPlanManageOthers, authz.PermPlanSuperviseOthers, authz.PermJobSubmit), scope: Resource("plan")},
 	// The driver's switches (design 2026-11-16 §1, R4): on / off are plan writes, so they
 	// are plan.manage.others like pause / attach; the read is Public with the plan itself.
 	"PUT /v1/plans/{id}/driver":         {user: InHandler(permDeny, authz.PermPlanManageOthers), scope: Resource("plan")},

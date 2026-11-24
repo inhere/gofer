@@ -151,18 +151,18 @@ type Supervising struct {
 }
 
 type Thread struct {
-	ID                  string            `json:"id"`
-	Kind                ThreadKind        `json:"kind"`
-	Status              Status            `json:"status"`
-	RawStatus           string            `json:"raw_status,omitempty"`
-	Stalled             bool              `json:"stalled,omitempty"`
-	Title               string            `json:"title"`
-	ProjectKey          string            `json:"project_key"`
-	Agent               string            `json:"agent,omitempty"`
-	Runner              string            `json:"runner,omitempty"`
-	Cwd                 string            `json:"cwd,omitempty"`
-	Interactive         bool              `json:"interactive,omitempty"`
-	Resumable           bool              `json:"resumable"`
+	ID          string     `json:"id"`
+	Kind        ThreadKind `json:"kind"`
+	Status      Status     `json:"status"`
+	RawStatus   string     `json:"raw_status,omitempty"`
+	Stalled     bool       `json:"stalled,omitempty"`
+	Title       string     `json:"title"`
+	ProjectKey  string     `json:"project_key"`
+	Agent       string     `json:"agent,omitempty"`
+	Runner      string     `json:"runner,omitempty"`
+	Cwd         string     `json:"cwd,omitempty"`
+	Interactive bool       `json:"interactive,omitempty"`
+	Resumable   bool       `json:"resumable"`
 	// Hosted says this thread's session never ends for being idle and has no maximum
 	// length (job.JobRequest.Hosted, persisted in the job's session_state_json).
 	Hosted              bool              `json:"hosted,omitempty"`

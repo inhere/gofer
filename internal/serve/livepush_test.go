@@ -313,4 +313,3 @@ func TestJobChangePokesWaitingTopic(t *testing.T) {
 	}
 	expectFrame(t, c, "inval", pushhub.TopicWaiting)
 }
-

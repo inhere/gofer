@@ -520,15 +520,15 @@ func (s *Server) relayReady(c *rux.Context) bool {
 // contact). project_key may be omitted: the server then matches cwd against the
 // registered projects' host/container paths.
 type registerSessionReq struct {
-	SessionID      string `json:"session_id"`
-	Agent          string `json:"agent"`
-	ProjectKey     string `json:"project_key,omitempty"`
-	Runner         string `json:"runner,omitempty"`
-	Cwd            string `json:"cwd,omitempty"`
-	Title          string `json:"title,omitempty"`
-	Transcript     string `json:"transcript,omitempty"`
-	TmuxPane       string `json:"tmux_pane,omitempty"`
-	Event          string `json:"event,omitempty"`
+	SessionID  string `json:"session_id"`
+	Agent      string `json:"agent"`
+	ProjectKey string `json:"project_key,omitempty"`
+	Runner     string `json:"runner,omitempty"`
+	Cwd        string `json:"cwd,omitempty"`
+	Title      string `json:"title,omitempty"`
+	Transcript string `json:"transcript,omitempty"`
+	TmuxPane   string `json:"tmux_pane,omitempty"`
+	Event      string `json:"event,omitempty"`
 	// Source is the SessionStart source (startup|resume|clear|compact), which the seat notice's
 	// wording depends on; an agent that reports none leaves it empty.
 	Source         string `json:"source,omitempty"`

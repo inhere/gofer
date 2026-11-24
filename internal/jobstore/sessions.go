@@ -323,8 +323,8 @@ type AgentSession struct {
 	// from ActivityAt, so those beats cannot postpone a wake. 0 = never recorded (a row
 	// from before the column existed); ActivityAt then falls back to LastSeenAt.
 	LastActivityAt int64
-	StartedAt   int64
-	EndedAt     int64
+	StartedAt      int64
+	EndedAt        int64
 	// IdleSec is the system input idle time (seconds) the hook reported last;
 	// -1 = unknown / never reported. The relay service derives its idle auto-arm
 	// from this value (it is NOT the session's own idle time).
