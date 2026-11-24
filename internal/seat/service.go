@@ -59,6 +59,18 @@ type ACPRestarter interface {
 	RestartACP(ctx context.Context, req RestartRequest) (jobID string, err error)
 }
 
+// Messenger sends a message to a terminal session (*sessionrelay.Service satisfies it): the
+// one entry that reaches a running terminal session whatever state it is in. origin is the
+// ceiling owner behind the sender.
+type Messenger interface {
+	SendMessage(ctx context.Context, sid, text, operator, origin string) (jobstore.SessionMessage, error)
+}
+
+// Sayer queues the next prompt of a live ACP session job (*job.Service satisfies it).
+type Sayer interface {
+	SaySession(id, message string) error
+}
+
 // Deps are the collaborators of a Service. Every field is optional: a missing one disables the
 // feature that needs it (no Projects: paths are not checked and open plans have no directory).
 type Deps struct {
@@ -66,6 +78,10 @@ type Deps struct {
 	Agents    Agents
 	Waiting   WaitingLookup
 	Restarter ACPRestarter
+	// Messenger delivers a message to a terminal session; Sayer to a live ACP session job.
+	// Both are only needed by DeliverToSeat (seat schedules).
+	Messenger Messenger
+	Sayer     Sayer
 	// Lang is the language of the text injected into a session ("" = the default).
 	Lang func() i18n.Lang
 	Now  func() time.Time

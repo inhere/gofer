@@ -147,6 +147,12 @@ func (s *Service) openACP(x jobstore.Seat, plan OpenPlan) (OpenPlan, error) {
 // (it submits a job), so it is separate from OpenPlan, which only reads. A seat that is not an
 // acp seat, is vacant, or whose job still runs is jobstore.ErrSeatInvalid.
 func (s *Service) Restart(ctx context.Context, id string) (OpenPlan, error) {
+	return s.restart(ctx, id, "")
+}
+
+// restart is Restart with extra text appended to the opening input: the restarted session gets
+// it as its first turn, so the caller never sends it a second time.
+func (s *Service) restart(ctx context.Context, id, extra string) (OpenPlan, error) {
 	x, err := s.Get(id)
 	if err != nil {
 		return OpenPlan{}, err
@@ -172,7 +178,7 @@ func (s *Service) Restart(ctx context.Context, id string) (OpenPlan, error) {
 	jobID, err := s.d.Restarter.RestartACP(ctx, RestartRequest{
 		ProjectKey: x.ProjectKey, Agent: agentKey, Runner: rec.Runner, RelCwd: x.RelCwd,
 		SessionID: rec.SessionID, FromJobID: rec.ID, CallerID: x.CallerID,
-		Prompt: s.restartPrompt(x, agentKey),
+		Prompt: appendOpening(s.restartPrompt(x, agentKey), extra),
 	})
 	if err != nil {
 		return OpenPlan{}, err
@@ -182,6 +188,14 @@ func (s *Service) Restart(ctx context.Context, id string) (OpenPlan, error) {
 	}
 	plan.Restarted, plan.NeedsRestart, plan.Reason, plan.Resumable, plan.JobID = true, false, "", true, jobID
 	return plan, nil
+}
+
+// appendOpening adds extra to the opening input of a restarted session.
+func appendOpening(prompt, extra string) string {
+	if strings.TrimSpace(extra) == "" {
+		return prompt
+	}
+	return prompt + "\n\n" + extra
 }
 
 // restartPrompt is the opening input of a restarted ACP session: when the agent loads the old
