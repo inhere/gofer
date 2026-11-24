@@ -84,6 +84,9 @@ type authzCaseEnv struct {
 	// The schedule-domain resource (plan T1.5e): the schedule of owner. Its creator is
 	// recorded inside the stored request rather than in a column.
 	scheduleID string
+	// strangerSeatID is an active seat of a stranger in project self: a schedule that targets it
+	// asks seat.manage.others of a caller that is neither its owner nor the case owner.
+	strangerSeatID string
 
 	// The tunnel-domain resources (plan T1.5f): the external forwarder registration of owner
 	// and the hosted forwarder owner started.
@@ -523,7 +526,16 @@ var scheduleAuthzCases = []authzCase{
 			"request":  map[string]any{"project_key": "self", "agent": "exec", "runner": "local", "cmd": []string{"go", "version"}, "cwd": "."},
 			"precheck": map[string]any{"argv": []string{"true"}},
 		}}
-	}},
+	},
+		// A seat target is checked after job.submit, so only a caller that holds the declared
+		// permissions reaches the seat rule: the own half aims one at someone else's seat.
+		extraOwn: []func(e *authzCaseEnv) caseReq{func(e *authzCaseEnv) caseReq {
+			return caseReq{http.MethodPost, "/v1/schedules", map[string]any{
+				"name": "case-create-seat", "cron": "*/5 * * * *",
+				"target":  "seat:" + e.strangerSeat(),
+				"request": map[string]any{"project_key": "self", "prompt": "hello"},
+			}}
+		}}},
 	{key: "DELETE /v1/schedules/{id}", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodDelete, "/v1/schedules/" + e.schedule(), nil}
 	}},
@@ -563,7 +575,14 @@ var scheduleAuthzCases = []authzCase{
 		return caseReq{http.MethodPatch, "/v1/schedules/" + e.schedule(), map[string]any{
 			"enabled": true, "precheck": map[string]any{"argv": []string{"true"}},
 		}}
-	}},
+	},
+		// Re-targeting to a seat asks seat.manage.others for someone else's seat, after the
+		// manage rule has let the caller edit the schedule.
+		extraOwn: []func(e *authzCaseEnv) caseReq{func(e *authzCaseEnv) caseReq {
+			return caseReq{http.MethodPatch, "/v1/schedules/" + e.schedule(), map[string]any{
+				"target": "seat:" + e.strangerSeat(),
+			}}
+		}}},
 }
 
 // tunnelAuthzCases is the reverse-case registry of plan T1.5f: the tunnel endpoint (which
@@ -1337,6 +1356,21 @@ func (e *authzCaseEnv) schedule() string {
 		}
 	}
 	return e.scheduleID
+}
+
+// strangerSeat seeds one active seat of a stranger in project self — a seat the caller does not
+// own, so using it as a schedule target decides seat.manage.others — and returns its id.
+func (e *authzCaseEnv) strangerSeat() string {
+	if e.strangerSeatID == "" {
+		x, err := e.s.jobs.Meta().CreateSeat(jobstore.Seat{
+			CallerID: "stranger", ProjectKey: "self", Name: "case-seat-" + e.job.ID,
+		})
+		if err != nil {
+			e.t.Fatalf("create the stranger seat: %v", err)
+		}
+		e.strangerSeatID = x.ID
+	}
+	return e.strangerSeatID
 }
 
 // forwarder registers one external forwarder process of e.owner (with the stop capability)
