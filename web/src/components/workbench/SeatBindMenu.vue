@@ -8,6 +8,8 @@ import { computed, ref, watch } from 'vue'
 import type { SeatView, WorkbenchThread } from '../../api/types'
 import { bindSeat, seatCandidates } from '../../api/seats'
 import { t } from '../../i18n'
+import Icon from '../../ui/Icon.vue'
+import { Ellipsis } from '@lucide/vue'
 import {
   isSeatArchived,
   isSessionThread,
@@ -111,7 +113,7 @@ function dismissHint(): void {
       :data-test="`seat-bind-${thread.id}`"
       @click.stop="toggleMenu"
     >
-      ⋯
+      <Icon :icon="Ellipsis" size="sm" />
     </button>
     <div v-if="open" class="bind-menu" role="menu" @click.stop>
       <p class="bind-head">{{ t('workbench.seat.bind') }}</p>

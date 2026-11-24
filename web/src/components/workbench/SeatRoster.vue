@@ -9,7 +9,7 @@ import { useRouter } from 'vue-router'
 import type { SeatPatch, SeatOpenPlan, SeatView } from '../../api/types'
 import { t } from '../../i18n'
 import Icon from '../../ui/Icon.vue'
-import { ChevronDown, ChevronRight, Copy } from '@lucide/vue'
+import { ChevronDown, ChevronRight, Copy, Ellipsis } from '@lucide/vue'
 import { copyText } from '../../utils/sessionMessaging'
 import {
   charterBySession,
@@ -68,11 +68,31 @@ function toggleMenu(seat: SeatView): void {
 }
 
 function openThread(seat: SeatView): void {
-  const thread = seatThreadID(seat)
   menuSeatID.value = ''
-  if (!thread) return
-  // 与「等我」弹卡同一条深链：工作台自己定位并补拉打开的线程。
+  // ACP 位置以 open-plan 给的线程为准（会话重启过时 seat 行上的可能还没刷新）；
+  // 终端位置直接由 seat 自己给出 r:<sid>。
+  const thread = seatThreadID(seat)
+  if (thread) {
+    openRoute(thread)
+    return
+  }
+  if (seat.kind !== 'acp') return
+  void props
+    .fetchOpenPlan(seat.id)
+    .then((plan) => { if (plan.thread_id) openRoute(plan.thread_id) })
+    .catch(() => { notice.value = t('workbench.seat.reason.unknown') })
+}
+
+// 与「等我」弹卡同一条深链：工作台自己定位并补拉打开的线程。
+function openRoute(thread: string): void {
   void router.push({ path: '/workbench', query: { thread } })
+}
+
+// openPlanThread 是「在终端继续」弹窗里的「打开线程」（ACP 位置没有可复制的命令时）。
+function openPlanThread(): void {
+  const thread = continuing.value?.result.threadID ?? ''
+  continuing.value = null
+  if (thread) openRoute(thread)
 }
 
 async function continueHere(seat: SeatView): Promise<void> {
@@ -177,7 +197,7 @@ function reasonText(reason: string): string {
             :data-test="`seat-menu-${seat.name}`"
             @click.stop="toggleMenu(seat)"
           >
-            ⋯
+            <Icon :icon="Ellipsis" size="sm" />
           </button>
           <div v-if="menuSeatID === seat.id" class="seat-menu" role="menu">
             <button class="menu-item" type="button" role="menuitem" :disabled="busy" @click="continueHere(seat)">
@@ -239,6 +259,14 @@ function reasonText(reason: string): string {
           {{ reasonText(continuing.result.command.reason) || t('workbench.seat.reason.unknown') }}
         </p>
         <div class="sheet-actions">
+          <button
+            v-if="continuing.result.threadID"
+            class="btn sm primary"
+            type="button"
+            @click="openPlanThread"
+          >
+            {{ t('workbench.seat.openThread') }}
+          </button>
           <button class="btn sm" type="button" @click="continuing = null">{{ t('workbench.seat.close') }}</button>
         </div>
       </template>
