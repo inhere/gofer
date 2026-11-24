@@ -259,6 +259,9 @@ type ScheduleUpdate struct {
 	PrecheckFingerprint string
 	// Context replaces the context mode ("on" | "off"); "" leaves it as it is.
 	Context string
+	// Target replaces the delivery target (the handler passes the current value through when
+	// the PATCH leaves it unset); the last result is cleared when it changes.
+	Target string
 }
 
 // UpdateSchedule writes a schedule's mutable fields in one statement.
@@ -272,10 +275,11 @@ func (s *Store) UpdateSchedule(id string, u ScheduleUpdate) error {
    consecutive_failures = CASE WHEN enabled = 0 AND ? = 1 THEN 0 ELSE consecutive_failures END,
    paused_reason = CASE WHEN ? = 1 OR enabled = 1 THEN '' ELSE paused_reason END,
    precheck_json = ?, precheck_fingerprint = ?, context = COALESCE(NULLIF(?, ''), context),
+   last_result = CASE WHEN target <> ? THEN '' ELSE last_result END, target = ?,
    enabled = ? WHERE id = ?`,
 		u.Name, u.ScheduleType, u.CronExpr, u.RequestJSON, u.ParamsJSON, u.NextRunAt,
 		u.Overlap, u.MaxRuns, u.MaxFailures, time.Now().Unix(),
-		u.Enabled, u.Enabled, u.PrecheckJSON, u.PrecheckFingerprint, u.Context, u.Enabled, id,
+		u.Enabled, u.Enabled, u.PrecheckJSON, u.PrecheckFingerprint, u.Context, u.Target, u.Target, u.Enabled, id,
 	); err != nil {
 		return fmt.Errorf("jobstore: update schedule %q: %w", id, err)
 	}

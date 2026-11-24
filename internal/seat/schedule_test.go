@@ -5,9 +5,11 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/sessionrelay"
 )
 
 type sentMsg struct{ sid, text, operator, origin string }
@@ -159,5 +161,41 @@ func TestDeliverToSeatACPEndedRestartsWithTextOnce(t *testing.T) {
 	}
 	if got, _ := e.svc.Get(x.ID); got.CurrentRef != "job-new" {
 		t.Fatalf("the seat follows the restarted job: %q", got.CurrentRef)
+	}
+}
+
+// Through the real session relay: the delivered message is a row of the session's outbox, with
+// the schedule's text behind the system prefix, and the open turn it answered is settled.
+func TestDeliverToSeatStoresTheMessageInTheSessionOutbox(t *testing.T) {
+	e := newEnv(t)
+	relay := sessionrelay.NewService(e.st)
+	relay.ConfigureMessaging(true, "", time.Second, 0)
+	e.svc.d.Messenger = relay
+	if _, err := relay.Register(sessionrelay.RegisterInput{
+		SessionID: "s-rel", Agent: "claude", ProjectKey: "proj", Runner: "server", Cwd: "/d/work/proj", CallerID: "u1", Event: sessionrelay.EventSessionStart,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := relay.SetRelayMode("s-rel", jobstore.RelayModeOn); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := relay.OpenTurn("s-rel", "what next?", 60, false); err != nil {
+		t.Fatal(err)
+	}
+	x := e.seat(t, "desk", "")
+	if _, err := e.svc.Bind(x.ID, "s-rel", false, "user"); err != nil {
+		t.Fatal(err)
+	}
+	res, err := e.svc.DeliverToSeat(context.Background(), deliverReq(x.ID))
+	if err != nil || res.Outcome != jobstore.ScheduleResultDelivered {
+		t.Fatalf("res = %+v, %v", res, err)
+	}
+	msgs, err := e.st.ReadSessionOutbox("s-rel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := msgs[len(msgs)-1]
+	if last.Status != jobstore.SessionMessageDelivered || !strings.Contains(last.Text, "weekly report please") || !strings.Contains(last.Operator, "schedule:sch-1") {
+		t.Fatalf("outbox = %+v", msgs)
 	}
 }

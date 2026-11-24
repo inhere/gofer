@@ -298,11 +298,11 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `GET` | `/v1/runners` | `Public` | — | — | `NoProject` | 读 |
 | `GET` | `/v1/runners/{name}/messenger/agents` | `Public` | — | — | `NoProject` | 读 |
 | `GET` | `/v1/schedules` | `Public` | — | — | `Filter` | 读 |
-| `POST` | `/v1/schedules` | `InHandler(deny)` | `job.submit`、`schedule.precheck` | — | `BodyProject` | 写 |
+| `POST` | `/v1/schedules` | `InHandler(deny)` | `job.submit`、`schedule.precheck`、`seat.manage.others` | — | `BodyProject` | 写 |
 | `POST` | `/v1/schedules/cron-preview` | `Public` | — | — | `NoProject` | 读（ReadSafe） |
 | `DELETE` | `/v1/schedules/{id}` | `InHandler(deny)` | `schedule.manage.others` | — | `Resource(schedule)` | 写 |
 | `GET` | `/v1/schedules/{id}` | `Public` | — | — | `Resource(schedule)` | 读 |
-| `PATCH` | `/v1/schedules/{id}` | `InHandler(deny)` | `schedule.manage.others`、`job.submit`、`schedule.precheck` | — | `Resource(schedule)` | 写 |
+| `PATCH` | `/v1/schedules/{id}` | `InHandler(deny)` | `schedule.manage.others`、`job.submit`、`schedule.precheck`、`seat.manage.others` | — | `Resource(schedule)` | 写 |
 | `POST` | `/v1/schedules/{id}/disable` | `InHandler(deny)` | `schedule.manage.others` | — | `Resource(schedule)` | 写 |
 | `POST` | `/v1/schedules/{id}/enable` | `InHandler(deny)` | `schedule.manage.others`、`job.submit` | — | `Resource(schedule)` | 写 |
 | `GET` | `/v1/schedules/{id}/events` | `Public` | — | — | `Resource(schedule)` | 读 |
