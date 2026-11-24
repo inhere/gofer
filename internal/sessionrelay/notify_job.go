@@ -39,11 +39,16 @@ const JobDoneTag = msgprefix.JobDoneOpen
 // prefixed "[来自 web，<user>] …", a notice as gofer itself ("[gofer · <type>] …").
 const OperatorGofer = "gofer"
 
+// ScheduleOperatorPrefix starts the operator of a seat schedule's message
+// ("schedule:<schedule id>"): a timer is gofer speaking, never a person.
+const ScheduleOperatorPrefix = "schedule:"
+
 // IsSystemNoticeOperator reports whether an operator label means "gofer is
 // speaking" rather than a person: the message then goes out as a system notice
 // (msgprefix's system prefixes) and never as a web message.
 func IsSystemNoticeOperator(operator string) bool {
-	return strings.TrimSpace(operator) == OperatorGofer
+	op := strings.TrimSpace(operator)
+	return op == OperatorGofer || strings.HasPrefix(op, ScheduleOperatorPrefix)
 }
 
 // SystemNoticeLine renders the delivered line of a gofer notice: a text that
