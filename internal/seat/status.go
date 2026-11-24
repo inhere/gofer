@@ -15,12 +15,16 @@ const (
 	StateAwaiting = "awaiting"
 	StateOffline  = "offline"
 	StateEnded    = "ended"
+	// StateFailed is an ACP seat whose job ended on a failure (failed / timeout / any other
+	// end that is about the work not holding up): the session is gone like StateEnded, but
+	// the roster can show that it did not finish. Terminal sessions never read as failed.
+	StateFailed = "failed"
 )
 
 // Status is a seat with what is derived from the session sitting in it.
 type Status struct {
 	Seat jobstore.Seat
-	// State is the sitting session's state: none / running / awaiting / offline / ended.
+	// State is the sitting session's state: none / running / awaiting / offline / ended / failed.
 	State string
 	// Waiting is the category WaitingLookup gave when the session is waiting for the viewer
 	// ("" = not waiting).
@@ -83,7 +87,7 @@ func (s *Service) Statuses(viewer string, seats []jobstore.Seat) ([]Status, erro
 		case x.CurrentRef == "":
 		case x.Kind == jobstore.SeatKindACP:
 			if rec, ok := jobs[x.CurrentRef]; ok {
-				st.State = acpState(rec.Status)
+				st.State = acpState(rec)
 				st.ActivityAt = max(rec.UpdatedAt, rec.EndedAt, rec.StartedAt)
 				st.ThreadID = workbench.JobThreadID(rec.ID, rec.SessionID)
 			}
@@ -126,13 +130,22 @@ func terminalState(state string) string {
 	}
 }
 
-func acpState(status string) string {
+// acpState maps the job sitting in an ACP seat to the seat's state. A finished job reads as
+// failed when its end was about the work not holding up — failed / timeout, a budget or agent
+// stop that never answered, a human's rejection — which job.TerminationReasonOf decides; done,
+// cancelled and a session's own end (idle / max session time) stay ended.
+func acpState(rec jobstore.JobRecord) string {
 	switch {
-	case job.IsTerminal(status):
-		return StateEnded
-	case status == job.StatusAwaitingInput:
-		return StateAwaiting
-	default:
+	case !job.IsTerminal(rec.Status):
+		if rec.Status == job.StatusAwaitingInput {
+			return StateAwaiting
+		}
 		return StateRunning
+	}
+	switch job.TerminationReasonOf(rec) {
+	case job.TerminationOK, job.TerminationCancelled, job.TerminationSessionEnded:
+		return StateEnded
+	default:
+		return StateFailed
 	}
 }
