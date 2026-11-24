@@ -106,6 +106,45 @@ func TestSeatLifecycleOverHTTP(t *testing.T) {
 	seatJSON(t, s, ceilTokPlain, "", "GET", "/v1/seats/"+a.ID, nil, 404)
 }
 
+// A seat's history is its owner's (and seat.manage.others holders'): every binding and every
+// purpose / charter revision, oldest first; an unknown seat is 404.
+func TestSeatHistoryOverHTTP(t *testing.T) {
+	s := newCeilingServer(t)
+	x := seatJSON(t, s, ceilTokPlain, "", "POST", "/v1/seats", map[string]any{"project_key": "p1", "name": "dev", "purpose": "v1", "charter": "be careful"}, 200)
+	seatJSON(t, s, ceilTokPlain, "", "PATCH", "/v1/seats/"+x.ID, map[string]any{"purpose": "v2", "charter": "be faster"}, 200)
+	registerSeatSession(t, s, "sess-h", "p1", "plain")
+	seatJSON(t, s, ceilTokPlain, "", "POST", "/v1/seats/"+x.ID+"/bind", map[string]any{"ref": "sess-h"}, 200)
+
+	status, resp := seatReq(t, s, ceilTokPlain, "", "GET", "/v1/seats/"+x.ID+"/history", nil)
+	if status != http.StatusOK {
+		t.Fatalf("history = %d %s", status, resp)
+	}
+	var got seatHistoryView
+	if err := json.Unmarshal([]byte(resp), &got); err != nil {
+		t.Fatalf("decode %s: %v", resp, err)
+	}
+	if len(got.Charter) != 2 || got.Charter[0].Purpose != "v1" || got.Charter[1].Purpose != "v2" || got.Charter[0].By != "user" {
+		t.Fatalf("charter history = %+v", got.Charter)
+	}
+	if len(got.Bindings) != 1 || got.Bindings[0].ToRef != "sess-h" || got.Bindings[0].By != "user" || got.Bindings[0].At == 0 {
+		t.Fatalf("binding history = %+v", got.Bindings)
+	}
+
+	// someone else's seat needs seat.manage.others, exactly like GET /v1/seats/{id}
+	s.setDBGrants(nil)
+	if status, resp := seatReq(t, s, ceilTokLim, "", "GET", "/v1/seats/"+x.ID+"/history", nil); status != http.StatusForbidden || !strings.Contains(resp, "seat.manage.others") {
+		t.Fatalf("history of another caller's seat = %d %s, want 403 naming the permission", status, resp)
+	}
+	grantAll(s)
+	if status, resp := seatReq(t, s, ceilTokLim, "", "GET", "/v1/seats/"+x.ID+"/history", nil); status != http.StatusOK {
+		t.Fatalf("history with the permission = %d %s", status, resp)
+	}
+	// an unknown seat is 404, not an empty history
+	if status, resp := seatReq(t, s, ceilTokPlain, "", "GET", "/v1/seats/seat-none/history", nil); status != http.StatusNotFound {
+		t.Fatalf("history of an unknown seat = %d %s, want 404", status, resp)
+	}
+}
+
 func TestSeatListFollowsCeilingAndPermission(t *testing.T) {
 	s := newCeilingServer(t)
 	in := seedCeilingWorld(t, s, "p1")

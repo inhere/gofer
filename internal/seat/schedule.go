@@ -60,7 +60,8 @@ func (s *Service) deliverACP(ctx context.Context, x jobstore.Seat, st Status, te
 	switch st.State {
 	case StateNone:
 		return job.SeatDeliverResult{Outcome: jobstore.ScheduleResultOffline}, nil
-	case StateEnded:
+	case StateEnded, StateFailed:
+		// Done or failed: either way the session is gone, so the text opens a restarted one.
 		plan, err := s.restart(ctx, x.ID, text)
 		if err != nil {
 			return job.SeatDeliverResult{}, err

@@ -164,6 +164,20 @@ func TestDeliverToSeatACPEndedRestartsWithTextOnce(t *testing.T) {
 	}
 }
 
+// A failed ACP job is gone just like an ended one: the schedule restarts the session instead
+// of saying into a dead job.
+func TestDeliverToSeatACPFailedRestartsWithText(t *testing.T) {
+	e, _, sy := scheduleEnv(t)
+	x := acpSeat(t, e, job.StatusFailed)
+	res, err := e.svc.DeliverToSeat(context.Background(), deliverReq(x.ID))
+	if err != nil || res.Outcome != jobstore.ScheduleResultRestarted || res.JobID != "job-new" {
+		t.Fatalf("res = %+v, %v", res, err)
+	}
+	if len(sy.said) != 0 || len(e.rs.calls) != 1 {
+		t.Fatalf("a failed session must be restarted, never said into: said=%+v restarts=%+v", sy.said, e.rs.calls)
+	}
+}
+
 // Through the real session relay: the delivered message is a row of the session's outbox, with
 // the schedule's text behind the system prefix, and the open turn it answered is settled.
 func TestDeliverToSeatStoresTheMessageInTheSessionOutbox(t *testing.T) {

@@ -9,7 +9,9 @@ import SeatRoster from './SeatRoster.vue'
 import {
   canOpenThread,
   charterBySession,
+  charterHistoryRows,
   detectShell,
+  foldText,
   groupSeats,
   isSessionThread,
   readDismissedSeats,
@@ -48,7 +50,7 @@ describe('seat waiting key', () => {
 })
 
 describe('seat status dot', () => {
-  const states: SeatView['state'][] = ['none', 'running', 'awaiting', 'offline', 'ended']
+  const states: SeatView['state'][] = ['none', 'running', 'awaiting', 'offline', 'ended', 'failed']
 
   it('maps every state to exactly one dot', () => {
     const got = Object.fromEntries(states.map((state) => [state, seatDot(seat({ state }), new Set())]))
@@ -58,6 +60,7 @@ describe('seat status dot', () => {
       awaiting: 'awaiting',
       offline: 'offline',
       ended: 'ended',
+      failed: 'failed',
     } satisfies Record<SeatView['state'], SeatDot>)
   })
 
@@ -211,6 +214,29 @@ describe('the “make it X?” hint on a session row', () => {
   })
 })
 
+describe('the charter history of a seat', () => {
+  const rows = [
+    { id: 1, purpose: 'v1', charter: 'be careful', by: 'user', at: 100 },
+    { id: 2, purpose: 'v2', charter: 'line one\n\n  line   two', by: 'session:sid-w', at: 200 },
+    { id: 3, purpose: 'v3', charter: '', by: 'user', at: 200 },
+  ]
+
+  it('lists the newest revision first and folds each body to one line', () => {
+    const got = charterHistoryRows(rows)
+    expect(got.map((r) => r.id)).toEqual([3, 2, 1])
+    expect(got[1]).toMatchObject({ by: 'session:sid-w', preview: 'line one line two', body: 'line one\n\n  line   two' })
+    // 没有章程正文时用用途当预览，空的给空串（界面显示「（空）」）
+    expect(got[0].preview).toBe('v3')
+    expect(charterHistoryRows(undefined)).toEqual([])
+  })
+
+  it('truncates a long preview with an ellipsis', () => {
+    expect(foldText('a'.repeat(10), 5)).toBe('aaaa…')
+    expect(foldText('  short  ', 60)).toBe('short')
+    expect(foldText('multi\nline')).toBe('multi line')
+  })
+})
+
 describe('the roster component', () => {
   // 行上「打开线程」走 router.push；SSR 里装一个 memory router 就够（不实际导航）。
   function render(props: Record<string, unknown>): Promise<string> {
@@ -219,6 +245,7 @@ describe('the roster component', () => {
         h(SeatRoster as never, {
           fetchOpenPlan: async () => ({}),
           patchSeat: async () => ({}),
+          fetchHistory: async () => ({}),
           waitingKeys: [],
           seats: [],
           ...props,
@@ -250,6 +277,16 @@ describe('the roster component', () => {
     const waiting = await render({ seats, waitingKeys: ['session:sid-1'] })
     expect(waiting).toContain('data-state="waiting"')
     expect(waiting).toContain('data-test="seat-row-api"')
+  })
+
+  it('shows a failed acp position as its own dot, apart from an ended one', async () => {
+    const rows = [
+      seat({ id: 'f', name: 'weekly', kind: 'acp', current_ref: 'job-1', state: 'failed' }),
+      seat({ id: 'e', name: 'api', kind: 'acp', current_ref: 'job-2', state: 'ended' }),
+    ]
+    const html = await render({ seats: rows })
+    expect(html).toContain('data-state="failed"')
+    expect(html).toContain('data-state="ended"')
   })
 
   it('respects the project filter and shows nothing when every seat is filtered out', async () => {

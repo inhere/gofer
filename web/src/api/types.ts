@@ -4368,8 +4368,8 @@ export interface WaitingItem {
 export type SeatKind = 'terminal' | 'acp'
 
 // state 只描述坐在里面的会话：none 空着 / running 在跑 / awaiting 停在等输入 / offline 离线 /
-// ended 已结束（成功或失败，接口不再区分）。
-export type SeatState = 'none' | 'running' | 'awaiting' | 'offline' | 'ended'
+// ended 已结束（正常结束）/ failed 已结束且 job 以失败类收尾（只有 acp 位置会是 failed）。
+export type SeatState = 'none' | 'running' | 'awaiting' | 'offline' | 'ended' | 'failed'
 
 export interface SeatView {
   id: string
@@ -4406,6 +4406,31 @@ export interface SeatPatch {
   charter?: string
   agent?: string
   archived?: boolean
+}
+
+// GET /v1/seats/{id}/history：位置的绑定记录与用途 / 章程的每次修改，旧的在前。
+// 一行绑定是「谁在什么时候把哪个会话 / job 放进来 / 放开」（action 是 bind / unbind 等）。
+export interface SeatBindingRow {
+  id: number
+  action: string
+  from_ref?: string
+  to_ref?: string
+  // "user" 或 "session:<sid>"
+  by: string
+  at: number
+}
+
+export interface SeatCharterRow {
+  id: number
+  purpose?: string
+  charter?: string
+  by: string
+  at: number
+}
+
+export interface SeatHistory {
+  bindings?: SeatBindingRow[]
+  charter?: SeatCharterRow[]
 }
 
 // GET /v1/seats/{id}/open-plan：怎么回到这个座位（只读，不提交 job）。

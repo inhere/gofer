@@ -260,6 +260,73 @@ func TestOpenPlanRestartsEndedACPSession(t *testing.T) {
 	}
 }
 
+// An ACP seat reads failed when its job ended on a failure (failed / timeout / any end that is
+// about the work not holding up) and ended when it ended normally (done / cancelled / the
+// session's own idle end); a terminal session never reads failed.
+func TestACPSeatStateMapsEveryJobTerminalStatus(t *testing.T) {
+	e := newEnv(t)
+	cases := []struct {
+		name string
+		rec  jobstore.JobRecord
+		want string
+	}{
+		{"done", jobstore.JobRecord{Status: job.StatusDone}, StateEnded},
+		{"cancelled", jobstore.JobRecord{Status: job.StatusCancelled}, StateEnded},
+		{"session-idle-end", jobstore.JobRecord{Status: job.StatusCancelled, SessionStateJSON: `{"session_end_reason":"idle_timeout"}`}, StateEnded},
+		{"failed", jobstore.JobRecord{Status: job.StatusFailed}, StateFailed},
+		{"timeout", jobstore.JobRecord{Status: job.StatusTimeout}, StateFailed},
+		{"rejected", jobstore.JobRecord{Status: job.StatusRejected}, StateFailed},
+		{"range-error", jobstore.JobRecord{Status: job.StatusFailed, Error: "range: out of context"}, StateFailed},
+		{"budget-stop", jobstore.JobRecord{Status: job.StatusDone, WrapUp: "max_tokens"}, StateFailed},
+		{"running", jobstore.JobRecord{Status: job.StatusRunning}, StateRunning},
+		{"awaiting-input", jobstore.JobRecord{Status: job.StatusAwaitingInput}, StateAwaiting},
+	}
+	for _, c := range cases {
+		id := "job-" + c.name
+		rec := c.rec
+		rec.ID, rec.ProjectKey, rec.Agent, rec.Runner = id, "proj", "acp", "local"
+		rec.Cwd, rec.ResultDir, rec.RequestJSON = ".", "/r", "{}"
+		rec.StartedAt, rec.EndedAt, rec.UpdatedAt = 1, 2, 2
+		if err := e.st.UpsertJob(rec); err != nil {
+			t.Fatal(err)
+		}
+		x, err := e.svc.Create(CreateInput{CallerID: "u1", ProjectKey: "proj", Name: "acp-" + c.name, Kind: jobstore.SeatKindACP, Agent: "acp"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.svc.Bind(x.ID, id, false, "user"); err != nil {
+			t.Fatal(err)
+		}
+		if x, err = e.svc.Get(x.ID); err != nil {
+			t.Fatal(err)
+		}
+		got, err := e.svc.Status("u1", x)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.State != c.want {
+			t.Fatalf("%s job status %q reads %q, want %q", c.name, c.rec.Status, got.State, c.want)
+		}
+	}
+
+	// a terminal session keeps the old mapping: an ended session is ended, never failed
+	y := e.seat(t, "term", "")
+	e.session(t, "s-term", "/d/work/proj")
+	if _, err := e.svc.Bind(y.ID, "s-term", false, "user"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.st.SetSessionState("s-term", jobstore.SessionEnded); err != nil {
+		t.Fatal(err)
+	}
+	y, err := e.svc.Get(y.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := e.svc.Status("u1", y); err != nil || got.State != StateEnded {
+		t.Fatalf("an ended terminal session reads %q (err %v), want %q", got.State, err, StateEnded)
+	}
+}
+
 func TestStatusesBatchWaitingAndUnread(t *testing.T) {
 	e := newEnv(t)
 	a, b, c := e.seat(t, "a", ""), e.seat(t, "b", ""), e.seat(t, "c", "")
