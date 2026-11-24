@@ -1,10 +1,38 @@
 import { describe, expect, it } from 'vitest'
-import { botPolicy, globalForm, globalPatch, hostsWithBot, testResultMessage } from './notifyPolicy'
+import type { NotificationView } from '../../api/types'
+import { botPolicy, globalForm, globalPatch, hostsWithBot, reminderAfterMinValue, testResultMessage } from './notifyPolicy'
+
+// view 是 GET /v1/config 的 server.notification 视图（只列出本文件用到的成员）。
+function view(over: Partial<NotificationView>): NotificationView {
+  return {
+    webhooks: [],
+    max_text_runes: 0,
+    allow_hosts: [],
+    allow_http: false,
+    max_attempts: 0,
+    enabled: true,
+    session_reply_delay_sec: 120,
+    reminder_after_min: 30,
+    reminder_after_min_default: true,
+    ...over,
+  }
+}
 
 describe('notification policy helpers', () => {
   it('preserves global defaults and emits only notification members', () => {
-    const form = globalForm({ enabled: false, allow_hosts: ['a.test'], allow_http: true, max_attempts: 4, max_text_runes: 200, session_reply_delay_sec: 9, webhooks: [] })
-    expect(globalPatch(form)).toEqual({ notification: { enabled: false, allow_hosts: ['a.test'], allow_http: true, max_attempts: 4, max_text_runes: 200, session_reply_delay_sec: 9 } })
+    const form = globalForm(view({ enabled: false, allow_hosts: ['a.test'], allow_http: true, max_attempts: 4, max_text_runes: 200, session_reply_delay_sec: 9, reminder_after_min: 9, reminder_after_min_default: false }))
+    expect(globalPatch(form)).toEqual({ notification: { enabled: false, allow_hosts: ['a.test'], allow_http: true, max_attempts: 4, max_text_runes: 200, session_reply_delay_sec: 9, reminder_after_min: 9 } })
+  })
+  it('keeps an explicit 0 reminder delay as the choice "no reminder"', () => {
+    const form = globalForm(view({ reminder_after_min: 0, reminder_after_min_default: false }))
+    expect(form.reminderAfterMin).toBe('0')
+    expect(globalPatch(form).notification.reminder_after_min).toBe(0)
+  })
+  it('falls back to the default reminder delay when the input is empty or not a number', () => {
+    const form = globalForm(view({ reminder_after_min: 30, reminder_after_min_default: true }))
+    expect(globalPatch({ ...form, reminderAfterMin: '' }).notification.reminder_after_min).toBe(30)
+    expect(globalPatch({ ...form, reminderAfterMin: 'abc' }).notification.reminder_after_min).toBe(30)
+    expect(reminderAfterMinValue({ ...form, reminderAfterMin: ' 45 ' })).toBe(45)
   })
   it('extracts host without credentials and adds it once', () => {
     const policy = botPolicy('https://user:secret@Hooks.Example.test/path', [], false)

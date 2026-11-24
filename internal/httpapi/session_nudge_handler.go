@@ -240,6 +240,7 @@ func (s *Server) StartNudgeSweeper(stop <-chan struct{}) {
 		defer cancel()
 		s.relay.SweepNudges(ctx, time.Now().Unix())
 		s.sweepWaitingNotices()
+		s.sweepSeatPending(ctx)
 		t := time.NewTicker(nudgeSweepInterval)
 		defer t.Stop()
 		for {
@@ -249,6 +250,7 @@ func (s *Server) StartNudgeSweeper(stop <-chan struct{}) {
 			case <-t.C:
 				s.relay.SweepNudges(ctx, time.Now().Unix())
 				s.sweepWaitingNotices()
+				s.sweepSeatPending(ctx)
 			}
 		}
 	}()

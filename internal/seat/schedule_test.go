@@ -76,6 +76,10 @@ func TestDeliverToSeatOfflineSendsNothing(t *testing.T) {
 	if err != nil || res.Outcome != jobstore.ScheduleResultOffline {
 		t.Fatalf("vacant = %+v, %v", res, err)
 	}
+	// The vacant run is queued (pending_test.go); this test is about what is sent at due time.
+	if err := e.st.DropSeatPending(x.ID); err != nil {
+		t.Fatal(err)
+	}
 	e.session(t, "s1", "/d/work/proj")
 	if _, err := e.svc.Bind(x.ID, "s1", false, "user"); err != nil {
 		t.Fatal(err)

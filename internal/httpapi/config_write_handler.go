@@ -1270,6 +1270,10 @@ type notificationPatch struct {
 	MaxAttempts          *int            `json:"max_attempts"`
 	Webhooks             *[]webhookPatch `json:"webhooks"`
 	SessionReplyDelaySec *int            `json:"session_reply_delay_sec"`
+	// ReminderAfterMin is the 「等我」 re-reminder delay in minutes (0 = no reminder,
+	// negative is refused by the config validator, so the endpoint answers 400). An
+	// omitted member keeps the configured value like every other member of this patch.
+	ReminderAfterMin *int `json:"reminder_after_min"`
 	// Desktop is the server-host desktop channel (gofer-x9mb). A member-level patch like
 	// the rest of the block: an omitted member keeps the configured value, while `events:
 	// []` / `projects: []` reset to the channel's defaults. A nil block keeps whatever is
@@ -1360,6 +1364,9 @@ func patchNotification(sc *config.ServerConfig, p *notificationPatch) {
 	}
 	if p.SessionReplyDelaySec != nil {
 		next.SessionReplyDelaySec = p.SessionReplyDelaySec
+	}
+	if p.ReminderAfterMin != nil {
+		next.ReminderAfterMin = p.ReminderAfterMin
 	}
 	if p.Webhooks != nil {
 		next.Webhooks = patchWebhooks(*p.Webhooks, cur)
@@ -1692,6 +1699,7 @@ func serverPreview(sc config.ServerConfig, applied []string) (string, error) {
 				"max_text_runes":          sc.Notification.MaxTextRunes,
 				"interval_sec":            sc.Notification.IntervalSec,
 				"session_reply_delay_sec": sc.Notification.EffectiveSessionReplyDelaySec(),
+				"reminder_after_min":      sc.Notification.ReminderAfterMin,
 			}
 		}
 	}

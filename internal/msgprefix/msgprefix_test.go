@@ -234,3 +234,28 @@ func TestFormatIsTrimSpaceTolerant(t *testing.T) {
 		t.Fatalf("system prefix %q does not open with %q", Prefix(JobDone, ""), systemOpen)
 	}
 }
+
+// The schedule prefix is gofer's: it carries the name, reads as a system message in both
+// languages and never as a person.
+func TestSchedulePrefixIsSystem(t *testing.T) {
+	cases := map[i18n.Lang]string{
+		i18n.ZhCN: "[gofer · 定时消息「weekly」]",
+		i18n.EN:   `[gofer · scheduled message "weekly"]`,
+	}
+	for lang, want := range cases {
+		got := ScheduleIn(lang, "weekly")
+		if got != want {
+			t.Fatalf("%s: %q, want %q", lang, got, want)
+		}
+		text := got + "\nbody"
+		if k, person := Classify(text); k != Schedule || person {
+			t.Fatalf("%s: classify = %q, %v", lang, k, person)
+		}
+		if !IsSystem(text) || IsPerson(text) {
+			t.Fatalf("%s: must be system, not a person", lang)
+		}
+	}
+	if got := ScheduleIn(i18n.EN, "a\nb"); strings.Contains(got, "\n") {
+		t.Fatalf("a name with a newline must stay on one line: %q", got)
+	}
+}

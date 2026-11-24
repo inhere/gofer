@@ -237,7 +237,10 @@ func (s *Service) BindInfo(id, ref string, replace bool, by string) (jobstore.Se
 	if err != nil {
 		return jobstore.Seat{}, BindInfo{}, err
 	}
-	return got, s.sayCharterOnBind(got, ref), nil
+	// The charter goes first, so queued schedule texts reach a session that knows its seat.
+	info := s.sayCharterOnBind(got, ref)
+	s.flushAfterBind(got.ID)
+	return got, info, nil
 }
 
 // BindInfo says what a bind did beyond changing the roster row.
