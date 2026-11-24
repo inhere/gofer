@@ -122,6 +122,21 @@ async function subscribedToPush(): Promise<boolean> {
   }
 }
 
+// 读订阅状态最多等这么久：`navigator.serviceWorker.ready` 在没注册 SW 的页面上永不 resolve，
+// 不能让它把标题计数也拖死。
+const SUBSCRIBE_TIMEOUT_MS = 1500
+
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise<T>((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms)
+    const settle = (value: T): void => {
+      clearTimeout(timer)
+      resolve(value)
+    }
+    promise.then(settle, () => settle(fallback))
+  })
+}
+
 export interface WaitingNotifierDeps {
   store: WaitingStore
   router?: NotifyRouter
@@ -148,6 +163,8 @@ export function createWaitingNotifier(deps: WaitingNotifierDeps): WaitingNotifie
   const openChannel = deps.openChannel ?? broadcastChannel
   const id = (deps.newID ?? randomID)()
   let subscribed = false
+  // 订阅状态读到之前不加标题计数：订阅了的设备只靠服务端推，不该先闪一下「(N) gofer」。
+  let subscribedKnown = false
   let baseTitle = FALLBACK_TITLE
   let running = false
   let election: TabElection | null = null
@@ -167,7 +184,7 @@ export function createWaitingNotifier(deps: WaitingNotifierDeps): WaitingNotifie
 
   // applyTitle：只有走标题计数这条出口时才加前缀；其他出口恢复原标题。
   function applyTitle(): void {
-    const count = notifyMode(env()) === 'title' ? deps.store.items.value.length : 0
+    const count = subscribedKnown && notifyMode(env()) === 'title' ? deps.store.items.value.length : 0
     const want = titleWithCount(count, baseTitle)
     if (host.title() !== want) host.setTitle(want)
   }
@@ -187,11 +204,8 @@ export function createWaitingNotifier(deps: WaitingNotifierDeps): WaitingNotifie
   }
 
   async function refresh(): Promise<void> {
-    try {
-      subscribed = await subscribedOf()
-    } catch {
-      subscribed = false
-    }
+    subscribed = await withTimeout(subscribedOf(), SUBSCRIBE_TIMEOUT_MS, false)
+    subscribedKnown = true
     applyTitle()
   }
 
