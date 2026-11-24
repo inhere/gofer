@@ -126,15 +126,20 @@ func acpSeat(t *testing.T, e *env, status string) jobstore.Seat {
 	return x
 }
 
-// A live ACP job gets a say; nothing is restarted.
+// A live ACP job gets a say; nothing is restarted. Binding it while it is live already said the
+// seat's charter into it, so the schedule's text is the second (and last) message.
 func TestDeliverToSeatACPLiveSays(t *testing.T) {
 	e, _, sy := scheduleEnv(t)
 	x := acpSeat(t, e, job.StatusAwaitingInput)
+	if len(sy.said) != 1 || !strings.Contains(sy.said[0][1], "be brief") {
+		t.Fatalf("binding a live acp job must say the charter once: %+v", sy.said)
+	}
 	res, err := e.svc.DeliverToSeat(context.Background(), deliverReq(x.ID))
 	if err != nil || res.Outcome != jobstore.ScheduleResultDelivered {
 		t.Fatalf("res = %+v, %v", res, err)
 	}
-	if len(sy.said) != 1 || sy.said[0][0] != "job-old" || !strings.Contains(sy.said[0][1], "weekly report please") {
+	last := sy.said[len(sy.said)-1]
+	if len(sy.said) != 2 || last[0] != "job-old" || !strings.Contains(last[1], "weekly report please") {
 		t.Fatalf("said = %+v", sy.said)
 	}
 	if len(e.rs.calls) != 0 {

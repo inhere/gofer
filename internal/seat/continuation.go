@@ -100,8 +100,15 @@ const SourceStartup = "startup"
 
 // charterReminder is the short opening of a session that loaded its old conversation.
 func (s *Service) charterReminder(x jobstore.Seat) string {
+	return s.charterBlock(x, "seat.continuation.restarted")
+}
+
+// charterBlock renders a session's seat block with introKey as its first line (the seat's name is
+// the {name} placeholder) followed by the charter body. Every path that puts a running session
+// into a seat says the same thing this way, differing only in how it opens.
+func (s *Service) charterBlock(x jobstore.Seat, introKey string) string {
 	lang := s.lang()
-	out := i18n.T(lang, "seat.continuation.restarted", "name", x.Name)
+	out := i18n.T(lang, introKey, "name", x.Name)
 	if c := strings.TrimSpace(x.Charter); c != "" {
 		out += "\n\n" + i18n.T(lang, "seat.continuation.charter") + "\n" + c
 	}

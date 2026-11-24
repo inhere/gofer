@@ -30,6 +30,11 @@ type Seat struct {
 	Unread     bool   `json:"unread,omitempty"`
 	ActivityAt int64  `json:"activity_at,omitempty"`
 	ThreadID   string `json:"thread_id,omitempty"`
+	// CharterSent / CharterError are on the bind answer only: the seat's charter was said into a
+	// live ACP job right away (CharterSent), or that message did not go out (CharterError, the
+	// bind itself still succeeded).
+	CharterSent  bool   `json:"charter_sent,omitempty"`
+	CharterError string `json:"charter_error,omitempty"`
 }
 
 // SeatCreate is the POST /v1/seats body.

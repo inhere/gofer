@@ -11,6 +11,7 @@ package seat
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"path"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/msgprefix"
 	"github.com/inhere/gofer/internal/sessionrelay"
 )
 
@@ -191,39 +193,100 @@ func (s *Service) Delete(id string) error {
 // exist and belong to the seat's project and caller; a seat that already has another session
 // is jobstore.ErrSeatOccupied unless replace is set.
 func (s *Service) Bind(id, ref string, replace bool, by string) (jobstore.Seat, error) {
+	got, _, err := s.BindInfo(id, ref, replace, by)
+	return got, err
+}
+
+// BindInfo is Bind plus what it did beyond the roster row: an ACP seat whose job is still live
+// gets the seat's charter said into it right away (a job bound while it is running never
+// restarted, so the opening prompt of a restart would never reach it), once per ref.
+func (s *Service) BindInfo(id, ref string, replace bool, by string) (jobstore.Seat, BindInfo, error) {
 	x, err := s.Get(id)
 	if err != nil {
-		return jobstore.Seat{}, err
+		return jobstore.Seat{}, BindInfo{}, err
 	}
 	ref = strings.TrimSpace(ref)
 	switch x.Kind {
 	case jobstore.SeatKindACP:
 		rec, ok, err := s.store.GetJob(ref)
 		if err != nil {
-			return jobstore.Seat{}, err
+			return jobstore.Seat{}, BindInfo{}, err
 		}
 		if !ok {
-			return jobstore.Seat{}, fmt.Errorf("%w: job %q not found", jobstore.ErrSeatInvalid, ref)
+			return jobstore.Seat{}, BindInfo{}, fmt.Errorf("%w: job %q not found", jobstore.ErrSeatInvalid, ref)
 		}
 		if rec.ProjectKey != x.ProjectKey {
-			return jobstore.Seat{}, fmt.Errorf("%w: job %q belongs to project %q, not %q", jobstore.ErrSeatInvalid, ref, rec.ProjectKey, x.ProjectKey)
+			return jobstore.Seat{}, BindInfo{}, fmt.Errorf("%w: job %q belongs to project %q, not %q", jobstore.ErrSeatInvalid, ref, rec.ProjectKey, x.ProjectKey)
 		}
 	default:
 		a, ok, err := s.store.GetAgentSession(ref)
 		if err != nil {
-			return jobstore.Seat{}, err
+			return jobstore.Seat{}, BindInfo{}, err
 		}
 		if !ok {
-			return jobstore.Seat{}, fmt.Errorf("%w: session %q not found", jobstore.ErrSeatInvalid, ref)
+			return jobstore.Seat{}, BindInfo{}, fmt.Errorf("%w: session %q not found", jobstore.ErrSeatInvalid, ref)
 		}
 		if a.ProjectKey != x.ProjectKey {
-			return jobstore.Seat{}, fmt.Errorf("%w: session %q belongs to project %q, not %q", jobstore.ErrSeatInvalid, ref, a.ProjectKey, x.ProjectKey)
+			return jobstore.Seat{}, BindInfo{}, fmt.Errorf("%w: session %q belongs to project %q, not %q", jobstore.ErrSeatInvalid, ref, a.ProjectKey, x.ProjectKey)
 		}
 		if a.CallerID != "" && x.CallerID != "" && a.CallerID != x.CallerID {
-			return jobstore.Seat{}, fmt.Errorf("%w: session %q belongs to another caller", jobstore.ErrSeatInvalid, ref)
+			return jobstore.Seat{}, BindInfo{}, fmt.Errorf("%w: session %q belongs to another caller", jobstore.ErrSeatInvalid, ref)
 		}
 	}
-	return s.store.BindSeat(id, ref, replace, by)
+	got, err := s.store.BindSeat(id, ref, replace, by)
+	if err != nil {
+		return jobstore.Seat{}, BindInfo{}, err
+	}
+	return got, s.sayCharterOnBind(got, ref), nil
+}
+
+// BindInfo says what a bind did beyond changing the roster row.
+//
+// The CLI prints it (`gofer seat bind`): CharterSent means the session got the seat's charter as a
+// message right away, CharterError why that message did not go out (the bind itself still
+// succeeded, the next start carries the charter).
+type BindInfo struct {
+	CharterSent  bool
+	CharterError error
+}
+
+// sayCharterOnBind says the seat's charter into an ACP job that is live at bind time: it never
+// restarts, so nothing else would ever bring the charter to it. An ended job is left alone —
+// the restart carries the charter as its opening input. A failed say never fails the bind: it is
+// logged and reported in BindInfo, and the seat stays bound, so a later bind of the same job (or
+// the next start) still tells it.
+func (s *Service) sayCharterOnBind(x jobstore.Seat, ref string) BindInfo {
+	if x.Kind != jobstore.SeatKindACP {
+		return BindInfo{}
+	}
+	st, err := s.Status("", x)
+	if err != nil || (st.State != StateRunning && st.State != StateAwaiting) {
+		// Ended / failed: the restart carries the charter. Vacant: nothing to say to.
+		return BindInfo{}
+	}
+	if s.d.Sayer == nil {
+		return BindInfo{}
+	}
+	claimed, err := s.store.ClaimSeatCharter(x.ID, ref)
+	if err != nil || !claimed {
+		if err != nil {
+			slog.Warn("seat: claim charter delivery failed", "seat", x.ID, "job", ref, "error", err)
+		}
+		return BindInfo{}
+	}
+	if err := s.d.Sayer.SaySession(ref, s.bindCharterText(x)); err != nil {
+		slog.Warn("seat: send charter to the bound session failed", "seat", x.ID, "job", ref, "error", err)
+		return BindInfo{CharterError: err}
+	}
+	return BindInfo{CharterSent: true}
+}
+
+// bindCharterText is the seat block a live ACP job gets when it is bound: the same charter text a
+// restarted session reads as its opening input, behind gofer's system prefix and a line that says
+// why it arrived in the middle of a conversation.
+func (s *Service) bindCharterText(x jobstore.Seat) string {
+	lang := s.lang()
+	return msgprefix.PrefixIn(lang, msgprefix.Hint, "") + s.charterBlock(x, "seat.bind.charter")
 }
 
 // Unbind empties the seat.
@@ -241,12 +304,19 @@ func (s *Service) History(id string) ([]jobstore.SeatBinding, []jobstore.SeatCha
 
 // SeatOfRef returns the seat a session / job sits in (ok=false: none).
 func (s *Service) SeatOfRef(ref string) (jobstore.Seat, bool, error) {
-	m, err := s.store.SeatsByRefs([]string{ref})
+	m, err := s.SeatsByRefs([]string{ref})
 	if err != nil {
 		return jobstore.Seat{}, false, err
 	}
 	x, ok := m[ref]
 	return x, ok, nil
+}
+
+// SeatsByRefs maps each ref that sits in a seat to that seat, for a whole set of sessions / jobs
+// in one query (the session list asks once instead of once per session). A ref that sits
+// nowhere is absent.
+func (s *Service) SeatsByRefs(refs []string) (map[string]jobstore.Seat, error) {
+	return s.store.SeatsByRefs(refs)
 }
 
 // roots returns a project's root paths on both sides.

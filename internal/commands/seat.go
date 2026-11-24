@@ -505,7 +505,14 @@ func runSeatBind(c *gcli.Command, _ []string) error {
 	c.Printf("seat %s now holds session %s\n", got.Name, seatRefLabel(x.Kind, got.CurrentRef))
 	if x.Kind == jobstore.SeatKindACP {
 		// An acp seat is a gofer session job: its opening prompt carries the seat block, so no
-		// terminal relay hook is involved and there is nothing to warn about.
+		// terminal relay hook is involved and there is nothing to warn about. A job that was
+		// still live at bind time got the charter as a message right away (or why it did not).
+		switch {
+		case got.CharterSent:
+			c.Printf("  %s\n", cliText("cli.seat.bind.charter_sent"))
+		case got.CharterError != "":
+			c.Printf("  %s\n", cliText("cli.seat.bind.charter_failed", "reason", got.CharterError))
+		}
 		return nil
 	}
 	c.Printf("  charter injection needs the relay hook: `gofer init hooks`\n")
