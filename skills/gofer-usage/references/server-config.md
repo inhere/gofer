@@ -356,7 +356,7 @@ server:
   #   max_attempts: 6
   #   max_text_runes: 3000
   #   session_reply_delay_sec: 120
-  #   reminder_after_min: 30           # 「等我」超过这么久没处理再提醒一次；0 = 不提醒
+  #   reminder_after_min: 30           # 「等我」超过这么久没处理再提醒一次；0 = 不提醒（也可在 web 设置 → 通知 里改）
   #   webhooks: [...]                  # IM 通知; 事件订阅见 IM 通知文档
   #                                    #   也可在 web「设置 → 通知」里增删、勾选事件、限定项目与发送测试
   #   desktop:                         # 桌面通知(server 所在主机弹系统通知); 整段不写 = 不启用

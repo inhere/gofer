@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 新增
+
+- **「等我」提醒延迟可在控制台改**：`server.notification.reminder_after_min`（多久没处理再提醒一次，默认 30 分钟，`0` = 不再提醒）现在出现在「设置 → 通知 → 通知全局设置」与 `GET /v1/config` 的通知视图（`reminder_after_min` 是实际生效值，`reminder_after_min_default` 说明它是不是默认值）；保存走 `PUT /v1/config/server` 的 `notification` 补丁，改完立即生效（扫描每轮读当前配置），负数被配置校验拒绝（`400`，`error_fields` 指向 `server.notification`）。
+
 ## [0.218.0] - 2026-11-24
 
 ### 修复
