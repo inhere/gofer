@@ -294,7 +294,7 @@ function linkFor(a: TodayAction): string {
           :title="actionBlock(advice) || undefined"
           @click="onAction(advice, true)"
         >{{ t('today.card.advice', { label: actionLabel(advice) }) }}</button>
-        <template v-for="a in otherActions" :key="actionKey(a)">
+        <template v-for="a in otherActions" :key="`${actionKey(a)}:${a.value ?? ''}`">
           <RouterLink
             v-if="isLinkAction(card, a)"
             :to="linkFor(a)"

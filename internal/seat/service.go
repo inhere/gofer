@@ -223,7 +223,12 @@ func (s *Service) Bind(id, ref string, replace bool, by string) (jobstore.Seat, 
 			return jobstore.Seat{}, fmt.Errorf("%w: session %q belongs to another caller", jobstore.ErrSeatInvalid, ref)
 		}
 	}
-	return s.store.BindSeat(id, ref, replace, by)
+	bound, err := s.store.BindSeat(id, ref, replace, by)
+	if err != nil {
+		return jobstore.Seat{}, err
+	}
+	s.flushAfterBind(bound.ID)
+	return bound, nil
 }
 
 // Unbind empties the seat.

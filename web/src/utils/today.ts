@@ -116,6 +116,7 @@ const ACTION_LABEL_KEYS: Record<string, string> = {
   'approve:批准': 'today.action.approve',
   'reject:拒绝': 'today.action.reject',
   'open:看详情': 'today.action.openDetail',
+  'open:打开 seat': 'today.action.openSeat',
   'open:去整理': 'today.action.openCapture',
   'open:去指派': 'today.action.openMailHeld',
   'open:打开 plan': 'today.action.openPlan',
@@ -194,9 +195,11 @@ export function cardLink(card: TodayCard): string {
     case 'worker_enroll':
       // worker 自助注册：卡片的唯一动作就是跳 Runners 页的「待接受」区
       return ENROLLMENTS_LINK
-    case 'schedule.paused':
     case 'seat_schedule':
-      // 被自动暂停的定时任务 / 没人能收的 seat 定时消息：动作里带 value=/schedules，未知时也回到定时页
+      // 没人能收的 seat 定时消息已排队：名册在工作台，主动作带 value=/workbench，未知时也回到工作台
+      return '/workbench'
+    case 'schedule.paused':
+      // 被自动暂停的定时任务：动作里带 value=/schedules，未知时也回到定时页
       return '/schedules'
     case 'caller.token_expiring':
       // 设计 2026-11-14 §4：调用方页能看到到期 / 最近使用，并在那里轮换。

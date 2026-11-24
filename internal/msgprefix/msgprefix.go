@@ -60,6 +60,10 @@ const (
 	// 退信): the body of that letter is a gofer notice, so the recipient reads it as
 	// machine text and not as the addressee writing back.
 	Bounce = "bounce"
+	// Schedule is the text of a seat schedule: gofer's own timer, never a person typing.
+	// Its prefix carries the schedule's name, so it is built by ScheduleIn (not in the
+	// fixed-text table) and recognised by its opening words.
+	Schedule = "schedule"
 )
 
 // systemOpen is the head every system prefix shares, in every language: it is what
@@ -133,6 +137,40 @@ var systemPrefixes = map[string]map[i18n.Lang]string{
 		i18n.ZhCN: "[gofer · 退信]",
 		i18n.EN:   "[gofer · bounce]",
 	},
+}
+
+// scheduleSpec is how the Schedule prefix is written in one language: the opening words
+// before the schedule's name and the closing words after it.
+type scheduleSpec struct {
+	open  string
+	close string
+}
+
+// schedulePrefixes is the Schedule prefix per language.
+var schedulePrefixes = map[i18n.Lang]scheduleSpec{
+	i18n.ZhCN: {open: systemOpen + "定时消息「", close: "」]"},
+	i18n.EN:   {open: systemOpen + `scheduled message "`, close: `"]`},
+}
+
+// ScheduleIn returns the Schedule prefix of the schedule called name in lang, without the
+// separating space. A newline in the name is flattened so the prefix stays one line.
+func ScheduleIn(lang i18n.Lang, name string) string {
+	spec, ok := schedulePrefixes[i18n.Resolve(lang)]
+	if !ok {
+		spec = schedulePrefixes[i18n.Default]
+	}
+	name = strings.Join(strings.Fields(name), " ")
+	return spec.open + name + spec.close
+}
+
+// hasScheduleOpen reports whether t opens with the Schedule prefix in any language.
+func hasScheduleOpen(t string) bool {
+	for _, spec := range schedulePrefixes {
+		if strings.HasPrefix(t, spec.open) {
+			return true
+		}
+	}
+	return false
 }
 
 // DEPRECATED(v0.185): remove in v0.188 — the prefixes gofer used before the
@@ -375,6 +413,9 @@ func hasPersonOpen(t string, kind string) bool {
 // know answers "": the text is still system (systemOpen said so), just not one of
 // the known kinds.
 func systemKind(t string) string {
+	if hasScheduleOpen(t) {
+		return Schedule
+	}
 	rest := t[len(systemOpen):]
 	i := strings.Index(rest, "]")
 	if i < 0 {

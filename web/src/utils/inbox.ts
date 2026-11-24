@@ -134,7 +134,7 @@ export function itemLink(item: Pick<InboxItem, 'kind' | 'deep_link' | 'refs'>): 
   if (item.kind === 'worker_enroll') return '/runners#enrollments'
   // 被自动暂停的定时任务（设计 2026-11-12 §1）：去定时任务页看看 / 重新启用
   if (item.kind === 'schedule.paused') return '/schedules'
-  if (item.kind === 'seat_schedule') return '/schedules'
+  if (item.kind === 'seat_schedule') return '/workbench'
   // 设计 2026-11-14 §4/§5：token 到期去调用方页轮换，自检故障去设置的自检页
   if (item.kind === 'caller.token_expiring') return '/settings/callers'
   if (item.kind === 'server.health') return '/settings/health'

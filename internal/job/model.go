@@ -1608,8 +1608,8 @@ const (
 	EventSchedulePaused = "schedule.paused"
 	// EventScheduleSeatPending is recorded on the SCHEDULE's own scope when a seat schedule
 	// fell due while nobody could take the text (the seat is vacant, or its terminal session
-	// is offline or ended): {schedule_id, seat_id}. The text is not queued; a 「等我」 card
-	// asks the person to open the seat.
+	// is offline or ended): {schedule_id, seat_id}. The text is queued for the seat
+	// (jobstore.SeatPending); a 「等我」 card asks the person to open the seat.
 	EventScheduleSeatPending = "schedule.seat_pending"
 	// Server self-check transitions (design 2026-11-14 §5, plan R10/R11), recorded on the
 	// SERVER's own scope (see ServerEventScope) because they belong to no job and no

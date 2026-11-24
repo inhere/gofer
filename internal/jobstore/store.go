@@ -1361,6 +1361,25 @@ var schemaStmts = []string{
   at       INTEGER NOT NULL
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_seat_charter_history_seat ON seat_charter_history(seat_id, id)`,
+	// seat_pending_messages holds the text of a seat schedule that found nobody to take it, until
+	// the seat can: one live row per (seat, schedule) — a later due run updates it and counts
+	// up. A row is live while delivered_at = 0 AND dropped_at = 0; claimed_at stamps a delivery
+	// in flight so two sweeps never send one row twice. New table + indexes only (IF NOT EXISTS).
+	`CREATE TABLE IF NOT EXISTS seat_pending_messages (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  seat_id       TEXT NOT NULL,
+  schedule_id   TEXT NOT NULL,
+  schedule_name TEXT NOT NULL DEFAULT '',
+  text          TEXT NOT NULL DEFAULT '',
+  origin        TEXT NOT NULL DEFAULT '',
+  count         INTEGER NOT NULL DEFAULT 1,
+  created_at    INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL,
+  claimed_at    INTEGER NOT NULL DEFAULT 0,
+  delivered_at  INTEGER NOT NULL DEFAULT 0,
+  dropped_at    INTEGER NOT NULL DEFAULT 0
+)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS idx_seat_pending_live ON seat_pending_messages(seat_id, schedule_id) WHERE delivered_at = 0 AND dropped_at = 0`,
 	// waiting_notices records, per subject of the 「等我」 list, that its owner was told: one row
 	// per stay in the list (entered_at .. cleared_at). notified_at / reminded_at are stamped
 	// where the notice is sent, so a restart neither repeats nor skips one. At most one row per

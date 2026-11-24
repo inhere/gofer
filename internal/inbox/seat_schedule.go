@@ -2,6 +2,7 @@ package inbox
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -21,6 +22,8 @@ type SeatScheduleSource interface {
 	ScheduleSource
 	GetSeat(id string) (jobstore.Seat, bool, error)
 	GetAgentSession(id string) (jobstore.AgentSession, bool, error)
+	// SeatPendingCount is how many due runs of the schedule wait in the seat's queue.
+	SeatPendingCount(scheduleID string) (int, error)
 }
 
 // SeatScheduleCards builds the cards of seat schedules whose last delivery found nobody to
@@ -59,16 +62,25 @@ func SeatScheduleCards(src SeatScheduleSource, lang i18n.Lang, allow func(string
 		if online {
 			continue
 		}
+		queued, err := src.SeatPendingCount(rec.ID)
+		if err != nil {
+			return nil, err
+		}
+		if queued == 0 {
+			// Nothing waits any more (sent, expired or dropped): nothing is left to ask.
+			continue
+		}
 		cards = append(cards, today.Card{
 			Key:          KindSeatSchedule + ":" + rec.ID,
 			Kind:         KindSeatSchedule,
 			Title:        i18n.T(lang, "httpapi.inbox_seat_schedule", "seat", x.Name, "name", rec.Name),
-			Summary:      i18n.T(lang, "httpapi.inbox_seat_schedule_summary", "seat", x.Name, "text", scheduleTextExcerpt(rec.RequestJSON)),
+			Summary:      i18n.T(lang, "httpapi.inbox_seat_schedule_summary", "seat", x.Name, "n", strconv.Itoa(queued), "text", scheduleTextExcerpt(rec.RequestJSON)),
 			ProjectKey:   rec.ProjectKey,
 			ActivityAt:   max(rec.LastRunAt, rec.UpdatedAt),
 			WaitingSince: rec.LastRunAt,
 			Refs:         today.Refs{ScheduleID: rec.ID, SeatID: x.ID},
 			Actions: []today.Action{
+				{ID: "open", Label: i18n.T(lang, "today.action.open_seat"), Style: "link", Value: "/workbench"},
 				{ID: "open", Label: i18n.T(lang, "today.action.details"), Style: "link", Value: "/schedules"},
 			},
 		})

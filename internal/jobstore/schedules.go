@@ -159,6 +159,9 @@ func (s *Store) DeleteSchedule(id string) error {
 	if _, err := s.db.Exec(`DELETE FROM schedules WHERE id = ?`, id); err != nil {
 		return fmt.Errorf("jobstore: delete schedule %q: %w", id, err)
 	}
+	if _, err := s.db.Exec(`DELETE FROM seat_pending_messages WHERE schedule_id = ?`, id); err != nil {
+		return fmt.Errorf("jobstore: delete pending messages of schedule %q: %w", id, err)
+	}
 	return nil
 }
 

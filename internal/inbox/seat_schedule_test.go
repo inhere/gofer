@@ -2,6 +2,7 @@ package inbox
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/inhere/gofer/internal/config"
@@ -25,6 +26,9 @@ func (f fakeSeatSource) GetAgentSession(id string) (jobstore.AgentSession, bool,
 	a, ok := f.sessions[id]
 	return a, ok, nil
 }
+
+// SeatPendingCount: every schedule has queued runs unless a test says otherwise.
+func (f fakeSeatSource) SeatPendingCount(string) (int, error) { return 2, nil }
 
 func offlineSchedule(id, seatID string) jobstore.ScheduleRecord {
 	return jobstore.ScheduleRecord{
@@ -98,5 +102,33 @@ func TestSeatScheduleKindIsInboxAction(t *testing.T) {
 	}
 	if got := config.InboxKindEvents(today.KindSeatSchedule); !slices.Equal(got, []string{"schedule.seat_pending"}) {
 		t.Fatalf("events = %v", got)
+	}
+}
+
+type noQueueSource struct{ fakeSeatSource }
+
+func (noQueueSource) SeatPendingCount(string) (int, error) { return 0, nil }
+
+// Once nothing waits in the queue (sent, expired or dropped) the card is gone, and the card
+// that is there says how many runs wait and opens the seat first.
+func TestSeatScheduleCardFollowsTheQueue(t *testing.T) {
+	base := fakeSeatSource{
+		fakeScheduleSource: fakeScheduleSource{list: []jobstore.ScheduleRecord{offlineSchedule("sch-1", "seat-1")}},
+		seats:              map[string]jobstore.Seat{"seat-1": {ID: "seat-1", Name: "desk", Kind: jobstore.SeatKindTerminal, CurrentRef: "s1"}},
+		sessions:           map[string]jobstore.AgentSession{"s1": {SessionID: "s1", State: jobstore.SessionOffline}},
+	}
+	cards, err := SeatScheduleCards(base, i18n.ZhCN, nil)
+	if err != nil || len(cards) != 1 {
+		t.Fatalf("cards = %+v, %v", cards, err)
+	}
+	c := cards[0]
+	if len(c.Actions) != 2 || c.Actions[0].Value != "/workbench" || c.Actions[1].Value != "/schedules" {
+		t.Fatalf("actions = %+v, want the seat first and /schedules second", c.Actions)
+	}
+	if !strings.Contains(c.Summary, "2") || strings.Contains(c.Summary, "不会补发") {
+		t.Fatalf("summary = %q", c.Summary)
+	}
+	if got, err := SeatScheduleCards(noQueueSource{base}, i18n.ZhCN, nil); err != nil || len(got) != 0 {
+		t.Fatalf("an empty queue leaves no card: %+v, %v", got, err)
 	}
 }
