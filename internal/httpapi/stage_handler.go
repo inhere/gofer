@@ -142,6 +142,12 @@ func (s *Server) stageSession(c *rux.Context, bodySID string) string {
 	if w := s.seatWriter(c); strings.HasPrefix(w, jobstore.SeatBySessionPrefix) {
 		return strings.TrimPrefix(w, jobstore.SeatBySessionPrefix)
 	}
+	// A resident ACP agent whose environment names no session still has its job: the job id
+	// is what the per-turn stage line looks the flow up by (job.stageNoteOf), so binding it
+	// keeps the reminder reaching that session.
+	if jc, ok := jobCallerFromCtx(c); ok {
+		return jc.JobID
+	}
 	return ""
 }
 

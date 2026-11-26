@@ -310,6 +310,12 @@ func TestStageOpenListAndJobScope(t *testing.T) {
 	}
 	var own stageViewBody
 	decode(t, resp, &own)
+	// The job sent no session id: the job itself becomes the item's session, so the per-turn
+	// stage line (looked up by job id) reaches that resident session.
+	sessions, err := s.jobs.Meta().ListWorkItemSessions(own.WorkItemID)
+	if err != nil || len(sessions) != 1 || sessions[0].SessionID != "job-other" {
+		t.Fatalf("sessions of the job-started item = %+v, %v, want job-other", sessions, err)
+	}
 	resp = stageDo(t, s, http.MethodPost, "/v1/work-items/"+own.WorkItemID+"/stage/blocked", otherTok, map[string]any{"reason": "waiting for the review"}, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("job blocked = %d, want 200", resp.StatusCode)
