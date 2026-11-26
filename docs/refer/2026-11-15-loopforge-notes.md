@@ -27,3 +27,19 @@
 - 挂 Docker socket 的沙箱（文档自认可控制宿主）。
 - SaaS 与产品面：多账号成员、可视化 SOP 设计器、模板市场、IM 按钮、浏览器工具、预览托管、计费报表。
 - LoopForge Local：靠模型自觉读写状态文件；gofer 状态在服务端。
+
+## 2026-11-26 复查（f8dcd1e..45ed0064，106 提交，v0.4.1 / v0.4.2；SOP 改名 LOOP）
+
+| # | 机制 | LoopForge 出处 | gofer 落点 | 推荐 |
+|---|---|---|---|---|
+| L8 | **等人期间释放并发占位**：failed / waiting（含待审批）空闲 1 小时后归档目录、释放并发配额让排队 run 晋升；批准 / 重试时重新排队，目录按需还原；释放带 revision 乐观锁 | `internal/engine/workspace_cleanup.go`、`internal/repo/run_admission.go` | job 卡在人工门禁 / awaiting_input 时，执行槽与目录锁拆开处理 | 高 |
+| L9 | **agent 提议写、人确认后才执行**：冻结草稿（随机 id、参数哈希、30 分钟有效），确认时重新校验权限与参数；加锁把 pending 改 executing，重复点击只回当前状态；执行中崩溃显示「中断待核对」，不自动重放 | `docs/im-channels.md` §8.3、`/api/bot-drafts/{id}/confirm` | 「等我」卡上的批准动作；Team 里 agent 发起的写操作 | 高 |
+| L10 | **run 启动时钉住资产 hash + 资产版本只追加**（角色 prompt / 规则正文） | `internal/evolution/trial.go`、`/api/runs/{id}/asset-pins` | job 记录注入的 rules / skill 版本 hash，便于复盘「当时用的是哪版规范」 | 高 |
+| L11 | 资产进化的确定性部分：Beta-Binomial 分诊（7 天半衰期、P≥0.9 才值得改）、holdout 样本不给改进器看、钉选回归样本、灰度分组 `fnv32(runID|proposalID)%100`、0/1/2 打分判退化 | `internal/evolution/triage.go`、`replay.go`、`trial.go` | 规范 / skill / 模板改动的效果评估；改进器本身是模型判断，不进平台 | 中 |
+| L12 | 终态写入失败的兜底：节点失败终态写出错仍走 Reject，只有租约丢失才跳过；死锁重试 6 次；轮询只读进度不读产物正文 | `internal/engine/node_outcome.go` | 回归用例：终态写失败不得让 job 停在 running | 中 |
+| L13 | 通知送达语义：发送前先落发送 key 与代数，崩溃时记 `send_unknown`「送达待核对」，人工确认或重发 | `internal/notification/service.go` | 出站通知 / 推送 | 中 |
+| L14 | runner 自动分配：五层兼容过滤 → 按运行数、占用数排序 → 桶锁内原子占位 → 全满进弹性队列；绑定后子任务、重试冻结在同机；离线宽限起点取 `max(入队时间, 最近离线时间)` | `internal/engine/runner_auto_assign.go` | 多 worker 选机 | 中 |
+| L15 | MCP 工具调用超过 1 秒切 SSE，每 15 秒发保活注释，防审批等待被空闲超时断开 | `internal/mcpserver/tool_response.go` | gofer MCP 走 stdio，不经 HTTP 代理；`gofer_ask_human` 默认阻塞 1800s，是否撞 agent CLI 的工具超时待核实 | 低 |
+| L16 | 分支名校验 `ValidGitBranchName` 与默认命名 `feature/requirement-N-YYYYMMDD-HHMM` | `internal/domain/work_branch.go` | worktree 分支名校验 | 低 |
+
+不学：改进器（模型写候选正文）、AI 分支命名、AI 辅助审批、IM 渠道连接层、privileged Docker 沙箱、SaaS runner 管理面。
