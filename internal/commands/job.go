@@ -579,6 +579,7 @@ func NewJobCmd() *gcli.Command {
 			},
 			newJobWorktreeCmd(),
 			newJobWaitCmd(),
+			newJobResultCmd(),
 			newJobDeliverCmd(),
 			newJobWakeupCmd(),
 			newJobRetryCmd(),
