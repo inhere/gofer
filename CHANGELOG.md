@@ -11,6 +11,8 @@
 
 ## [未发布]
 
+## [0.220.0] - 2026-11-26
+
 ### 修复
 
 - ACP 常驻会话以自己的会话 id（agent 的 UUID，而非 job id）开流程时，remind 档的「继续」与「向会话提问」现在能通过 `job say` 送到对应 job，不再记「会话已离线」；工作项详情里该会话也不再显示为离线 / 缺失（按 job 的 `session_id` 找回对应 job，job 未结束就算在线）。日志里 job 会话 id 显示完整 job id，UUID 会话仍取前 8 位。
@@ -18,12 +20,13 @@
 
 ### 新增
 
+- **Team 数据层与 `seat:` / `team:` 信箱地址**（三期 Team 的 T1）：新增团队实体——一个 leader seat 加若干成员 seat，都在同一项目，团队名在项目内唯一，一个 seat 同一时间最多属于一个团队，leader 不能同时是成员；归档团队会释放名字与 seat。HTTP 接口 `/v1/teams`（列表 / 创建 / 详情含花名册 / 修改 / 归档 / 成员增删 / 路由记录 / 评估记录），权限沿用 `seat.manage.others`（自己的团队无需权限，job 与 worker 凭据一律拒绝）。信箱新增两种地址：`seat:<名字>[@<项目>]` 送给该 seat 当前坐着的会话（空 seat 或会话已结束时进收集箱，离线照常排队），`team:<名字>[@<项目>]` 送给团队 leader 并给信件打上 `team_id`；`@<项目>` 省略时取发信会话所在项目，写别的项目可在两个团队的 leader 之间互发信。CLI、HTTP、MCP 的发信都支持。本批只有实体与地址，路由规则、leader 协议与 `gofer team` 命令后续提供；不建团队时行为不变。
+- **Team 路由引擎**（三期 Team 的 T2）：信件涉及团队时按固定规则判定并逐条落到路由记录（有团队才生效，不建团队时信箱行为不变）。leader 写给自己的团队只记录不投递；人写给 `team:` 时按正文 `@成员名` 送被点名的成员、没点名送 leader；成员的结果信（写给 `team:` / leader / 不写收件人）送 leader；成员点名成员可以转发（跳数加 1），但同一对成员连续来回超过 `relay_round_limit` 次、或团队 24 小时内成员间转发超过 `relay_daily_limit` 次，就改送 leader 并记 `handed_to_leader`，不丢信；另一团队 leader 的来信只送本团队 leader，`@成员` 不生效。转发信正文首行加 `[team <名> · from <seat> · hop <n>]`；发信人身份按它当前坐的 seat 判定，信里自称无效。投递前先写 pending 记录、投递后结清（`queued` / `delivered` / `merged` / `held` / `dup`），带源信件或 job 内发信的重复发送只存一封，结果拿不到记 `unknown` 并按幂等键对账；发给 ACP leader 的信在取信时把队头与 `merge_window_sec` 内的后续信合成一轮（遇到人的信、急件、别的团队的信就停），被并入的记 `merged`。成员 job 失败时 leader 收到系统信（leader 不可达则进创建者的收集箱），系统信不能回复、不再被路由。信件新增 `hop` / `system_kind` 字段，job 凭据现在可以发信给 `seat:` / `team:` 地址。
 - **Team leader 协议**（三期 Team 的 T3）：坐在 leader 位置上的会话每一轮都会收到一个 `[gofer · team]` 块——协议、花名册（成员名、用途、状态、当前步骤、最近活动）、团队说明；终端在 UserPromptSubmit 注入，ACP（本机与远端 worker）在每次 say 之前注入，唤醒这一轮的信件摘要放在每轮随机的边界标签里，成员位置不变。
   - 新增 `gofer team eval --outcome dispatched|idle|failed --reason "…"`（`POST /v1/teams/eval`）：leader 每轮结束前记评估，只认 leader 位置上的会话或该位置上 job 的凭据（人的 token、成员、其他 job 都是 403）；记了 `idle` 之后同一轮再发团队信返回 409。没记评估就结束的一轮记 `missing_eval`，连续 3 轮在「等我」里出现团队卡（`team` 类，`gofer team show` 可查）。
   - leader 被成员结果唤醒、这一轮没发信也没留唤醒时，视为链条结束，触发它的结果作为系统信送到团队创建者的信箱。leader 位置上的会话推进到最后一步 `gofer stage done` 被拒（403，只有人能完成工作项）。
   - 修复（gofer-x6v6）：团队信里的 `@成员名` 不再把邮箱（`user@host`）和代码（行内 / 围栏）里的文字当点名；`relay_mode` 的说明改正为 leader / direct 目前行为相同。
 - **`gofer team` 命令（三期 Team 的 CLI）**：团队可以在命令行里管起来——`team add <名字> --leader <seat> [--brief "…" | --brief @<文件>]`（说明只给 leader 看）、`team member add|rm <团队> <seat>`、`team ls [--json]`、`team show`（花名册 leader 在前，每行 seat 名、角色、状态、当前步骤、最近活动，另附最近 10 条路由判定）、`team say <团队> "…"`（人发给团队，等价于向 `team:<名字>[@<项目>]` 发信：点名 `@成员` 只给这些成员，没点名给 leader）、`team routes|evals <团队> [--limit n] [--json]`、`team set`（换 leader / 改说明，`-` 清空）、`team rm`（归档：名字与位置重新可用，历史保留）。`<团队>` 写 id 或名字（名字按 `-p`，没给就按当前目录所在项目；跨项目写 `name@project`），查不到时报错带名字与项目并提示 `team ls`。用法与谁收到信见 skill 的 `references/teams.md`。
-- **Team 数据层与 `seat:` / `team:` 信箱地址**（三期 Team 的 T1）：新增团队实体——一个 leader seat 加若干成员 seat，都在同一项目，团队名在项目内唯一，一个 seat 同一时间最多属于一个团队，leader 不能同时是成员；归档团队会释放名字与 seat。HTTP 接口 `/v1/teams`（列表 / 创建 / 详情含花名册 / 修改 / 归档 / 成员增删 / 路由记录 / 评估记录），权限沿用 `seat.manage.others`（自己的团队无需权限，job 与 worker 凭据一律拒绝）。信箱新增两种地址：`seat:<名字>[@<项目>]` 送给该 seat 当前坐着的会话（空 seat 或会话已结束时进收集箱，离线照常排队），`team:<名字>[@<项目>]` 送给团队 leader 并给信件打上 `team_id`；`@<项目>` 省略时取发信会话所在项目，写别的项目可在两个团队的 leader 之间互发信。CLI、HTTP、MCP 的发信都支持。本批只有实体与地址，路由规则、leader 协议与 `gofer team` 命令后续提供；不建团队时行为不变。
 - **控制台里的流程条与就地批准**（二期 F5，工作项流程 stage）：工作项详情抽屉在有流程时多一块流程区——模板名、步骤条（已过 / 当前 / 阻塞）、当前步门禁缺项、放权等级（只记录 / 提醒，只有人的凭据能改，改不了时提示原因），以及批准（当前步是评审或门禁在这里判不了时）、退回（必填理由）、推进（门禁没过就把缺项列出来，不当错误）三个动作；步骤变化与门禁结果仍写在原来的日志时间线里。工作台会话标题旁显示「<步骤> n/N」的小标签（阻塞为红色），点它去工作项详情。「等我」里 `kind=stage` 的流程卡在今天就 / 收件箱 / 弹卡里都能就地处理：批准直接调批准接口，退回弹出输入框填意见，成功后卡片自行消失。
 - **流程放权等级与「等我」流程卡**（二期 F4，工作项流程 stage）：
   - `gofer stage level record|remind [--work <id>]` 设置等级（只认人的凭据，job 凭据、会话里的请求都拒绝）。两档都在每次步骤变化（`done` 推进、`back`、批准）时往工作项日志写一条「本来会做的动作」（带命中的规则名）：下一步属于 agent 就记「送继续」，下一步要人（review）就记「出等我卡」。`remind` 另外在下一步属于 agent（design / plan / doing / verify）时，用系统前缀给工作项的 current 会话送一轮「继续下一步：<步骤>」；review、done 不送；重复 `done` 没推进不重复送。会话坐在 seat 上且离线时进 seat 自己的补发队列（同一工作项只留最新一条，步骤已过则丢弃、不迟送），不在 seat 上的离线会话只在日志里记「未送达」。
@@ -31,7 +34,6 @@
   - `gofer stage report [-p <项目>] [--work <id>] [--json]`：口径同 plan 推进引擎的报告，按动作、按规则统计「本来会做的动作」与随后实际发生的下一步是否一致（一致 / 不一致 / 无后续 / 未观察，观察窗口 24 小时），并给出最近 20 条已定论动作的一致率；只出报告，不自动升档。HTTP 见 `POST /v1/work-items/{id}/stage/level`、`GET /v1/work-items/{id}/stage/report`、`GET /v1/work-items/stages/report`。
 - **常驻会话名册行显示当前流程步**（二期 F5）：`GET /v1/seats`（单个、绑定答复与候选座位同样）的每个座位多一个 `stage` 对象——工作项、当前步、第几步 / 共几步、是否阻塞——只在位置上有会话、且该会话有进行中的流程（stage）时出现，读的只是已存的流程行（不跑门禁）。web 工作台的「常驻会话」名册在这一行的状态点旁显示「<步骤> n/N」小标签（阻塞为红色），没有进行中的流程的行不显示；数据随名册一次请求带回，不逐行拉会话视图。
 - **`gofer job result` 自报本次 job 的结局**：没有 gofer MCP 的 agent（suga、codex、exec 包装脚本等）也能自报——`gofer job result --decision pass|rework|fail|human --reason "…" [--action-required "…"] [--finding "…"] [<job-id>]`，job id 省略时取运行环境里的 `GOFER_JOB_ID`，凭据用本 job 自己的 `GOFER_JOB_TOKEN`；字段、每个 job 只报一次、只能报自己这些规则与 MCP 工具 `gofer_submit_result` 完全一致（人的 token 或别的 job 的凭据 403，重复 409）。注入的规则段那一行改成按可用方式写：管家会话两种都不可用就不写，常驻 ACP 会话与收件会话写工具，其余 job 两种都写（「调用 `gofer_submit_result`；会话里没有这个工具时运行 `gofer job result …`」）。
-- **Team 路由引擎**（三期 Team 的 T2）：信件涉及团队时按固定规则判定并逐条落到路由记录（有团队才生效，不建团队时信箱行为不变）。leader 写给自己的团队只记录不投递；人写给 `team:` 时按正文 `@成员名` 送被点名的成员、没点名送 leader；成员的结果信（写给 `team:` / leader / 不写收件人）送 leader；成员点名成员可以转发（跳数加 1），但同一对成员连续来回超过 `relay_round_limit` 次、或团队 24 小时内成员间转发超过 `relay_daily_limit` 次，就改送 leader 并记 `handed_to_leader`，不丢信；另一团队 leader 的来信只送本团队 leader，`@成员` 不生效。转发信正文首行加 `[team <名> · from <seat> · hop <n>]`；发信人身份按它当前坐的 seat 判定，信里自称无效。投递前先写 pending 记录、投递后结清（`queued` / `delivered` / `merged` / `held` / `dup`），带源信件或 job 内发信的重复发送只存一封，结果拿不到记 `unknown` 并按幂等键对账；发给 ACP leader 的信在取信时把队头与 `merge_window_sec` 内的后续信合成一轮（遇到人的信、急件、别的团队的信就停），被并入的记 `merged`。成员 job 失败时 leader 收到系统信（leader 不可达则进创建者的收集箱），系统信不能回复、不再被路由。信件新增 `hop` / `system_kind` 字段，job 凭据现在可以发信给 `seat:` / `team:` 地址。
 
 ### 变更
 
