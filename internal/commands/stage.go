@@ -46,7 +46,7 @@ func NewStageCmd() *gcli.Command {
 	}
 	return &gcli.Command{
 		Name: "stage",
-		Desc: "Flow progression of a work item: design -> review -> plan -> doing -> verify -> done (start / status / done / back / blocked / approve / drop / ls)",
+		Desc: "Flow progression of a work item: design -> review -> plan -> doing -> verify -> done (start / status / done / back / blocked / approve / drop / level / report / ls)",
 		Subs: []*gcli.Command{
 			{
 				Name: "start", Desc: "Start a flow on the work item of <issue> (the linked one, else a new one); this session becomes a current session of it",
@@ -110,6 +110,24 @@ func NewStageCmd() *gcli.Command {
 					c.StrOpt(&stageOpts.reason, "reason", "", "", "why it is abandoned (optional)")
 				},
 				Func: runStageDrop,
+			},
+			{
+				Name: "level", Desc: "Set how much the flow may do for itself: record (only note what it would do) | remind (also send the session a continue turn when the next step is the agent's); a person's command, refused inside a session",
+				Config: func(c *gcli.Command) {
+					bind(c)
+					c.AddArg("level", "record | remind", true)
+					c.StrOpt(&stageOpts.work, "work", "", "", "work item id (default: the flow of this session's work item)")
+				},
+				Func: runStageLevel,
+			},
+			{
+				Name: "report", Desc: "How often what a level would have done matched what happened next (per action and per rule; newest 20 resolved)",
+				Config: func(c *gcli.Command) {
+					bind(c)
+					c.StrOpt(&stageOpts.work, "work", "", "", "work item id (default: every flow of the project)")
+					c.StrOpt(&stageOpts.project, "project", "p", "", "project key (default: the project of this directory)")
+				},
+				Func: runStageReport,
 			},
 			{
 				Name: "ls", Aliases: []string{"list"},

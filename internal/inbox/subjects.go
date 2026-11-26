@@ -45,6 +45,8 @@ type WaitingInput struct {
 	// Allow is the caller's project scope (nil = unrestricted).
 	Allow func(string) bool
 	Extra []today.Card
+	// Stage, when non-nil, adds the flows that wait for a person (nil = no flow cards).
+	Stage StageSource
 }
 
 // WaitingSubjects is the one 「等我」 judgement: the structured-fact cards of the today queue
@@ -53,7 +55,7 @@ type WaitingInput struct {
 // finished jobs (the inbox's second column). Every input is a store fact, so the answer
 // does not change when the server restarts.
 func WaitingSubjects(in WaitingInput, queue []today.Card) (waiting []Subject, fyi []today.Card, err error) {
-	var failed, stranded, paused, seatSched []today.Card
+	var failed, stranded, paused, seatSched, flows []today.Card
 	if in.Store != nil {
 		if failed, fyi, err = TerminalCards(in.Store, in.Lang, in.Allow); err != nil {
 			return nil, nil, err
@@ -72,8 +74,15 @@ func WaitingSubjects(in WaitingInput, queue []today.Card) (waiting []Subject, fy
 			return nil, nil, err
 		}
 	}
-	cards := make([]today.Card, 0, util.CapSum(len(queue), len(failed), len(stranded), len(paused), len(seatSched), len(in.Extra)))
+	if in.Stage != nil {
+		// A stage flow waiting for a person's approval or look.
+		if flows, err = StageCards(in.Stage, in.Lang, in.Allow); err != nil {
+			return nil, nil, err
+		}
+	}
+	cards := make([]today.Card, 0, util.CapSum(len(queue), len(failed), len(stranded), len(paused), len(seatSched), len(flows), len(in.Extra)))
 	cards = append(append(append(append(append(cards, queue...), failed...), stranded...), paused...), seatSched...)
+	cards = append(cards, flows...)
 	cards = append(cards, in.Extra...)
 	return SubjectsOf(in.Lang, cards), fyi, nil
 }

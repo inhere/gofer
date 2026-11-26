@@ -218,8 +218,9 @@ func TestBackAndBlockedRoundTrip(t *testing.T) {
 		t.Fatalf("after back = %+v", v)
 	}
 	j, _ := f.store.ListWorkJournal(id, 0, 0)
-	if last := j[len(j)-1]; !strings.Contains(last.Text, "stage back: plan > review: the design changed") {
-		t.Fatalf("back journal = %q", last.Text)
+	// The back line is followed by the would-do line of the step it entered.
+	if back := j[len(j)-2]; !strings.Contains(back.Text, "stage back: plan > review: the design changed") {
+		t.Fatalf("back journal = %q", back.Text)
 	}
 
 	// Blocked needs a reason, shows in the view, and a later Done lifts it (the gate is

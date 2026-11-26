@@ -88,19 +88,31 @@ func (w waitingNoticeSource) Waiting() ([]waitnotice.Subject, error) {
 	w.s.waitNotices.judged = true
 	var sids, jids []string
 	var keep []inbox.Subject
+	var flows []waitnotice.Subject
 	for _, sub := range subjects {
 		switch {
 		case sub.Type == inbox.SubjectSession && sub.Card.Kind == today.KindRelay:
 			sids = append(sids, sub.Ref)
 		case sub.Type == inbox.SubjectJob && sub.Card.Kind == today.KindACPReply:
 			jids = append(jids, sub.Ref)
+		case sub.Type == "stage" && sub.Card.Kind == today.KindStage:
+			// A flow waiting on a person goes through the same record and senders (one
+			// notice per stay, one reminder); it has no session or job behind it.
+			title := sub.Card.Title
+			if it, ok, err := w.s.jobs.Meta().GetWorkItem(sub.Ref); err == nil && ok {
+				title = it.Title
+			}
+			flows = append(flows, waitnotice.Subject{
+				Key: sub.Key, Category: string(sub.Category), ProjectKey: sub.Card.ProjectKey, Title: title,
+			})
+			continue
 		default:
 			continue
 		}
 		keep = append(keep, sub)
 	}
 	if len(keep) == 0 {
-		return nil, nil
+		return flows, nil
 	}
 	meta := w.s.jobs.Meta()
 	sessions, err := meta.GetAgentSessionsByIDs(sids)
@@ -115,7 +127,7 @@ func (w waitingNoticeSource) Waiting() ([]waitnotice.Subject, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := make([]waitnotice.Subject, 0, len(keep))
+	out := append(make([]waitnotice.Subject, 0, len(keep)+len(flows)), flows...)
 	for _, sub := range keep {
 		n := waitnotice.Subject{Key: sub.Key, Category: string(sub.Category)}
 		if sub.Type == inbox.SubjectSession {

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
@@ -27,18 +29,31 @@ type Deps struct {
 	Config func() *config.Config
 	// Git defaults to project.GitRO.
 	Git GitRunner
+	// Deliver hands the `remind` level's "continue" turn to a session; nil = the level
+	// only records.
+	Deliver DeliverFunc
+	// Sync runs the reminder inline instead of in its own goroutine (tests).
+	Sync bool
+	// Now is the clock of the report's observation window (default time.Now).
+	Now func() time.Time
 }
 
 // Service is the stage flow service.
 type Service struct {
-	store *jobstore.Store
-	cfg   func() *config.Config
-	git   GitRunner
+	store   *jobstore.Store
+	cfg     func() *config.Config
+	git     GitRunner
+	deliver DeliverFunc
+	sync    bool
+	nowFn   func() time.Time
+	gates   gateCache
+	// inflight counts the remind turns sent in their own goroutine (Drain waits for them).
+	inflight sync.WaitGroup
 }
 
 // New builds the service; Deps.Store is required.
 func New(d Deps) *Service {
-	s := &Service{store: d.Store, cfg: d.Config, git: d.Git}
+	s := &Service{store: d.Store, cfg: d.Config, git: d.Git, deliver: d.Deliver, sync: d.Sync, nowFn: d.Now}
 	if s.git == nil {
 		s.git = project.GitRO
 	}
@@ -303,7 +318,7 @@ func (s *Service) issueTitle(issue string) string {
 // step (the last step finishes it). A blocked flow is unblocked first. A gate that does not
 // pass leaves the flow where it is and says what is missing. Of several concurrent calls
 // exactly one advances the flow; the others see Moved.
-func (s *Service) Done(id, by string) (Result, error) { return s.advance(id, by) }
+func (s *Service) Done(id, by string) (Result, error) { return s.advance(id, by, triggerDone) }
 
 // Approve records a person's approval of the current step and advances when the gate passes
 // with it: the review gate is the approval itself, and a gate that cannot be judged here
@@ -324,10 +339,10 @@ func (s *Service) Approve(id, by string) (Result, error) {
 	}); err != nil {
 		return Result{}, err
 	}
-	return s.advance(id, by)
+	return s.advance(id, by, triggerApprove)
 }
 
-func (s *Service) advance(id, by string) (Result, error) {
+func (s *Service) advance(id, by, trigger string) (Result, error) {
 	ws, item, err := s.load(id)
 	if err != nil {
 		return Result{}, err
@@ -381,9 +396,16 @@ func (s *Service) advance(id, by string) (Result, error) {
 		sha := s.headSHA(item)
 		tr.DoingDoneSHA = &sha
 	}
+	would, wouldOK := wouldAfter(trigger, ws.Steps[next])
+	if wouldOK && toStatus == jobstore.StageActive {
+		tr.Action = would.journal()
+	}
 	applied, err := s.store.TransitionWorkStage(tr)
 	if err != nil {
 		return Result{}, err
+	}
+	if applied && tr.Action != "" {
+		s.afterStep(item, ws.Level, would)
 	}
 	cur, _, err := s.store.GetWorkStage(ws.WorkItemID)
 	if err != nil {
@@ -438,15 +460,23 @@ func (s *Service) Back(id, reason, by string) (View, error) {
 	if ws.Step == 0 {
 		return View{}, fmt.Errorf("%w: the flow is at its first step (%s), there is nothing to go back to", jobstore.ErrWorkInvalid, ws.StepName())
 	}
-	applied, err := s.store.TransitionWorkStage(jobstore.StageTransition{
+	tr := jobstore.StageTransition{
 		WorkItemID: ws.WorkItemID, FromStep: ws.Step, ToStep: ws.Step - 1, ToStatus: jobstore.StageActive,
 		Journal: fmt.Sprintf("stage back: %s > %s: %s", ws.StepName(), ws.Steps[ws.Step-1], reason), By: by,
-	})
+	}
+	would, wouldOK := wouldAfter(triggerBack, ws.Steps[ws.Step-1])
+	if wouldOK {
+		tr.Action = would.journal()
+	}
+	applied, err := s.store.TransitionWorkStage(tr)
 	if err != nil {
 		return View{}, err
 	}
 	if !applied {
 		return View{}, ErrMoved
+	}
+	if wouldOK {
+		s.afterStep(item, ws.Level, would)
 	}
 	return s.Status(item.ID)
 }

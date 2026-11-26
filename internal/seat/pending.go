@@ -66,10 +66,23 @@ func (s *Service) flushSeat(ctx context.Context, seatID string) (int, error) {
 			}
 			continue
 		}
+		_, isStage := jobstore.StagePendingWorkItem(p.ScheduleID)
+		if !s.stageNoteDue(p, x, st) {
+			// A stage reminder whose step has passed (or whose ACP session is gone) is dropped,
+			// not sent late.
+			if err := s.store.DropSeatPendingOf(seatID, p.ScheduleID); err != nil {
+				return sent, err
+			}
+			continue
+		}
 		req := job.SeatDeliverRequest{
 			SeatID: seatID, Text: s.lateText(p), ScheduleID: p.ScheduleID, ScheduleName: p.ScheduleName, Origin: p.Origin,
 		}
-		res, err := s.deliverNow(ctx, x, st, s.scheduledText(req), req)
+		text := s.scheduledText(req)
+		if isStage {
+			text = p.Text
+		}
+		res, err := s.deliverNow(ctx, x, st, text, req)
 		if err != nil || res.Outcome == jobstore.ScheduleResultOffline {
 			_ = s.store.ReleaseSeatPending(p.ID)
 			if err != nil {
@@ -80,6 +93,10 @@ func (s *Service) flushSeat(ctx context.Context, seatID string) (int, error) {
 		}
 		if err := s.store.FinishSeatPending(p); err != nil {
 			return sent, err
+		}
+		if isStage {
+			sent++
+			continue
 		}
 		result := res.Outcome
 		if res.JobID != "" && res.Outcome == jobstore.ScheduleResultRestarted {

@@ -4,6 +4,7 @@ import (
 	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/stage"
 	"github.com/inhere/gofer/internal/today"
 )
 
@@ -147,6 +148,13 @@ func signalsOf(c today.Card) (subject string, s Signals, ok bool) {
 		// A seat that cannot take its scheduled text is a position of the person's own that
 		// needs opening: it files under 「需要你处理」, with the seat as its subject.
 		return "seat:" + c.Refs.SeatID, Signals{Attention: true}, true
+	case today.KindStage:
+		// A flow waiting on a person: the review step is an approval the person gives; a gate
+		// that cannot be judged and a failed verify run are theirs to look at.
+		if c.Subtype == stage.WaitReview {
+			return "stage:" + c.Refs.WorkItemID, Signals{HeldForApproval: true}, true
+		}
+		return "stage:" + c.Refs.WorkItemID, Signals{Attention: true}, true
 	case KindCallerTokenExpiring:
 		return "caller:" + c.Refs.CallerID, Signals{Attention: true}, true
 	case KindServerHealth:
