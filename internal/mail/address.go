@@ -114,7 +114,7 @@ func ParseAddress(raw string) (Address, error) {
 		}
 		name, project := splitAgentValue(value)
 		if name == "" {
-			return Address{}, fmt.Errorf("%w: %s: needs a name (%s:<名字>[@<项目>])", ErrInvalidAddress, scheme, scheme)
+			return Address{}, fmt.Errorf("%w: %s: needs a name (%s:<name>[@<project>])", ErrInvalidAddress, scheme, scheme)
 		}
 		return Address{Raw: rawAddr, Scheme: scheme, Value: name, Project: project}, nil
 	}

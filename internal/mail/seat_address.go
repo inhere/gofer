@@ -46,7 +46,7 @@ func (s *Service) addressProject(in resolveInput) (string, error) {
 	if p := s.senderProject(in); p != "" {
 		return p, nil
 	}
-	return "", fmt.Errorf("%w: %s has no project: write %s:<名字>@<项目> or send from a session of the project", ErrInvalidAddress, in.addr.Raw, in.addr.Scheme)
+	return "", fmt.Errorf("%w: %s has no project: write %s:<name>@<project> or send from a session of the project", ErrInvalidAddress, in.addr.Raw, in.addr.Scheme)
 }
 
 func (s *Service) resolveSeatAddress(in resolveInput) (resolution, error) {
