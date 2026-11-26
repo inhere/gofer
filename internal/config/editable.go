@@ -57,6 +57,8 @@ var fieldPolicies = map[string]FieldPolicy{
 	"projects.*.secrets": {},
 	// How many consecutive plan items may share one agent session — file-only.
 	"projects.*.continue_max_chain": {},
+	// The stage flow of the project's work items (enabled, verify_templates) — file-only.
+	"projects.*.stage": {},
 	// The language of the text gofer generates for this project's jobs (design
 	// 2026-10-27-i18n-design.md §3) — file-only for now, like the other project keys.
 	"projects.*.language": {},

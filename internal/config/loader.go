@@ -818,6 +818,9 @@ func validate(cfg *Config) error {
 		if n := p.ContinueMaxChain; n != nil && (*n < 0 || *n > MaxContinueMaxChain) {
 			return fmt.Errorf("project %q: continue_max_chain must be between 0 and %d (0 = unlimited)", key, MaxContinueMaxChain)
 		}
+		if err := p.Stage.validate(); err != nil {
+			return fmt.Errorf("project %q: %w", key, err)
+		}
 		switch p.OnUncommitted {
 		case "", "off", "warn", "review", "resume":
 		default:

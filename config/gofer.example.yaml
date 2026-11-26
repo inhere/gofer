@@ -601,6 +601,13 @@ projects:
   #   # 达到后下一项开新会话。默认 3；0 = 不限；最大 10。
   #   # continue_max_chain: 3
 
+  #   # stage：本项目工作项的流程推进（design / review / plan / doing / verify / done）。
+  #   # enabled 默认 true；false 后不再提示「实现类工作先开流程」，已开始的流程不受影响。
+  #   # verify_templates：verify 步的门禁看这些 workflow 模板的运行，默认 [verify]。
+  #   # stage:
+  #   #   enabled: true
+  #   #   verify_templates: [verify]
+
   #   # capture_diff：是否在 job 结果里记录 git diff：auto（默认）/ on / off。
   #   # auto 在 cwd 是 git 工作树时记录；off 彻底关闭。
   #   # capture_diff: auto

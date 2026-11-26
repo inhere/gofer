@@ -2695,6 +2695,9 @@ type ProjectConfig struct {
 	// starts a fresh session. Nil/unset => DefaultContinueMaxChain; 0 => unlimited;
 	// at most MaxContinueMaxChain. A pointer so "unset" and "0" stay distinct.
 	ContinueMaxChain *int `yaml:"continue_max_chain,omitempty"`
+	// Stage tunes the stage flow of this project's work items (stage.go). Nil = the
+	// defaults: enabled, verified by the `verify` workflow template.
+	Stage *ProjectStage `yaml:"stage,omitempty"`
 }
 
 // UnmarshalYAML accepts the string capture_diff modes while keeping the public
