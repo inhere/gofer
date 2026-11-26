@@ -12,6 +12,7 @@ import (
 
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/project"
 )
 
 // The "start a flow first" hint (plan 2026-11-26-flow-progression-plan.md, F2): in a project
@@ -37,7 +38,7 @@ func stageRemind(c *gcli.Command, cli *client.Client, projectKey string) {
 	if sid == "" {
 		return
 	}
-	if !stageEnabledFor(cli, projectKey) {
+	if !stageEnabledFor(projectKey) {
 		return
 	}
 	if stageReminded(sid) {
@@ -60,16 +61,23 @@ func stageRemindAgent(agent string) bool {
 // stageEnabledFor reads the project's `stage.enabled` from this machine's config (the CLI
 // holds no server session here). An unknown or unresolvable project is not reminded: the
 // switch exists so a project can keep the hint out of its output.
-func stageEnabledFor(cli *client.Client, projectKey string) bool {
+func stageEnabledFor(projectKey string) bool {
 	key := strings.TrimSpace(projectKey)
-	if key == "" {
-		key = currentProjectKey(cli)
-	}
-	if key == "" {
-		return false
-	}
 	cfg, _, err := config.Load(config.InputCfgFile)
 	if err != nil || cfg == nil {
+		return false
+	}
+	if key == "" {
+		// No -p: the project of this directory, from the config alone (no server round trip
+		// for a hint that is only printed).
+		config.InjectDefaultProject(cfg)
+		if abs, aerr := filepath.Abs("."); aerr == nil {
+			if k, _, found := project.ResolveByCwd(cfg, abs); found {
+				key = k
+			}
+		}
+	}
+	if key == "" {
 		return false
 	}
 	if _, ok := cfg.Projects[key]; !ok {

@@ -130,7 +130,7 @@ func TestStageRemindOncePerSession(t *testing.T) {
 
 	// A project with the switch off is never reminded.
 	t.Setenv(client.ExplicitSessionEnv, "sess-stage-off")
-	if on := stageEnabledFor(cli, "nowhere"); on {
+	if on := stageEnabledFor("nowhere"); on {
 		t.Fatal("an unknown project must not be reminded")
 	}
 }
