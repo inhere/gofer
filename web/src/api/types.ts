@@ -560,6 +560,9 @@ export interface AgentSession {
   scope?: string[]
   topic_source?: 'self' | 'human' | 'inferred' | string
   topic_at?: number
+  // 流程推进（stage）：会话当前所在工作项的流程走到哪一步；没有流程但项目开着流程时只有 enabled
+  // （见 docs/reference/http-api.md「流程推进（stage）」）。列表接口不带这个字段。
+  stage?: SessionStageBrief
   // 仅查找（GET /v1/sessions?q=&path=）结果带：命中原因与「可能不在线」。
   hits?: SessionHit[]
   maybe_offline?: boolean
@@ -3844,7 +3847,19 @@ export interface WorkSummarizerResp {
   settings: WorkSettings
 }
 
-export type WorkJournalKind = 'report' | 'note' | 'status' | 'steward' | 'link'
+// 会话视图里的流程摘要（GET /v1/sessions/{sid} 与心跳）：工作项、当前步、第几步 / 共几步、状态。
+// reason 是阻塞原因（截短到让整个对象不超过 300 字节），没有流程但项目开着流程时只带 enabled。
+export interface SessionStageBrief {
+  work_item_id?: string
+  step?: string
+  step_no?: number
+  step_total?: number
+  status?: 'active' | 'blocked'
+  reason?: string
+  enabled?: boolean
+}
+
+export type WorkJournalKind = 'report' | 'note' | 'status' | 'steward' | 'link' | 'stage' | 'stage_action'
 
 // WORK-06：milestone = 值得留一笔的进展（默认时间线 / 泳道「最近」），detail = 流水
 export type WorkJournalLevel = 'milestone' | 'detail'
@@ -3866,6 +3881,49 @@ export type WorkHealth = 'ok' | 'at_risk' | 'stalled' | 'blocked'
 
 export interface WorkDetail extends WorkItem {
   journal: WorkJournalEntry[]
+}
+
+// 流程推进（stage，docs/reference/http-api.md「流程推进（stage）」）：一个工作项最多一个进行中的
+// 流程。step_index 是 steps 里当前步的下标（0 起）。
+export type StageStatus = 'active' | 'blocked' | 'done' | 'dropped'
+
+export type StageLevel = 'record' | 'remind'
+
+// StageGate 是当前步门禁的实时求值：missing 的每一条都写成「下一步该做什么」；
+// needs_human 表示这里判不了（项目不在本机、git 读不了、评审轮次用完），批准可以放行。
+export interface StageGate {
+  step: string
+  ok: boolean
+  missing: string[]
+  needs_human?: boolean
+}
+
+export interface WorkStageView {
+  work_item_id: string
+  project_key?: string
+  template: string
+  steps: string[]
+  step: string
+  step_index: number
+  step_entered_at: number
+  status: StageStatus
+  level: StageLevel
+  blocked_reason?: string
+  doing_done_sha?: string
+  review_max: number
+  approved?: boolean
+  // 流程结束时没有（列表视图也不带）
+  gate?: StageGate
+}
+
+// StageActionResult 是可能推进流程的动作（done / approve）的答案：门禁没过时 advanced=false，
+// moved 表示并发调用先推进了这一步、这次没有写任何东西。
+export interface StageActionResult {
+  advanced: boolean
+  gate: StageGate
+  stage: WorkStageView
+  from?: string
+  moved?: boolean
 }
 
 export interface WorkSummary {

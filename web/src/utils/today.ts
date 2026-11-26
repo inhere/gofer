@@ -19,6 +19,7 @@ import {
   sendSessionMessage,
   setScheduleEnabled,
 } from '../api/client'
+import { stageApprove, stageBack } from '../api/stage'
 import { acceptMergeSuggestion, dismissMergeSuggestion } from '../api/steward'
 import { CAPTURE_BOX_LINK } from './capture'
 import { ENROLLMENTS_LINK } from './enrollments'
@@ -131,6 +132,9 @@ const ACTION_LABEL_KEYS: Record<string, string> = {
   'adopt:采纳': 'today.action.adopt',
   'dismiss:忽略': 'today.action.dismiss',
   'resume:继续': 'today.action.resume',
+  // 流程（stage）卡：服务端的动作名固定中文，这里只把「附意见退回」换成界面语言（「批准」已有）。
+  'stage_approve:批准': 'today.action.approve',
+  'stage_back:附意见退回': 'today.action.stageBack',
 }
 
 // actionLabel 是动作按钮上显示的文案：已知动作走 i18n（跟界面语言一致），未知的原样显示。
@@ -185,6 +189,10 @@ export function cardLink(card: TodayCard): string {
     case 'work':
     case 'suggestion':
     case 'merge':
+      if (r.work_item_id) return `/work?id=${encodeURIComponent(r.work_item_id)}`
+      break
+    case 'stage':
+      // 流程「等我」卡（评审等人批准 / 门禁判不了 / 验证失败）：都指向工作项详情
       if (r.work_item_id) return `/work?id=${encodeURIComponent(r.work_item_id)}`
       break
     case 'capture':
@@ -308,6 +316,13 @@ export function runCardAction(card: Pick<TodayCard, 'kind' | 'refs'>, a: TodayAc
     case 'suggestion':
       if (a.id === 'dismiss') return () => dismissWorkSuggestion(r.work_item_id ?? '', r.field ?? '')
       return () => acceptWorkSuggestion(r.work_item_id ?? '', r.field ?? '')
+    case 'stage': {
+      // 流程卡：批准直调批准接口；退回把输入的意见作为理由（服务端要求非空）。
+      const id = r.work_item_id ?? ''
+      if (a.id === 'stage_approve') return () => stageApprove(id)
+      if (a.id === 'stage_back') return () => stageBack(id, text)
+      break
+    }
     case 'merge':
       if (a.id === 'dismiss') return () => dismissMergeSuggestion(r.merge_id ?? 0)
       return () => acceptMergeSuggestion(r.merge_id ?? 0)

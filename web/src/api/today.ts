@@ -42,6 +42,9 @@ export type TodayCardKind =
   // 故障（动作 open），都属于「需要你处理」。
   | 'caller.token_expiring'
   | 'server.health'
+  // 流程（stage）的卡（internal/inbox/stage_cards.go）：评审等人批准（归 approval 类）/ 门禁判不了
+  // / 验证运行失败（后两种归 attention 类）；动作为 stage_approve / stage_back / open。
+  | 'stage'
 
 // 「等我」七类（互斥、穷尽，按此顺序第一个命中）：待批准 / 待回答 / 待验收 / 计划卡住 / 你提交的任务失败 /
 // 需要你处理（gofer 自己停掉的定时任务、即将到期的 token、自检故障）/ 投递待确认
