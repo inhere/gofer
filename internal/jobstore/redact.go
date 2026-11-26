@@ -201,26 +201,35 @@ func forEachJobTableText(q textQueryer, table, jobID string, visit func(table, c
 	if err != nil || len(cols) == 0 {
 		return err
 	}
-	data, err := q.Query(`SELECT rowid, * FROM ` + ident)
+	read := `SELECT rowid, * FROM ` + ident
+	where, whereArgs, narrowed := jobRowSQLWhere(table, cols, jobID)
+	if !narrowed {
+		// A table none of whose columns names the job cannot hold a row of it: jobRowSQLWhere
+		// carries jobRowBelongs' rules one for one (TestJobRowSQLWhereMatchesGoFilter), and
+		// jobRowBelongs rejects every row of such a table. The enumerator used to read the whole
+		// table here and filter in Go, once per job — that per-job read of every row of
+		// audit_events, rules, settings, tracker and the rest is what made a scan
+		// O(jobs × table rows).
+		return nil
+	}
+	// ORDER BY rowid keeps the row order of that table-wide read: a narrowed read may be served
+	// from an index (idx_job_events_job and friends) whose order is not the rowid order.
+	data, err := q.Query(read+` WHERE `+where+` ORDER BY rowid`, whereArgs...)
 	if err != nil {
 		return nil // WITHOUT ROWID/system tables do not own job content.
 	}
 	defer data.Close()
-	for data.Next() {
-		values := make([]any, len(cols)+1)
-		ptrs := make([]any, len(values))
-		for i := range values {
-			ptrs[i] = &values[i]
-		}
-		if err := data.Scan(ptrs...); err != nil {
-			return err
-		}
+	emit := func(values []any) error {
+		// The predicate and this filter are the same rule in two places; keeping the
+		// in-Go half on the narrowed read makes a drifted predicate drop the rows it
+		// wrongly reached instead of rewriting them (TestJobRowSQLWhereMatchesGoFilter
+		// pins the two together).
 		if !jobRowBelongs(table, cols, values[1:], jobID) {
-			continue
+			return nil
 		}
 		rowID, ok := values[0].(int64)
 		if !ok {
-			continue
+			return nil
 		}
 		for i, col := range cols {
 			if !col.text {
@@ -233,8 +242,37 @@ func forEachJobTableText(q textQueryer, table, jobID string, visit func(table, c
 				}
 			}
 		}
+		return nil
 	}
-	return data.Err()
+	// The read is drained before the first visit: `where` names TEXT columns this pass
+	// rewrites (job_id, scope_id, and the derived jobs.id of a redacted job), and updating a
+	// row while a cursor walks the very index that predicate selected is the Halloween
+	// problem — the row could move out of the cursor's path, be skipped or be visited twice.
+	var buffered [][]any
+	for data.Next() {
+		values := make([]any, len(cols)+1)
+		ptrs := make([]any, len(values))
+		for i := range values {
+			ptrs[i] = &values[i]
+		}
+		if err := data.Scan(ptrs...); err != nil {
+			return err
+		}
+		buffered = append(buffered, values)
+	}
+	if err := data.Err(); err != nil {
+		return err
+	}
+	// Close the cursor before the visits rewrite the rows it selected.
+	if err := data.Close(); err != nil {
+		return err
+	}
+	for _, values := range buffered {
+		if err := emit(values); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func redactJobTables(tx *sql.Tx, jobID string, literals []string, patterns []*regexp.Regexp, report *RedactReport) error {
@@ -249,6 +287,55 @@ func redactJobTables(tx *sql.Tx, jobID string, literals []string, patterns []*re
 		report.DBMatches += count
 		return nil
 	})
+}
+
+// jobRowBelongsColumns are the columns jobRowBelongs matches against the job id
+// directly: a row carrying one of them IS the job's row.
+var jobRowBelongsColumns = []string{"job_id", "source_job_id", "triggered_job_id", "member_job_id"}
+
+// jobRowSQLWhere is the SQL form of jobRowBelongs: it returns the predicate that
+// selects exactly the rows jobRowBelongs accepts for jobID, the args it needs and
+// whether such a predicate exists. narrowed is false for a table no column of
+// which names the job — jobRowBelongs rejects every row of such a table, so
+// there is nothing to read.
+func jobRowSQLWhere(table string, cols []tableColumn, jobID string) (string, []any, bool) {
+	var clauses []string
+	var args []any
+	if table == "jobs" {
+		for _, col := range cols {
+			if col.name == "id" {
+				clauses = append(clauses, quoteIdent("id")+`=?`)
+				args = append(args, jobID)
+				break
+			}
+		}
+	}
+	// Walk the columns in declared order, as jobRowBelongs does: a job comment / todo /
+	// plan note is named by its scope pair, and the pair only counts when the scope
+	// column is read before scope_id (which is how it reads in every table that has one).
+	hasScope := false
+	for _, col := range cols {
+		switch col.name {
+		case "scope":
+			hasScope = true
+		case "scope_id":
+			if hasScope {
+				clauses = append(clauses, `(`+quoteIdent("scope")+`=? AND `+quoteIdent("scope_id")+`=?)`)
+				args = append(args, CommentScopeJob, jobID)
+			}
+		}
+		for _, name := range jobRowBelongsColumns {
+			if col.name == name {
+				clauses = append(clauses, quoteIdent(name)+`=?`)
+				args = append(args, jobID)
+				break
+			}
+		}
+	}
+	if len(clauses) == 0 {
+		return "", nil, false
+	}
+	return strings.Join(clauses, " OR "), args, true
 }
 
 func jobRowBelongs(table string, cols []tableColumn, values []any, jobID string) bool {
