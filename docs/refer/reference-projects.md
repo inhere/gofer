@@ -102,3 +102,37 @@ https://herdr.dev/zh-cn/docs/concepts/ — 终端里的 agent 编排器。吸收
 ## crewbot-connector（super-agent.team 的开源本地 daemon，2026-11-11）
 
 约 1.9k 行 TS：出站 WebSocket 把网页 bot 会话映射到本机 ACP 进程。服务器被完全信任（网页可直接给 `full` 档），不学其安全模型。可借鉴：外部线程 id ↔ agent 会话 id 两层映射、resume 失败降级新会话；入站至少一次投递 + msgId 去重 + 接收回执（prompt / injected）；出站按会话递增序号、确认后清 outbox、重连补传（gofer worker 镜像事件现为断线即丢，`internal/worker/client.go`）；运行中插话按 ACP 能力选择插入或排队；被吊销即自清凭据、三态核对防误删。不学：运行时 npm 安装适配器并改写 codex 产物打开联网、logout 递归删除工作目录、内存中的去重与 outbox。
+
+## 2026-11-26 复查（multica 454 提交 / lobehub 约 400 提交 / liaison 9 提交）
+
+dsh 上游重推同一内容、Proma 与 crewbot-connector 无更新；liaison 只有按需 TCP 访问窗口与登录报错本地化，不吸收。
+
+### multica（3a181ffc8..0c5ee1f07，Squad 更新）
+
+| # | 做法 | gofer 落点 | 推荐 |
+|---|---|---|---|
+| 1 | **回环防护按账本计数**：只数头部连续、同一对 A↔B 之间的成员转交，leader 派活 / 第三方 / 转人即断链；同对 3 轮、单 issue 24h 20 次，超限改送 leader 不丢弃（`server/internal/service/squad_handoff.go`） | 三期 Team 计划 2.3 第 4 条 | 高 |
+| 2 | 账本在路由结果之后写，没真正入队的不记，按评论 id 去重（`server/internal/handler/squad_handoff.go`） | 2.3 第 5 条 | 高 |
+| 3 | leader 特权校验 task 归属，证明不了就退回普通路由 | 2.3 第 8 条 | 高 |
+| 4 | `squad activity --outcome no_action` 之后同一 task 再发评论 409；协议里的守卫数字由服务端常量格式化 | 2.4 评估绑定到这一轮 | 中 |
+| 5 | 成员 run 失败恢复信号发给 leader，不发给交接它的成员 | 2.3 第 9 条 | 中 |
+| 6 | leader 被唤醒后无任何后续动作即视为链条结束，把触发它的结果推给人（`server/cmd/server/notification_squad_result.go`） | 2.4 链条结束通知人 | 中高 |
+| 7 | direct handoff 模式：成员直接 @ 下一个成员，只在例外时唤醒 leader | 预留 `relay_mode`，3a 不做 | 中 |
+| 8 | 评论 `Idempotency-Key`：run 内 CLI 按 run + issue + 内容哈希自动派生 | 2.3 第 5 条（job 内发信自动幂等） | 中高 |
+| 9 | issue blockers 与 child_done 系统唤醒（阻塞者结束 / 子项关闭唤醒负责人） | todo `--after` 依赖满足时唤醒，待评估 | 中 |
+
+### lobehub（6dc91bf8fa..2b7c9a7ce5，Channel 子系统）
+
+| # | 做法 | gofer 落点 | 推荐 |
+|---|---|---|---|
+| 1 | 同一发送人的排队请求在 claim 时合并成一次运行，被并入的记 `merged`，后续回信归到合并它的运行；遇到他人请求 / followup / relay 即停止合并（`repositories/channel/claim.ts`、`merge.ts`） | 2.3 第 6 条 | 高 |
+| 2 | agent 间提问：幂等键 `运行 id + 工具调用 id`；同一交换最多 3 次；被问方的运行与 agent 自己发起的运行不能再往外问（`services/channel/agentExchange.ts`） | 2.3 第 4、5 条；「被问方不再外问」待 T2 评估 | 高 |
+| 3 | 未点名消息只有一个主响应者，其余成员排在其后，主响应者卡在设备或人时不等 | Team 已由 leader 单点接收，暂不需要 | 中 |
+| 4 | agent 管自己的线程：列出 / 停止 / 转向（无运行则退化为新请求）/ 定时汇报，转向条目 id 由工具调用派生 | leader 动作面（3b 后评估） | 高 |
+| 5 | steer 队列租约：终态先写入再释放持有物；取走后发现 run 已结束就退回（`services/aiAgent/steerQueue/hetero.ts`） | 对照信箱 claim / confirm 的边界，单独核查 | 高 |
+| 6 | 提示用每次运行随机的边界标签包住消息，稳定协议放 system 段 | 2.4 注入随机边界 | 中 |
+| 7 | 目录被占时成员 × 分支自动开 worktree，开不了就记标记、10 分钟内退化为同目录 | 已有 worktree 机制，待评估 | 中 |
+| 8 | 等人的 run 24h TTL 并通知上级；多入口应答同一张卡时互斥关闭；超时不替人选默认项 | 「等我」卡 | 中 |
+| 9 | 每成员 × 载体一行交付记录（outcome、返工轮数 shots、成本） | team_evals 之后的统计 | 中 |
+
+不学：模型路由分类器、职责判断、失败卡模型改写（模型判断不进平台）；a2ui 卡片、分享与访客、计费、UI 打磨；运行时适配。
