@@ -13,6 +13,9 @@ export interface GlobalNotifyForm {
 // DEFAULT_REMINDER_AFTER_MIN 与后端的 config.DefaultReminderAfterMin 一致：配置文件没写时用它。
 export const DEFAULT_REMINDER_AFTER_MIN = 30
 
+// DEFAULT_SESSION_REPLY_DELAY_SEC 与后端的 config.DefaultSessionReplyDelaySec 一致（没写时用它）。
+export const DEFAULT_SESSION_REPLY_DELAY_SEC = 120
+
 export function globalForm(n?: NotificationView | null): GlobalNotifyForm {
   return {
     enabled: n?.enabled ?? true,
@@ -38,6 +41,12 @@ export function reminderAfterMinValue(form: GlobalNotifyForm): number {
   return optionalInt(form.reminderAfterMin) ?? DEFAULT_REMINDER_AFTER_MIN
 }
 
+// sessionReplyDelaySecValue 把输入框转成提交值：留空（或不是数字）= 默认 120；0 是有效选择
+// （不再提醒会话等你回复），不能当成缺省；负数原样发出，由服务端校验拒绝（400）。
+export function sessionReplyDelaySecValue(form: Pick<GlobalNotifyForm, 'sessionReplyDelaySec'>): number {
+  return optionalInt(form.sessionReplyDelaySec) ?? DEFAULT_SESSION_REPLY_DELAY_SEC
+}
+
 // Only edited members are sent: the server retains webhooks, desktop and secrets.
 export function globalPatch(form: GlobalNotifyForm) {
   return { notification: {
@@ -46,7 +55,7 @@ export function globalPatch(form: GlobalNotifyForm) {
     allow_http: form.allowHttp,
     max_attempts: optionalInt(form.maxAttempts) ?? 0,
     max_text_runes: optionalInt(form.maxTextRunes) ?? 0,
-    session_reply_delay_sec: optionalInt(form.sessionReplyDelaySec) ?? 120,
+    session_reply_delay_sec: sessionReplyDelaySecValue(form),
     reminder_after_min: reminderAfterMinValue(form),
   } }
 }

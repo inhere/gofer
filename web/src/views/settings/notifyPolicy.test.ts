@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { NotificationView } from '../../api/types'
-import { botPolicy, globalForm, globalPatch, hostsWithBot, reminderAfterMinValue, testResultMessage } from './notifyPolicy'
+import { botPolicy, globalForm, globalPatch, hostsWithBot, reminderAfterMinValue, sessionReplyDelaySecValue, testResultMessage } from './notifyPolicy'
 
 // view 是 GET /v1/config 的 server.notification 视图（只列出本文件用到的成员）。
 function view(over: Partial<NotificationView>): NotificationView {
@@ -33,6 +33,19 @@ describe('notification policy helpers', () => {
     expect(globalPatch({ ...form, reminderAfterMin: '' }).notification.reminder_after_min).toBe(30)
     expect(globalPatch({ ...form, reminderAfterMin: 'abc' }).notification.reminder_after_min).toBe(30)
     expect(reminderAfterMinValue({ ...form, reminderAfterMin: ' 45 ' })).toBe(45)
+  })
+  it('keeps an explicit 0 reply delay as the choice "no reminder"', () => {
+    // gofer-msm5：saveBots 里曾经是 Number(...) || 120，0 被悄悄改成 120（后端 0 = 关掉提醒）。
+    const form = globalForm(view({ session_reply_delay_sec: 0 }))
+    expect(form.sessionReplyDelaySec).toBe('0')
+    expect(sessionReplyDelaySecValue(form)).toBe(0)
+    expect(globalPatch(form).notification.session_reply_delay_sec).toBe(0)
+  })
+  it('falls back to the default reply delay when the input is empty or not a number', () => {
+    const form = globalForm(view({ session_reply_delay_sec: 120 }))
+    expect(sessionReplyDelaySecValue({ ...form, sessionReplyDelaySec: '' })).toBe(120)
+    expect(sessionReplyDelaySecValue({ ...form, sessionReplyDelaySec: 'abc' })).toBe(120)
+    expect(sessionReplyDelaySecValue({ ...form, sessionReplyDelaySec: ' 45 ' })).toBe(45)
   })
   it('extracts host without credentials and adds it once', () => {
     const policy = botPolicy('https://user:secret@Hooks.Example.test/path', [], false)

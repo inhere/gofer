@@ -113,6 +113,14 @@ describe('notification settings page', () => {
     expect(page).toContain("t('settings.notify.desktopMachine')")
   })
 
+  it('submits the session reply delay through the helper, so 0 stays 0', () => {
+    // gofer-msm5：保存机器人表时 Number(...) || 120 把显式 0（后端 = 关掉提醒）改成了 120。
+    expect(page).toContain('session_reply_delay_sec: sessionReplyDelaySecValue(globalNotify),')
+    expect(page).not.toContain('Number(globalNotify.sessionReplyDelaySec) ||')
+    // 0 的含义写在输入框下面（不靠人猜）
+    expect(page).toContain("t('settings.notify.sessionReplyHint')")
+  })
+
   it('edits the 「等我」 reminder delay next to the other global knobs', () => {
     expect(page).toContain('data-testid="notify-reminder-after"')
     expect(page).toContain('globalNotify.reminderAfterMin')
