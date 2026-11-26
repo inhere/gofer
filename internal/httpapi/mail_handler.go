@@ -88,6 +88,8 @@ func (s *Server) writeMailError(c *rux.Context, err error) {
 		writeError(c, http.StatusNotFound, "seat not found", err.Error())
 	case errors.Is(err, mail.ErrTeamNotFound):
 		writeError(c, http.StatusNotFound, "team not found", err.Error())
+	case errors.Is(err, mail.ErrRouteInFlight):
+		writeError(c, http.StatusConflict, "mail still being stored", err.Error())
 	case errors.Is(err, mail.ErrJobCannotReceive):
 		writeError(c, http.StatusConflict, "job cannot receive mail", err.Error())
 	case errors.Is(err, mail.ErrNotAnswerable):
@@ -582,10 +584,10 @@ func checkJobMailAddress(to string) error {
 		return err
 	}
 	switch addr.Scheme {
-	case mail.SchemeSession, mail.SchemeCaller:
+	case mail.SchemeSession, mail.SchemeCaller, mail.SchemeSeat, mail.SchemeTeam:
 		return nil
 	}
-	return mailForbidden("a job credential may only mail a session or its caller")
+	return mailForbidden("a job credential may only mail a session, a seat, a team or its caller")
 }
 
 // mailPreviewView is the answer of a dry run: how many recipients the addresses would reach and

@@ -20,6 +20,7 @@ import (
 	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/sessionrelay"
+	"github.com/inhere/gofer/internal/team"
 )
 
 // The mailbox's error vocabulary. ErrRateLimited is the one the entry layer maps to 429.
@@ -151,6 +152,9 @@ type Service struct {
 	// residentHost starts / ends / looks up the resident session jobs (nil = this process cannot
 	// start sessions, so `agent:` letters are parked).
 	residentHost ResidentHost
+	// router is the team routing engine (team_route.go); a letter no team is involved in never
+	// touches it beyond one read.
+	router TeamRouter
 }
 
 // NewService builds the mailbox over the store, resolving topic: / path: through finder (nil =
@@ -158,7 +162,7 @@ type Service struct {
 func NewService(store *jobstore.Store, finder SessionFinder) *Service {
 	return &Service{
 		store: store, finder: finder, box: storeCaptureBox{store: store},
-		Limits: DefaultLimits, now: time.Now,
+		Limits: DefaultLimits, now: time.Now, router: team.NewRouter(store),
 	}
 }
 
@@ -208,6 +212,11 @@ type SendInput struct {
 	// resolved and BEFORE anything is stored, so a refused letter leaves no trace; its error
 	// is returned as is. It is not called when the address resolved to nobody.
 	Authorize func(Target) error
+	// SourceMailID is the letter this one forwards (0 = none); with the recipient seat it is
+	// the route key a team letter dedupes on. IdempotencyKey is a sender-chosen key for the
+	// same purpose (a job's letters get one automatically).
+	SourceMailID   int64
+	IdempotencyKey string
 }
 
 // ReplyInput is one answer to an existing letter.
@@ -229,6 +238,11 @@ type SendResult struct {
 	Candidates    []Candidate
 	CaptureItemID string
 	Held          bool
+	// Extra are the further letters a team decision produced (`@a @b` names several members);
+	// Mail is the first. Deduped says nothing was stored: the same route key was already routed
+	// and Mail is the earlier letter.
+	Extra   []jobstore.Mail
+	Deduped bool
 }
 
 // Send stores one letter, resolving its address first: exactly one recipient is delivered to,
@@ -258,6 +272,13 @@ func (s *Service) Send(in SendInput) (SendResult, error) {
 		if err := in.Authorize(res.target); err != nil {
 			return SendResult{}, err
 		}
+	}
+	if out, handled, err := s.routeTeam(teamSend{
+		org: org, addr: addr, res: res, body: in.Body, urgent: in.Urgent, threadID: in.ThreadID,
+		sourceMailID: in.SourceMailID, idem: in.IdempotencyKey, captureItem: in.CaptureItemID,
+		visible: in.Visible, authorize: in.Authorize,
+	}); handled {
+		return out, err
 	}
 	mi := jobstore.MailInput{
 		ThreadID: in.ThreadID,
@@ -319,6 +340,21 @@ func (s *Service) Reply(in ReplyInput) (SendResult, error) {
 			res.reason = fmt.Sprintf("thread %s reached its %d-letter ceiling", orig.ThreadID, ceiling)
 		}
 	}
+	if out, handled, err := s.routeTeam(teamSend{
+		org: org, addr: Address{Raw: back}, res: res, body: in.Body, urgent: in.Urgent, threadID: orig.ThreadID,
+		replyTo: orig.ID, sourceMailID: orig.ID, replyHop: orig.Hop, authorize: in.Authorize,
+	}); handled {
+		if err != nil {
+			return out, err
+		}
+		if _, _, err := s.store.MarkMailRead(orig.ID); err != nil {
+			return out, err
+		}
+		if _, _, err := s.store.MarkMailAnswered(orig.ID); err != nil {
+			return out, err
+		}
+		return out, nil
+	}
 	mi := jobstore.MailInput{
 		ThreadID: orig.ThreadID, ReplyTo: orig.ID,
 		FromKind: org.Kind, FromID: org.ID, FromCaller: org.Caller,
@@ -371,6 +407,7 @@ func (s *Service) Readdress(in ReaddressInput) (SendResult, error) {
 	out, err := s.Send(SendInput{
 		To: in.To, Body: orig.Body, Urgent: orig.Urgent, Origin: in.Origin, Project: in.Project,
 		Visible: in.Visible, Roots: in.Roots, ThreadID: orig.ThreadID, Authorize: in.Authorize,
+		SourceMailID: orig.ID,
 	})
 	if err != nil {
 		return out, err

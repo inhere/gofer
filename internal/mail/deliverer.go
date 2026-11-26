@@ -252,6 +252,7 @@ func (d *Deliverer) Tick(ctx context.Context) {
 	if err := d.svc.RecordHeld(held); err != nil {
 		slog.Warn("mail deliverer: recording overdue letters failed", "error", err)
 	}
+	d.svc.sweepStaleRoutes()
 	d.sweepSessions(ctx, now, st)
 	d.sweepJobs(ctx, now, st)
 	d.sweepAgents(ctx, now, st)
@@ -514,7 +515,7 @@ func (d *Deliverer) sweepJobs(ctx context.Context, now time.Time, st Settings) {
 			// before that rule existed.
 			d.holdJobLetters(letters, oneOffJobReason(lang))
 		case rec.Status == job.StatusAwaitingInput:
-			d.sayToJob(ctx, id, letters[0], now, st)
+			d.sayToJob(ctx, id, letters, now, st)
 		}
 		// Anything else (queued / running session job) waits: a job that reaches
 		// awaiting_input gets its letters at a later sweep.
@@ -543,30 +544,53 @@ func (d *Deliverer) holdJobLetters(letters []jobstore.Mail, reason string) {
 	}
 }
 
-// sayToJob delivers ONE letter to an ACP session job awaiting input (the job accepts one
-// pending input at a time): claim → say → confirm.
-func (d *Deliverer) sayToJob(ctx context.Context, jobID string, m jobstore.Mail, now time.Time, st Settings) {
+// sayToJob delivers the head letter of an ACP session job awaiting input (the job accepts one
+// pending input at a time): claim → say → confirm. Letters of a team that sit behind the head
+// inside the team's merge window ride along in the same say (see mergeGroup).
+func (d *Deliverer) sayToJob(ctx context.Context, jobID string, letters []jobstore.Mail, now time.Time, st Settings) {
 	if d.jobs == nil {
 		return
 	}
 	store := d.svc.store
-	claimed, ok, err := store.ClaimMail(m.ID, jobstore.MailDelivererClaimer, st.Lease)
-	if err != nil || !ok {
-		return
+	var claimed []jobstore.Mail
+	for _, m := range d.mergeGroup(letters) {
+		c, ok, err := store.ClaimMail(m.ID, jobstore.MailDelivererClaimer, st.Lease)
+		if err != nil || !ok {
+			if len(claimed) == 0 {
+				return
+			}
+			break // the order stays strict: nothing behind a letter that could not be claimed
+		}
+		claimed = append(claimed, c)
 	}
-	if err := d.jobs.SaySession(jobID, d.renderFor(claimed)); err != nil {
+	parts := make([]string, 0, len(claimed))
+	for _, c := range claimed {
+		parts = append(parts, d.renderFor(c))
+	}
+	if err := d.jobs.SaySession(jobID, strings.Join(parts, "\n\n")); err != nil {
 		reason := "job say: " + err.Error()
-		if _, _, rerr := store.ReleaseMailClaim(m.ID, jobstore.MailDelivererClaimer, reason); rerr != nil {
-			slog.Warn("mail deliverer: release claim failed", "mail", m.ID, "error", rerr)
+		for _, c := range claimed {
+			if _, _, rerr := store.ReleaseMailClaim(c.ID, jobstore.MailDelivererClaimer, reason); rerr != nil {
+				slog.Warn("mail deliverer: release claim failed", "mail", c.ID, "error", rerr)
+			}
+			logClaimReleased(c.ID, reason)
 		}
-		logClaimReleased(m.ID, reason)
 		if !errors.Is(err, job.ErrJobNotRunning) && !errors.Is(err, job.ErrInvalidRequest) {
-			slog.Info("mail deliverer: job say failed", "mail", m.ID, "job", jobID, "error", err)
+			slog.Info("mail deliverer: job say failed", "mail", claimed[0].ID, "job", jobID, "error", err)
 		}
 		return
 	}
-	if _, _, err := store.ConfirmMailClaim(m.ID, jobstore.MailDelivererClaimer); err != nil {
-		slog.Warn("mail deliverer: confirm failed (the letter may be sent again)", "mail", m.ID, "error", err)
+	for i, c := range claimed {
+		if _, _, err := store.ConfirmMailClaim(c.ID, jobstore.MailDelivererClaimer); err != nil {
+			slog.Warn("mail deliverer: confirm failed (the letter may be sent again)", "mail", c.ID, "error", err)
+		}
+		logDelivered(c, PathJobSay, now, "job_id", jobID)
+		if i > 0 {
+			// Absorbed into the head letter's turn: the ledger says merged, not delivered.
+			if _, err := store.SettleTeamRoutesOfMail(c.ID, jobstore.TeamOutcomeMerged,
+				jobstore.TeamOutcomeQueued, jobstore.TeamOutcomePending, jobstore.TeamOutcomeDelivered); err != nil {
+				slog.Warn("mail deliverer: settling merged route failed", "mail", c.ID, "error", err)
+			}
+		}
 	}
-	logDelivered(claimed, PathJobSay, now, "job_id", jobID)
 }

@@ -146,6 +146,9 @@ type Target struct {
 	Deliver bool
 	// TeamID tags the letter with the team it was addressed through (a `team:` address).
 	TeamID string
+	// SeatID is the seat a seat: / team: address named (the leader seat for team:), even when
+	// nobody sits in it.
+	SeatID string
 }
 
 // Candidate is a session a topic: / path: address almost named: the letter goes to the capture

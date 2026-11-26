@@ -633,6 +633,19 @@ func (s *Store) MarkStaleTeamRoutesUnknown(before int64) (int64, error) {
 	return res.RowsAffected()
 }
 
+// TeamRuleOfMail is the rule of the first routing row of a letter ("" = none recorded).
+func (s *Store) TeamRuleOfMail(mailID int64) (string, error) {
+	var rule string
+	err := s.db.QueryRow(`SELECT rule FROM team_routes WHERE mail_id = ? ORDER BY id LIMIT 1`, mailID).Scan(&rule)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("jobstore: team rule of mail %d: %w", mailID, err)
+	}
+	return rule, nil
+}
+
 // ListTeamRoutesSince lists a team's routing decisions decided at or after since (unix
 // seconds), newest first, at most limit (<=0: 1000).
 func (s *Store) ListTeamRoutesSince(teamID string, since int64, limit int) ([]TeamRoute, error) {
