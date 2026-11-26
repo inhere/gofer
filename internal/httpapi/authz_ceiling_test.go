@@ -140,6 +140,8 @@ func (w ceilWorld) bodyFor(key string) any {
 		return exec
 	case "POST /v1/work-items/capture":
 		return map[string]any{"text": "x", "project": p}
+	case "POST /v1/work-items/stage":
+		return map[string]any{"issue": "x-1", "project": p}
 	case "POST /v1/memory-syntheses/run":
 		return map[string]any{"project": p}
 	case "POST /v1/workflows":
@@ -445,6 +447,7 @@ var bodyProjectKeys = []string{
 	"GET /v1/workflow-templates/{name}/source", "PUT /v1/workflow-templates/{name}", "DELETE /v1/workflow-templates/{name}",
 	"POST /v1/schedules", "POST /v1/plans", "POST /v1/work-items", "POST /v1/xfer", "POST /v1/xfer/precheck",
 	"POST /v1/projects", "POST /v1/memories", "POST /v1/mail", "POST /v1/memory-syntheses/run", "POST /v1/work-items/report", "POST /v1/seats",
+	"POST /v1/work-items/stage",
 }
 
 // TestBodyProjectHandlersCheckScope: each BodyProject handler really calls the scope check —

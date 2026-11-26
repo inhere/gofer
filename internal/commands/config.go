@@ -1126,6 +1126,8 @@ func runConfigShow(c *gcli.Command, _ []string) error {
 	c.Printf("max_concurrent_jobs: %d\n", p.MaxConcurrentJobs)
 	c.Printf("capture_diff: %s\n", boolPtrStr(p.CaptureDiff))
 	c.Printf("notify_enabled: %s\n", boolPtrStr(p.NotifyEnabled))
+	c.Printf("stage_enabled: %v\n", p.StageEnabled())
+	c.Printf("stage_verify_templates: %v\n", p.StageVerifyTemplates())
 	c.Println(cliText("cli.config.show.diagnostic_note"))
 	return nil
 }

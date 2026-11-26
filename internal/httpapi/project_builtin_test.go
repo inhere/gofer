@@ -145,3 +145,26 @@ func TestWorkOneShotProjectChooser(t *testing.T) {
 		t.Errorf("no registry ProjectDir = %q", got)
 	}
 }
+
+// TestProjectViewsPublishTheStageSetting: the resolved stage flow setting rides both read
+// paths (GET /v1/projects/{key} and GET /v1/config), default enabled with [verify].
+func TestProjectViewsPublishTheStageSetting(t *testing.T) {
+	s, _ := builtinDefaultServer(t)
+	var one projectView
+	decode(t, do(t, s, http.MethodGet, "/v1/projects/default", testToken, nil), &one)
+	if !one.Stage.Enabled || len(one.Stage.VerifyTemplates) != 1 || one.Stage.VerifyTemplates[0] != "verify" {
+		t.Fatalf("default stage view = %+v", one.Stage)
+	}
+	off := false
+	v := projectViewOf("x", config.ProjectConfig{Stage: &config.ProjectStage{Enabled: &off, VerifyTemplates: []string{"gofer-verify"}}})
+	if v.Stage.Enabled || v.Stage.VerifyTemplates[0] != "gofer-verify" {
+		t.Fatalf("configured stage view = %+v", v.Stage)
+	}
+	var cv configView
+	decode(t, do(t, s, http.MethodGet, "/v1/config", testToken, nil), &cv)
+	for _, p := range cv.Projects {
+		if p.Key == "default" && !p.Stage.Enabled {
+			t.Fatal("/v1/config must carry the stage setting")
+		}
+	}
+}

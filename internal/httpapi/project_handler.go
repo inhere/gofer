@@ -76,10 +76,19 @@ type projectView struct {
 	// console can answer "which projects force this rule?" without a second endpoint
 	// (the binding levels are all in GET /v1/config).
 	Rules []string `json:"rules,omitempty"`
+	// Stage is the project's stage flow setting (projects.<key>.stage), published resolved:
+	// the default is enabled with the `verify` template.
+	Stage projectStageView `json:"stage"`
 	// Injected marks the built-in `default` project the operator did not declare
 	// (config.InjectDefaultProject). Editing it writes it into the config (it becomes a
 	// declared project); deleting it is refused.
 	Injected bool `json:"injected,omitempty"`
+}
+
+// projectStageView is the resolved stage flow setting of a project.
+type projectStageView struct {
+	Enabled         bool     `json:"enabled"`
+	VerifyTemplates []string `json:"verify_templates"`
 }
 
 // removedNarrowingFieldMsg is the answer to a write that still carries the AGT-02
@@ -336,6 +345,7 @@ func projectViewOf(key string, proj config.ProjectConfig) projectView {
 		MaxConcurrentJobs: proj.MaxConcurrentJobs,
 		JobEnvAllow:       proj.JobEnvAllow,
 		Rules:             proj.Rules,
+		Stage:             projectStageView{Enabled: proj.StageEnabled(), VerifyTemplates: proj.StageVerifyTemplates()},
 	}
 }
 

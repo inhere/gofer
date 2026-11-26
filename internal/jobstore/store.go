@@ -1041,6 +1041,25 @@ var schemaStmts = []string{
   created_at   INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (work_item_id, kind, ref)
 )`,
+	// Stage flow (design 2026-11-18 §6, plan 2026-11-26): one flow per work item, with the
+	// template's steps snapshotted at start. A new table, so no migrate() ALTER.
+	`CREATE TABLE IF NOT EXISTS work_stages (
+  work_item_id    TEXT PRIMARY KEY,
+  template        TEXT NOT NULL DEFAULT '',
+  steps_json      TEXT NOT NULL DEFAULT '[]',
+  step            INTEGER NOT NULL DEFAULT 0,
+  step_entered_at INTEGER NOT NULL DEFAULT 0,
+  level           TEXT NOT NULL DEFAULT 'record',
+  status          TEXT NOT NULL DEFAULT 'active',
+  blocked_reason  TEXT NOT NULL DEFAULT '',
+  doing_done_sha  TEXT NOT NULL DEFAULT '',
+  approved_step   INTEGER NOT NULL DEFAULT -1,
+  review_max      INTEGER NOT NULL DEFAULT 2,
+  plan_doc        INTEGER NOT NULL DEFAULT 0,
+  created_at      INTEGER NOT NULL DEFAULT 0,
+  updated_at      INTEGER NOT NULL DEFAULT 0
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_work_stages_status ON work_stages(status)`,
 	`CREATE TABLE IF NOT EXISTS work_kv (
   k TEXT PRIMARY KEY,
   v TEXT NOT NULL DEFAULT ''
@@ -1958,6 +1977,9 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := s.migrateSeats(); err != nil {
+		return err
+	}
+	if err := s.migrateWorkLinkRole(); err != nil {
 		return err
 	}
 	if err := s.markProvenanceSince(); err != nil {

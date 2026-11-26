@@ -107,6 +107,8 @@ const (
 	WorkLinkPlan  = "plan"
 	WorkLinkTodo  = "todo"
 	WorkLinkJob   = "job"
+	// WorkLinkDoc points at a repository-relative document; its Role says which one.
+	WorkLinkDoc = "doc"
 )
 
 // Errors surfaced to the entry layers.
@@ -191,6 +193,8 @@ type WorkLink struct {
 	Kind       string `json:"kind"`
 	Ref        string `json:"ref"`
 	CreatedAt  int64  `json:"created_at,omitempty"`
+	// Role qualifies a doc link (design | plan) and a job link (review); empty otherwise.
+	Role string `json:"role,omitempty"`
 	// PendingSync is set on an issue link whose issue the server created and no
 	// repository has pulled yet (the web shows 「待同步」).
 	PendingSync bool `json:"pending_sync,omitempty"`
@@ -903,7 +907,7 @@ func (s *Store) DetachWorkSession(id, sid, by string) error {
 
 func validWorkLinkKind(k string) bool {
 	switch k {
-	case WorkLinkIssue, WorkLinkPlan, WorkLinkTodo, WorkLinkJob:
+	case WorkLinkIssue, WorkLinkPlan, WorkLinkTodo, WorkLinkJob, WorkLinkDoc:
 		return true
 	}
 	return false

@@ -52,6 +52,7 @@ func (s *Store) DeleteWorkItem(id, actor string) error {
 	for _, stmt := range []string{
 		`DELETE FROM work_item_sessions WHERE work_item_id=?`,
 		`DELETE FROM work_links WHERE work_item_id=?`,
+		`DELETE FROM work_stages WHERE work_item_id=?`,
 		`DELETE FROM work_journal WHERE work_item_id=?`,
 		`DELETE FROM work_field_sources WHERE work_item_id=?`,
 		`DELETE FROM work_requests WHERE work_item_id=?`,

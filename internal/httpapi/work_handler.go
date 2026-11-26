@@ -508,10 +508,10 @@ func (s *Server) handleListWorkLinks(c *rux.Context) {
 		writeWorkError(c, err, "list work links")
 		return
 	}
-	c.JSON(http.StatusOK, map[string]any{"links": l})
+	c.JSON(http.StatusOK, map[string]any{"links": s.withLinkRoles(c.Param("id"), l)})
 }
 
-// POST /v1/work-items/{id}/links {kind, ref}
+// POST /v1/work-items/{id}/links {kind, ref, role?}
 func (s *Server) handleAddWorkLink(c *rux.Context) {
 	if !s.workReady(c) || !workNotAWorker(c) {
 		return
@@ -519,12 +519,14 @@ func (s *Server) handleAddWorkLink(c *rux.Context) {
 	var body struct {
 		Kind string `json:"kind"`
 		Ref  string `json:"ref"`
+		// Role qualifies a doc link (design | plan) and a job link (review).
+		Role string `json:"role"`
 	}
 	if err := c.BindJSON(&body); err != nil {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
 		return
 	}
-	if _, err := s.work.Store().AddWorkLink(c.Param("id"), body.Kind, body.Ref, workBy(c)); err != nil {
+	if _, err := s.work.Store().AddWorkLinkRole(c.Param("id"), body.Kind, body.Ref, body.Role, workBy(c)); err != nil {
 		writeWorkError(c, err, "add work link")
 		return
 	}
