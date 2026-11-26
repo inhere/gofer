@@ -16,6 +16,7 @@ import (
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/seat"
 	"github.com/inhere/gofer/internal/sessionrelay"
+	"github.com/inhere/gofer/internal/stagenote"
 )
 
 // The seat roster routes (design 2026-11-18 resident-sessions §4): /v1/seats. The business
@@ -166,6 +167,9 @@ type seatView struct {
 	Unread     bool   `json:"unread,omitempty"`
 	ActivityAt int64  `json:"activity_at,omitempty"`
 	ThreadID   string `json:"thread_id,omitempty"`
+	// Stage is the flow the sitting session is on (the roster shows its current step beside the
+	// state dot); absent for a vacant seat and for a session with no flow in progress.
+	Stage *stagenote.Brief `json:"stage,omitempty"`
 	// CharterSent / CharterError describe the one message a bind sends: an acp seat whose job was
 	// live when it was bound said the seat's charter into it right away. They ride the bind answer
 	// only (omitted everywhere else), and a failed send never fails the bind.
@@ -352,7 +356,7 @@ func (s *Server) writeSeat(c *rux.Context, svc *seat.Service, x jobstore.Seat) {
 		writeError(c, http.StatusInternalServerError, "seat status failed", err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, seatViewOf(st))
+	c.JSON(http.StatusOK, s.seatView(st))
 }
 
 // GET /v1/seats: the caller's own seats; all=1 adds everyone's for a holder of
@@ -379,11 +383,7 @@ func (s *Server) handleSeatList(c *rux.Context) {
 		writeError(c, http.StatusInternalServerError, "seat status failed", err.Error())
 		return
 	}
-	out := make([]seatView, 0, len(sts))
-	for _, st := range sts {
-		out = append(out, seatViewOf(st))
-	}
-	c.JSON(http.StatusOK, map[string]any{"seats": out})
+	c.JSON(http.StatusOK, map[string]any{"seats": s.seatViews(sts)})
 }
 
 type seatCreateReq struct {
@@ -512,7 +512,7 @@ func (s *Server) handleSeatBind(c *rux.Context) {
 		writeError(c, http.StatusInternalServerError, "seat status failed", err.Error())
 		return
 	}
-	v := seatViewOf(st)
+	v := s.seatView(st)
 	v.CharterSent = info.CharterSent
 	if info.CharterError != nil {
 		v.CharterError = info.CharterError.Error()
@@ -650,11 +650,7 @@ func (s *Server) handleSeatCandidates(c *rux.Context) {
 		writeError(c, http.StatusInternalServerError, "seat status failed", err.Error())
 		return
 	}
-	out := make([]seatView, 0, len(sts))
-	for _, st := range sts {
-		out = append(out, seatViewOf(st))
-	}
-	c.JSON(http.StatusOK, map[string]any{"seats": out})
+	c.JSON(http.StatusOK, map[string]any{"seats": s.seatViews(sts)})
 }
 
 func openPlanView(p seat.OpenPlan) seatOpenPlanView {

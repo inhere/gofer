@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { createSSRApp, h } from 'vue'
 import { renderToString } from 'vue/server-renderer'
 import { createMemoryHistory, createRouter } from 'vue-router'
+import { t } from '../../i18n'
 import type { SeatOpenPlan, SeatView, WorkbenchThread } from '../../api/types'
 import SeatRoster from './SeatRoster.vue'
 import {
@@ -287,6 +288,26 @@ describe('the roster component', () => {
     const html = await render({ seats: rows })
     expect(html).toContain('data-state="failed"')
     expect(html).toContain('data-state="ended"')
+  })
+
+  it('shows the current flow step beside the dot, and nothing for a seat with no flow', async () => {
+    const rows = [
+      seat({
+        id: 'a',
+        name: 'api',
+        project_key: 'p1',
+        current_ref: 'sid-1',
+        stage: { work_item_id: 'w-1', step: 'doing', step_no: 2, step_total: 3, status: 'active' },
+      }),
+      seat({ id: 'b', name: 'docs', project_key: 'p1', current_ref: 'sid-2' }),
+      seat({ id: 'c', name: 'vacant', project_key: 'p1', state: 'none' }),
+    ]
+    const html = await render({ seats: rows })
+    // 坐着会话且开了流程的那一行有徽标：「<步骤> n/N」
+    expect(html).toContain('data-test="stage-badge"')
+    expect(html).toContain(t('work.stage.badge', { step: t('work.stage.step.doing'), no: 2, total: 3 }))
+    // 没开流程 / 空着的两行没有徽标：整页只有一个
+    expect(html.split('data-test="stage-badge"').length - 1).toBe(1)
   })
 
   it('respects the project filter and shows nothing when every seat is filtered out', async () => {
