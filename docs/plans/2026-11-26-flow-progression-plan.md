@@ -134,3 +134,9 @@
 - 自报终态：`internal/job/selfresult.go`，`internal/httpapi/job_result_handler.go`。
 - 「等我」：`internal/today/today.go:22-77`，`internal/inbox/waiting.go:15-158`，`internal/inbox/subjects.go:57-82`，`internal/inbox/seat_schedule.go:34`。
 - SessionStart：`internal/hookrelay/run.go:212,923`，`internal/seat/inject.go:51`，`internal/seat/charter.go:11-13`。
+
+## 附录 B F0 结论（2026-11-26，代码核实）
+
+- **worker 上的 ACP 会话拿不到 TurnNote**：`TurnNote` 是 server 进程内的函数，只在本机 submit / recovery 时由 `configureResidentACP` 设置；`internal/runner/worker` 不转发它。现有的 needs-reply 约定在 worker 会话上同样缺失（已登记 issue）。F3 改为由 server 在下发每轮输入（首轮与 say）时把提醒拼进文本，本机和 worker 两条路径共用；如果协议需要新字段，写明理由。
+- **suga**：常驻会话用 `suga-acp`，走同一条 ACP 路径；`-a suga` 的一次性 job 不涉及每轮注入。
+- **本工作区的验证模板**：`gofer-verify`（工作区模板）。
