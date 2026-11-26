@@ -56,7 +56,7 @@ const LEVELS: StageLevel[] = ['record', 'remind']
 
 <template>
   <section class="sec stage-block" data-test="stage-block">
-    <h4 class="sec-title">
+    <h4 class="stage-title">
       <span data-test="stage-template">{{ t('work.stage.title', { template: stage.template }) }}</span>
       <span class="stage-step-now" data-test="stage-step-now">{{ stageStepLabel(stage.step) }}</span>
     </h4>
@@ -81,24 +81,24 @@ const LEVELS: StageLevel[] = ['record', 'remind']
     <p v-else-if="finished" class="stage-note" data-test="stage-finished">
       {{ t(stage.status === 'dropped' ? 'work.stage.dropped' : 'work.stage.done') }}
     </p>
-    <p class="hint stage-since" data-test="stage-since">
+    <p class="stage-hint stage-since" data-test="stage-since">
       {{ t('work.stage.since', { d: fmtAgo(stage.step_entered_at, nowSec ?? Math.floor(Date.now() / 1000)) }) }}
     </p>
 
     <div v-if="current && (current.missing.length || current.needsHuman)" class="stage-gate" data-test="stage-gate">
       <p v-if="current.needsHuman" class="stage-note stage-note--human" data-test="stage-needs-human">{{ t('work.stage.needsHuman') }}</p>
-      <ul v-if="current.missing.length" class="plain stage-missing" data-test="stage-missing">
+      <ul v-if="current.missing.length" class="stage-missing" data-test="stage-missing">
         <li v-for="(m, i) in current.missing" :key="i">{{ m }}</li>
       </ul>
     </div>
 
     <div class="stage-level" role="group" :aria-label="t('work.stage.levelLabel')">
-      <span class="hint">{{ t('work.stage.levelLabel') }}</span>
+      <span class="stage-hint">{{ t('work.stage.levelLabel') }}</span>
       <button
         v-for="lv in LEVELS"
         :key="lv"
         type="button"
-        class="chip-btn"
+        class="stage-level-btn"
         :class="{ on: stage.level === lv }"
         :aria-pressed="stage.level === lv"
         :disabled="busy || finished"
@@ -108,7 +108,7 @@ const LEVELS: StageLevel[] = ['record', 'remind']
       >{{ stageLevelLabel(lv) }}</button>
     </div>
 
-    <div v-if="!finished" class="stage-actions status-row">
+    <div v-if="!finished" class="stage-actions">
       <Button v-if="canApproveNow" variant="primary" size="sm" :disabled="busy" data-test="stage-approve" @click="emit('approve')">
         {{ t('work.stage.approve') }}
       </Button>
@@ -119,10 +119,10 @@ const LEVELS: StageLevel[] = ['record', 'remind']
         {{ busy ? t('work.stage.working') : t('work.stage.doneAction') }}
       </Button>
     </div>
-    <div v-if="backOpen && !finished" class="stage-back-form row3">
+    <div v-if="backOpen && !finished" class="stage-back-form">
       <input
         v-model="backReason"
-        class="field-in"
+        class="stage-back-input"
         type="text"
         :placeholder="t('work.stage.backReason')"
         :aria-label="t('work.stage.backReason')"
@@ -138,6 +138,7 @@ const LEVELS: StageLevel[] = ['record', 'remind']
 
 <style scoped>
 .stage-block { border-top: 1px solid var(--line); }
+.stage-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; margin: 0 0 var(--s2); font-size: var(--fs-sm); font-weight: 600; color: var(--ink); }
 .stage-step-now { margin-left: var(--s2); font-size: var(--fs-xs); font-weight: 400; color: var(--accent); }
 /* 步骤条：一行横排，窄屏自己横向滑动（不折行，保持「第几步 / 共几步」的阅读顺序）。 */
 .stage-steps { display: flex; align-items: center; gap: 6px; margin: 0 0 var(--s2); padding: 0; list-style: none; overflow-x: auto; }
@@ -150,8 +151,13 @@ const LEVELS: StageLevel[] = ['record', 'remind']
 .stage-note--blocked { color: var(--fail); }
 .stage-note--human { color: var(--run); }
 .stage-since { margin: 0 0 var(--s2); }
+.stage-hint { font-size: var(--fs-xs); color: var(--ink-3); }
 .stage-missing { margin: 0 0 var(--s2); padding-left: 16px; font-size: var(--fs-sm); color: var(--ink-2); list-style: disc; }
-.stage-level { display: flex; align-items: center; gap: 6px; margin-bottom: var(--s2); font-size: var(--fs-xs); }
-.stage-actions { margin-bottom: var(--s2); }
-.stage-back-form { margin-bottom: var(--s2); }
+.stage-level { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: var(--s2); font-size: var(--fs-xs); }
+.stage-level-btn { padding: 2px 10px; font: inherit; font-size: var(--fs-xs); color: var(--ink-3); background: var(--surface); border: 1px solid var(--line); border-radius: 999px; cursor: pointer; }
+.stage-level-btn.on { color: var(--accent); background: var(--accent-soft); border-color: var(--accent); }
+.stage-level-btn:disabled { cursor: default; opacity: 0.6; }
+.stage-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s2); margin-bottom: var(--s2); }
+.stage-back-form { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s2); margin-bottom: var(--s2); }
+.stage-back-input { flex: 1 1 220px; min-width: 0; min-height: 30px; padding: 4px var(--s2); font: inherit; font-size: var(--fs-sm); color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-ctl); }
 </style>
