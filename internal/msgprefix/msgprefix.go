@@ -56,6 +56,9 @@ const (
 	// Hint is any other gofer hint for the agent (a topic reminder, a generic
 	// system notice that names no type of its own).
 	Hint = "hint"
+	// Stage is the stage-flow reminder (the step a work item is on and the commands that
+	// move it), injected each turn and at session start.
+	Stage = "stage"
 	// Bounce is a letter gofer could not deliver, returned to its sender (内部/mail
 	// 退信): the body of that letter is a gofer notice, so the recipient reads it as
 	// machine text and not as the addressee writing back.
@@ -132,6 +135,10 @@ var systemPrefixes = map[string]map[i18n.Lang]string{
 	Hint: {
 		i18n.ZhCN: "[gofer · 提示]",
 		i18n.EN:   "[gofer · hint]",
+	},
+	Stage: {
+		i18n.ZhCN: "[gofer · 流程]",
+		i18n.EN:   "[gofer · stage]",
 	},
 	Bounce: {
 		i18n.ZhCN: "[gofer · 退信]",
@@ -230,6 +237,8 @@ const (
 	MemoryOpen = "[gofer · 记忆]"
 	// HintOpen opens a gofer hint (topic reminder, generic notice).
 	HintOpen = "[gofer · 提示]"
+	// StageOpen opens a stage-flow reminder.
+	StageOpen = "[gofer · 流程]"
 	// BounceOpen opens a returned letter (退信).
 	BounceOpen = "[gofer · 退信]"
 )
@@ -289,7 +298,7 @@ func SystemPrefixes() []string {
 
 // systemKinds lists the system kinds in documentation order.
 func systemKinds() []string {
-	return []string{JobDone, Wakeup, WorkHandoff, WorkReport, Steward, Memory, Hint, Bounce}
+	return []string{JobDone, Wakeup, WorkHandoff, WorkReport, Steward, Memory, Hint, Stage, Bounce}
 }
 
 // Person reports whether kind is a person's message kind (the other kinds are
