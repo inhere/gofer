@@ -415,6 +415,8 @@ type Server struct {
 	today *today.Service
 	// seatSvc is the seat roster service, built on first use (seat_handler.go).
 	seatSvc seatHolder
+	// stageSvc is the stage flow service, built on first use (stage_handler.go).
+	stageSvc stageHolder
 	// waitNotices is the 「等我」 notice scanner, built on first use (waiting_notice.go).
 	waitNotices waitNoticeHolder
 	// waitingPush remembers the set the last 「等我」 scan judged, so the `waiting` push topic
@@ -1937,6 +1939,14 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/work-items/{id}/merge-suggestions", s.handleAddMergeSuggestion)
 		r.POST("/work-items/{id}/suggestions/{field}/accept", s.handleAcceptWorkSuggestion)
 		r.POST("/work-items/{id}/suggestions/{field}/dismiss", s.handleDismissWorkSuggestion)
+		r.GET("/work-items/{id}/stage", s.handleGetStage)
+		r.POST("/work-items/{id}/stage", s.handleStartStage)
+		r.POST("/work-items/stage", s.handleStartStageByIssue)
+		r.POST("/work-items/{id}/stage/done", s.handleStageDone)
+		r.POST("/work-items/{id}/stage/back", s.handleStageBack)
+		r.POST("/work-items/{id}/stage/blocked", s.handleStageBlocked)
+		r.POST("/work-items/{id}/stage/approve", s.handleStageApprove)
+		r.POST("/work-items/{id}/stage/drop", s.handleStageDrop)
 
 		r.POST("/decisions", s.handleAskDecision)
 		r.GET("/decisions", s.handleListDecisions)

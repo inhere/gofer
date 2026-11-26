@@ -458,6 +458,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `POST` | `/v1/work-items/merge-suggestions/{n}/dismiss` | `Public` | — | — | `Resource(merge_suggestion)` | 写 |
 | `POST` | `/v1/work-items/report` | `Public` | — | — | `BodyProject` | 写 |
 | `GET` | `/v1/work-items/requests` | `Public` | — | `job` | `Filter` | 读 |
+| `POST` | `/v1/work-items/stage` | `Public` | — | — | `BodyProject` | 写 |
 | `GET` | `/v1/work-items/summarizer` | `Public` | — | — | `NoProject` | 读 |
 | `DELETE` | `/v1/work-items/{id}` | `Public` | — | — | `Resource(work_item)` | 写 |
 | `GET` | `/v1/work-items/{id}` | `Public` | — | `job` | `Resource(work_item)` | 读 |
@@ -478,6 +479,13 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `POST` | `/v1/work-items/{id}/sessions` | `Public` | — | — | `Resource(work_item)` | 写 |
 | `DELETE` | `/v1/work-items/{id}/sessions/{sid}` | `Public` | — | — | `Resource(work_item)` | 写 |
 | `POST` | `/v1/work-items/{id}/split` | `Public` | — | — | `Resource(work_item)` | 写 |
+| `GET` | `/v1/work-items/{id}/stage` | `Public` | — | — | `Resource(work_item)` | 读 |
+| `POST` | `/v1/work-items/{id}/stage` | `Public` | — | — | `Resource(work_item)` | 写 |
+| `POST` | `/v1/work-items/{id}/stage/approve` | `Public` | — | — | `Resource(work_item)` | 写 |
+| `POST` | `/v1/work-items/{id}/stage/back` | `Public` | — | — | `Resource(work_item)` | 写 |
+| `POST` | `/v1/work-items/{id}/stage/blocked` | `Public` | — | — | `Resource(work_item)` | 写 |
+| `POST` | `/v1/work-items/{id}/stage/done` | `Public` | — | — | `Resource(work_item)` | 写 |
+| `POST` | `/v1/work-items/{id}/stage/drop` | `Public` | — | — | `Resource(work_item)` | 写 |
 | `POST` | `/v1/work-items/{id}/suggestions/{field}/accept` | `Public` | — | — | `Resource(work_item)` | 写 |
 | `POST` | `/v1/work-items/{id}/suggestions/{field}/dismiss` | `Public` | — | — | `Resource(work_item)` | 写 |
 | `POST` | `/v1/work-items/{id}/summarize` | `Public` | — | `job` | `Resource(work_item)` | 写 |
