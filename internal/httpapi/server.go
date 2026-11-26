@@ -1069,6 +1069,10 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		s.work.SetOneShot(workOneShot{jobs: jobs, agents: agents, projects: projects})
 		s.work.SetTranscriptSource(workTranscripts{s: s})
 		s.relay.SetWorkHook(s.work)
+		// A terminal that comes back (a resumed CLI registers, a silent session beats again) sends its
+		// queued seat schedule texts immediately instead of at the next sweep; the relay only reports
+		// the transition, the assembly knows about seats (G021–G024).
+		s.relay.SetOnSessionLive(s.flushSeatOnSessionLive)
 		s.steward = steward.New(jobs.Meta(), s.work, stewardHost{jobs: jobs, agents: agents, lang: func() i18n.Lang { return s.textLanguage("") }})
 		s.work.SetDueHook(s.steward.NoteDue)
 		s.overview = overview.New(jobs.Meta())

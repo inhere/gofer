@@ -95,6 +95,52 @@ func TestPendingSameScheduleKeepsOneRow(t *testing.T) {
 	}
 }
 
+// FlushSeatOf is the immediate late send of a session that just came back: it finds the seat
+// through the session, sends the queued text once (a second report does nothing), and does
+// nothing at all for a session in no seat.
+func TestFlushSeatOfSendsTheQueueOfItsSeat(t *testing.T) {
+	e, m, _ := scheduleEnv(t)
+	x := e.seat(t, "desk", "")
+	e.session(t, "s1", "/d/work/proj")
+	if _, err := e.svc.Bind(x.ID, "s1", false, "user"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.st.SetSessionState("s1", jobstore.SessionOffline); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.svc.DeliverToSeat(context.Background(), deliverReq(x.ID)); err != nil {
+		t.Fatal(err)
+	}
+	if queuedCount(t, e, "sch-1") != 1 || len(m.sent) != 0 {
+		t.Fatalf("queued=%d sent=%+v", queuedCount(t, e, "sch-1"), m.sent)
+	}
+	// Still offline: the came-back report sends nothing and keeps the row.
+	if n, err := e.svc.FlushSeatOf(context.Background(), "s1"); err != nil || n != 0 || queuedCount(t, e, "sch-1") != 1 {
+		t.Fatalf("offline flush = %d, %v (queued %d)", n, err, queuedCount(t, e, "sch-1"))
+	}
+	// Back: one more report sends it, and a further one sends nothing.
+	if _, err := e.st.SetSessionState("s1", jobstore.SessionRunning); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := e.svc.FlushSeatOf(context.Background(), "s1"); err != nil || n != 1 {
+		t.Fatalf("flush after the comeback = %d, %v", n, err)
+	}
+	if n, err := e.svc.FlushSeatOf(context.Background(), "s1"); err != nil || n != 0 {
+		t.Fatalf("second flush = %d, %v", n, err)
+	}
+	if len(m.sent) != 1 || m.sent[0].sid != "s1" || !strings.Contains(m.sent[0].text, "weekly report please") {
+		t.Fatalf("sent = %+v, want exactly one late send", m.sent)
+	}
+	if queuedCount(t, e, "sch-1") != 0 {
+		t.Fatal("a delivered row must leave the queue")
+	}
+	// A session that sits in no seat is a no-op, not an error.
+	e.session(t, "s-free", "/d/work/proj")
+	if n, err := e.svc.FlushSeatOf(context.Background(), "s-free"); err != nil || n != 0 {
+		t.Fatalf("flush of a session in no seat = %d, %v", n, err)
+	}
+}
+
 // A text waiting longer than the TTL is dropped, not sent late.
 func TestPendingExpiresAfterTTL(t *testing.T) {
 	e, m, _ := scheduleEnv(t)
