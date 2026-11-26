@@ -97,7 +97,7 @@ func (s *Service) resolveTeamAddress(in resolveInput) (resolution, error) {
 // hold when nothing can take the letter.
 func (s *Service) seatResolution(in resolveInput, x jobstore.Seat, teamID string) resolution {
 	held := func(reason string) resolution {
-		return resolution{target: Target{Address: in.addr.Raw, TeamID: teamID}, reason: reason}
+		return resolution{target: Target{Address: in.addr.Raw, TeamID: teamID, SeatID: x.ID}, reason: reason}
 	}
 	if x.CurrentRef == "" {
 		return held(fmt.Sprintf("%s: seat %s is vacant (nobody sits in it); the letter waits in the capture box", in.addr.Raw, x.Name))
@@ -113,7 +113,7 @@ func (s *Service) seatResolution(in resolveInput, x jobstore.Seat, teamID string
 			}
 		}
 		return resolution{target: Target{
-			Kind: jobstore.MailKindJob, ID: rec.ID, Address: in.addr.Raw, Deliver: true, TeamID: teamID,
+			Kind: jobstore.MailKindJob, ID: rec.ID, Address: in.addr.Raw, Deliver: true, TeamID: teamID, SeatID: x.ID,
 		}}
 	}
 	a, ok, err := s.store.GetAgentSession(x.CurrentRef)
@@ -126,6 +126,6 @@ func (s *Service) seatResolution(in resolveInput, x jobstore.Seat, teamID string
 	return resolution{target: Target{
 		Kind: jobstore.MailKindSession, ID: a.SessionID, Address: in.addr.Raw,
 		Topic: a.Topic, Source: a.TopicSource, Offline: a.State == jobstore.SessionOffline,
-		Deliver: true, TeamID: teamID,
+		Deliver: true, TeamID: teamID, SeatID: x.ID,
 	}}
 }

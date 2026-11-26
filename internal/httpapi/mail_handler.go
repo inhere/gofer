@@ -88,6 +88,8 @@ func (s *Server) writeMailError(c *rux.Context, err error) {
 		writeError(c, http.StatusNotFound, "seat not found", err.Error())
 	case errors.Is(err, mail.ErrTeamNotFound):
 		writeError(c, http.StatusNotFound, "team not found", err.Error())
+	case errors.Is(err, mail.ErrRouteInFlight):
+		writeError(c, http.StatusConflict, "mail still being stored", err.Error())
 	case errors.Is(err, mail.ErrJobCannotReceive):
 		writeError(c, http.StatusConflict, "job cannot receive mail", err.Error())
 	case errors.Is(err, mail.ErrNotAnswerable):
@@ -138,8 +140,12 @@ type mailView struct {
 	AckBy       string `json:"ack_by,omitempty"`
 	AckAt       int64  `json:"ack_at,omitempty"`
 	// TeamID is the team a `team:` letter was addressed through (additive).
-	TeamID    string             `json:"team_id,omitempty"`
-	Broadcast *mailBroadcastView `json:"broadcast,omitempty"`
+	TeamID string `json:"team_id,omitempty"`
+	// Hop and SystemKind are the team routing marks (additive): the number of team relays the
+	// letter went through, and the kind of a gofer-written team notice (e.g. member_failed).
+	Hop        int                `json:"hop,omitempty"`
+	SystemKind string             `json:"system_kind,omitempty"`
+	Broadcast  *mailBroadcastView `json:"broadcast,omitempty"`
 }
 
 func toMailView(m jobstore.Mail) mailView {
@@ -151,7 +157,7 @@ func toMailView(m jobstore.Mail) mailView {
 		JobID:     m.JobID, Urgent: m.Urgent, Body: m.Body, State: m.State, Attempts: m.Attempts,
 		LastError: m.LastError, CreatedAt: m.CreatedAt, DeliveredAt: m.DeliveredAt, ReadAt: m.ReadAt,
 		DeliverBy: m.DeliverBy, CaptureItemID: m.CaptureItemID, BroadcastID: m.BroadcastID,
-		AckKind: m.AckKind, AckBy: m.AckBy, AckAt: m.AckAt, TeamID: m.TeamID,
+		AckKind: m.AckKind, AckBy: m.AckBy, AckAt: m.AckAt, TeamID: m.TeamID, Hop: m.Hop, SystemKind: m.SystemKind,
 	}
 }
 
@@ -582,10 +588,10 @@ func checkJobMailAddress(to string) error {
 		return err
 	}
 	switch addr.Scheme {
-	case mail.SchemeSession, mail.SchemeCaller:
+	case mail.SchemeSession, mail.SchemeCaller, mail.SchemeSeat, mail.SchemeTeam:
 		return nil
 	}
-	return mailForbidden("a job credential may only mail a session or its caller")
+	return mailForbidden("a job credential may only mail a session, a seat, a team or its caller")
 }
 
 // mailPreviewView is the answer of a dry run: how many recipients the addresses would reach and

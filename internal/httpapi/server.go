@@ -944,6 +944,15 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		s.mail = mail.NewService(jobs.Meta(), s.relay)
 		// Whether a job: address can take a letter is the job service's judgement (gofer-0n6r).
 		s.mail.SetSessionJobCheck(mail.SessionJobLookup(jobs.Get))
+		// A member job that fails tells the team leader (team rule member_failed); s.mail is read
+		// at call time because serve may replace the mailbox (SetMail).
+		jobs.OnTerminal(func(r job.JobResult) {
+			if m := s.mail; m != nil {
+				if err := m.NoteJobEnded(r.ID, r.Status); err != nil {
+					slog.Warn("team member failure notice failed", "job_id", r.ID, "err", err)
+				}
+			}
+		})
 		// The delivery jobs gofer runs on a caller's behalf (path A / B / C, the messenger) must
 		// carry the ceiling owner of that caller, never the display label of the message; a
 		// delivery that cannot name one is refused while this deployment restricts any caller

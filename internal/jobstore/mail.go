@@ -199,6 +199,13 @@ type Mail struct {
 	AckAt       int64
 	// TeamID is the team the letter was addressed through (`team:` address); "" otherwise.
 	TeamID string
+	// Hop counts team relays the letter went through (annotation only; 0 outside a team).
+	Hop int
+	// RouteKey is the idempotency key the team router stamped (empty: none).
+	RouteKey string
+	// SystemKind marks a letter gofer wrote itself inside a team (e.g. member_failed). A system
+	// letter is terminal: it is never routed further and the loop guard does not count it.
+	SystemKind string
 }
 
 // MailInput is one letter to store. ThreadID empty starts a fresh thread. DeliverBy 0 takes
@@ -227,6 +234,13 @@ type MailInput struct {
 	// TeamID tags the letter with the team it was addressed through (a `team:` address); empty
 	// for every other letter.
 	TeamID string
+	// Hop counts team relays the letter went through (annotation only; 0 outside a team).
+	Hop int
+	// RouteKey is the idempotency key the team router stamped (empty: none).
+	RouteKey string
+	// SystemKind marks a letter gofer wrote itself inside a team (e.g. member_failed). A system
+	// letter is terminal: it is never routed further and the loop guard does not count it.
+	SystemKind string
 }
 
 const selectMailCols = `SELECT id, thread_id, COALESCE(reply_to,0), from_kind, COALESCE(from_id,''),
@@ -235,7 +249,7 @@ const selectMailCols = `SELECT id, thread_id, COALESCE(reply_to,0), from_kind, C
   COALESCE(claimed_by,''), COALESCE(claim_until,0), COALESCE(attempts,0), COALESCE(last_error,''),
   created_at, COALESCE(delivered_at,0), COALESCE(read_at,0), COALESCE(deliver_by,0),
   COALESCE(capture_item_id,''), COALESCE(broadcast_id,0), COALESCE(ack_kind,''), COALESCE(ack_by,''), COALESCE(ack_at,0),
-  COALESCE(team_id,'')
+  COALESCE(team_id,''), COALESCE(hop,0), COALESCE(route_key,''), COALESCE(system_kind,'')
   FROM mail`
 
 func scanMail(sc rowScanner) (Mail, error) {
@@ -244,7 +258,7 @@ func scanMail(sc rowScanner) (Mail, error) {
 	err := sc.Scan(&m.ID, &m.ThreadID, &m.ReplyTo, &m.FromKind, &m.FromID, &m.FromCaller,
 		&m.ToAddress, &m.ToKind, &m.ToID, &m.ToCaller, &m.JobID, &urgent, &m.Body, &m.State,
 		&m.ClaimedBy, &m.ClaimUntil, &m.Attempts, &m.LastError,
-		&m.CreatedAt, &m.DeliveredAt, &m.ReadAt, &m.DeliverBy, &m.CaptureItemID, &m.BroadcastID, &m.AckKind, &m.AckBy, &m.AckAt, &m.TeamID)
+		&m.CreatedAt, &m.DeliveredAt, &m.ReadAt, &m.DeliverBy, &m.CaptureItemID, &m.BroadcastID, &m.AckKind, &m.AckBy, &m.AckAt, &m.TeamID, &m.Hop, &m.RouteKey, &m.SystemKind)
 	m.Urgent = urgent != 0
 	return m, err
 }
@@ -269,13 +283,13 @@ func (s *Store) InsertMail(in MailInput) (Mail, error) {
 	s.writeMu.Lock()
 	res, err := s.db.Exec(`INSERT INTO mail(thread_id, reply_to, from_kind, from_id, from_caller,
   to_address, to_kind, to_id, to_caller, job_id, urgent, body, state, attempts, created_at, deliver_by,
-  capture_item_id, broadcast_id, team_id)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?)`,
+  capture_item_id, broadcast_id, team_id, hop, route_key, system_kind)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,?)`,
 		strings.TrimSpace(in.ThreadID), in.ReplyTo, in.FromKind, strings.TrimSpace(in.FromID),
 		strings.TrimSpace(in.FromCaller), strings.TrimSpace(in.ToAddress), in.ToKind,
 		strings.TrimSpace(in.ToID), strings.TrimSpace(in.ToCaller), strings.TrimSpace(in.JobID),
 		boolInt(in.Urgent), in.Body, MailPending, now, deliverBy, strings.TrimSpace(in.CaptureItemID),
-		in.BroadcastID, strings.TrimSpace(in.TeamID))
+		in.BroadcastID, strings.TrimSpace(in.TeamID), in.Hop, strings.TrimSpace(in.RouteKey), strings.TrimSpace(in.SystemKind))
 	if err != nil {
 		s.writeMu.Unlock()
 		return Mail{}, fmt.Errorf("jobstore: insert mail: %w", err)
@@ -342,8 +356,8 @@ func validateMailInput(in MailInput) error {
 	if strings.TrimSpace(in.Body) == "" {
 		return fmt.Errorf("%w: body required", ErrMailInvalid)
 	}
-	if in.ReplyTo < 0 || in.DeliverBy < 0 || in.BroadcastID < 0 {
-		return fmt.Errorf("%w: negative reply_to / deliver_by / broadcast_id", ErrMailInvalid)
+	if in.ReplyTo < 0 || in.DeliverBy < 0 || in.BroadcastID < 0 || in.Hop < 0 {
+		return fmt.Errorf("%w: negative reply_to / deliver_by / broadcast_id / hop", ErrMailInvalid)
 	}
 	return nil
 }
@@ -370,6 +384,23 @@ func (s *Store) SetMailAck(id int64, kind, by string) (Mail, bool, error) {
 	}
 	m, _, err = s.mailLocked(id)
 	return m, true, err
+}
+
+// MailByRouteKey reads the letter stored under a team route key (ok=false: none): how a retried
+// send finds out that its first attempt did reach the mailbox.
+func (s *Store) MailByRouteKey(key string) (Mail, bool, error) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return Mail{}, false, nil
+	}
+	m, err := scanMail(s.db.QueryRow(selectMailCols+` WHERE route_key = ? ORDER BY id LIMIT 1`, key))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Mail{}, false, nil
+	}
+	if err != nil {
+		return Mail{}, false, fmt.Errorf("jobstore: mail by route key: %w", err)
+	}
+	return m, true, nil
 }
 
 func (s *Store) GetMail(id int64) (Mail, bool, error) {
@@ -535,6 +566,13 @@ func (s *Store) moveMailWhere(id int64, to, setCols string, setArgs []any, where
 		return Mail{}, ok, err
 	}
 	next = m
+	if to == MailDelivered && m.TeamID != "" {
+		// A team letter that reached its recipient settles the routing row it queued under.
+		if _, err := s.db.Exec(`UPDATE team_routes SET outcome=? WHERE mail_id=? AND outcome IN (?,?)`,
+			TeamOutcomeDelivered, id, TeamOutcomeQueued, TeamOutcomePending); err != nil {
+			return m, true, fmt.Errorf("jobstore: settle team route of mail %d: %w", id, err)
+		}
+	}
 	return m, true, nil
 }
 
