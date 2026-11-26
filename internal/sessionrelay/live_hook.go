@@ -72,9 +72,11 @@ func (s *Service) sessionStateBefore(sid string) (string, bool) {
 }
 
 // cameBackBefore is the read behind noteCameBack: the state a write is about to overwrite. It
-// costs nothing unless a came-back hook is installed at all (a bare relay in tests, or an
-// embedder with no seat service, does no extra read), and nothing for a beat that cannot leave
-// a state which takes messages (state "" = the beat keeps the stored state).
+// costs nothing when no came-back hook is installed (a bare relay in tests, or an embedder with
+// no seat service) and nothing for a beat that cannot leave a state which takes messages (state
+// "" = the beat keeps the stored state). With the hook installed it is one indexed read per hook
+// beat — the price of reliability: the offline sweep marks a session offline without the relay
+// seeing it, so the in-memory state memory cannot answer this question.
 func (s *Service) cameBackBefore(sid, state string) (string, bool) {
 	if s.onLive.Load() == nil {
 		return "", false
