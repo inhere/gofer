@@ -8,7 +8,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gookit/cliui v0.5.4
 	github.com/gookit/color v1.6.3
-	github.com/gookit/gcli/v3 v3.8.6
+	github.com/gookit/gcli/v3 v3.8.7
 	github.com/gookit/gopty v0.1.2
 	github.com/gookit/goutil v0.9.0
 	github.com/gookit/i18n v1.3.0
@@ -19,7 +19,7 @@ require (
 	golang.org/x/sys v0.50.0
 	golang.org/x/time v0.16.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
-	modernc.org/sqlite v1.62.0
+	modernc.org/sqlite v1.63.0
 )
 
 require (
