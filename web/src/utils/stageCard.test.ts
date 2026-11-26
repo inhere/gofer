@@ -17,6 +17,7 @@ vi.mock('../api/stage', () => ({
 }))
 
 import { actionLabel, cardLink, isLinkAction, runCardAction } from './today'
+import { itemLink, kindLabelKey } from './inbox'
 
 function card(over: Partial<TodayCard> = {}): TodayCard {
   return {
@@ -65,5 +66,12 @@ describe('stage waiting card', () => {
   it('translates the flow actions to the interface language', () => {
     expect(actionLabel({ id: 'stage_approve', label: '批准' })).toBe('批准')
     expect(actionLabel({ id: 'stage_back', label: '附意见退回' })).toBe('附意见退回')
+  })
+
+  it('shows up in the inbox with its own label and opens that work item', () => {
+    expect(kindLabelKey('stage')).toBe('inbox.kind.stage')
+    expect(itemLink({ kind: 'stage', refs: { work_item_id: 'w-1' } })).toBe('/work?id=w-1')
+    // 服务端给了站内深链就用它（卡片动作的 value 也是 /work?id=…）
+    expect(itemLink({ kind: 'stage', deep_link: '/work?id=w-9', refs: {} })).toBe('/work?id=w-9')
   })
 })
