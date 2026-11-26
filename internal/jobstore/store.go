@@ -1448,7 +1448,6 @@ var schemaStmts = []string{
   decided_at  INTEGER NOT NULL
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_team_routes_team ON team_routes(team_id, id)`,
-	`CREATE INDEX IF NOT EXISTS idx_team_routes_mail ON team_routes(mail_id)`,
 	`CREATE UNIQUE INDEX IF NOT EXISTS idx_team_routes_key ON team_routes(team_id, route_key) WHERE route_key <> ''`,
 	`CREATE TABLE IF NOT EXISTS team_evals (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2817,6 +2816,9 @@ func (s *Store) migrateMail() error {
 	}
 	if _, e := s.db.Exec("CREATE INDEX IF NOT EXISTS idx_mail_broadcast ON mail(broadcast_id, id)"); e != nil {
 		return fmt.Errorf("jobstore: migrate mail index: %w", e)
+	}
+	if _, e := s.db.Exec("CREATE INDEX IF NOT EXISTS idx_team_routes_mail ON team_routes(mail_id)"); e != nil {
+		return fmt.Errorf("jobstore: migrate team_routes index: %w", e)
 	}
 	if _, e := s.db.Exec("CREATE INDEX IF NOT EXISTS idx_mail_route_key ON mail(route_key) WHERE route_key <> ''"); e != nil {
 		return fmt.Errorf("jobstore: migrate mail route_key index: %w", e)
