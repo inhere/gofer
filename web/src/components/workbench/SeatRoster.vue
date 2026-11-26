@@ -27,6 +27,7 @@ import {
   type SeatShell,
 } from './seatRoster'
 import { archiveSeat, continueInTerminal, saveSeatEdit, type ContinueResult } from './seatActions'
+import StageBadge from './StageBadge.vue'
 
 const props = defineProps<{
   seats: SeatView[]
@@ -257,7 +258,11 @@ function reasonText(reason: string): string {
           :class="{ 'seat-row--open': menuSeatID === seat.id, 'seat-row--focus': focusID === seat.id }"
         >
           <button class="seat" type="button" :data-test="`seat-row-${seat.name}`" @click="openThread(seat)">
-            <span class="dot" :data-state="dot(seat)" :title="t(`workbench.seat.dot.${dot(seat)}`)" aria-hidden="true" />
+            <span class="lead">
+              <span class="dot" :data-state="dot(seat)" :title="t(`workbench.seat.dot.${dot(seat)}`)" aria-hidden="true" />
+              <!-- 坐在里面的会话正走着的流程步；没有 stage（空位 / 没开流程）时不显示 -->
+              <StageBadge v-if="seat.stage" :thread-id="seatThreadID(seat)" :brief="seat.stage" plain />
+            </span>
             <span class="nm" :title="seat.name">{{ seat.name }}</span>
             <span v-if="seat.unread" class="unread" :title="t('workbench.seat.unread')" aria-hidden="true">●</span>
             <span class="use">{{ seat.purpose || t('workbench.seat.noPurpose') }}</span>
@@ -443,6 +448,15 @@ function reasonText(reason: string): string {
   height: 8px;
   border-radius: 50%;
   background: var(--ink-3);
+}
+/* 状态点与流程步徽标同一格：徽标就贴在状态点旁边 */
+.lead {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.lead > .dot {
+  flex: none;
 }
 .dot[data-state='running'] {
   background: var(--run);

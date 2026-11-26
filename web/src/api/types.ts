@@ -4459,6 +4459,9 @@ export interface SeatView {
   activity_at?: number
   // 坐在里面的会话的工作台线程：终端是 r:<sid>，acp 是那个 job 的线程
   thread_id?: string
+  // 坐在里面的会话正走着的流程（与会话视图的 stage 同一份，精简版）：名册行用它显示当前步。
+  // 空位、或会话没有进行中的流程时，没有这个字段。
+  stage?: SessionStageBrief
 }
 
 export interface SeatPatch {
