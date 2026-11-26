@@ -13,6 +13,7 @@
 
 ### 修复
 
+- 预览（preview）租约到期、或它绑定的 worker 进程已换成另一个实例时，代理现在**先回 404 再关掉该租约**：以前关闭可能抢在响应之前，访问者看到的是连接被断（EOF / 空响应）而不是 404。
 - acp 常驻会话（seat）绑上一个**正在跑或等输入**的 job 时，现在立刻把该位置的章程 say 进去（带 gofer 系统前缀），命令提示「已向会话送去章程」：正在跑的 job 不会重启，之前只有 restart 才带章程，所以它从来没收到过。同一个 job 重复 bind（含 `--replace` 换走再换回、解绑后再绑）不重复送；已结束的 job 不送（它的 restart 会把章程放进开口 prompt）。送失败不让 bind 失败，只提示原因。
 - acp 位置坐着的 job 被删除（`gofer job rm`、保留期清理、包含工作流的 step job）后不再悬空：位置在同一事务里回到空位，历史里记一条 `job_deleted`（操作者 `system`）；旧数据库里指向已不存在 job 的 `current_ref` 也按空位（`none`）显示，定时送话按空位处理（`offline`），不再报错。
 - seat 定时消息在会话里不再显示成 `[来自 web，schedule:<id>]`（agent 会当成用户本人所说）：现在以系统前缀 `[gofer · 定时消息「<名称>」]`（英文 `[gofer · scheduled message "<name>"]`）开头；终端消息的 operator 以 `schedule:` 开头的一律走系统通道，acp 的 say / 重启文本使用同一前缀。
