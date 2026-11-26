@@ -139,8 +139,16 @@ func (s *Service) async(fn func()) {
 		fn()
 		return
 	}
-	go fn()
+	s.inflight.Add(1)
+	go func() {
+		defer s.inflight.Done()
+		fn()
+	}()
 }
+
+// Drain waits for the "continue" turns still being sent, so none writes to the store after
+// it closes (G051). serve calls it through the HTTP server's Drain.
+func (s *Service) Drain() { s.inflight.Wait() }
 
 // remind sends the current session of the work item the "continue" turn for step and
 // journals how it went. A flow that moved on again before the turn goes out gets nothing.

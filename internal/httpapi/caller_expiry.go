@@ -135,6 +135,10 @@ func (s *Server) FlushCallerUsage() { s.usage.flush() }
 // last-used stamps — and stops recording audit lines. serve calls it once the HTTP server
 // has stopped, before the database closes.
 func (s *Server) Drain() {
+	s.stageSvc.once.Do(func() {}) // orders the read below after a build in another goroutine
+	if svc := s.stageSvc.svc; svc != nil {
+		svc.Drain()
+	}
 	s.CloseAudit()
 	s.FlushCallerUsage()
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
@@ -46,6 +47,8 @@ type Service struct {
 	sync    bool
 	nowFn   func() time.Time
 	gates   gateCache
+	// inflight counts the remind turns sent in their own goroutine (Drain waits for them).
+	inflight sync.WaitGroup
 }
 
 // New builds the service; Deps.Store is required.
