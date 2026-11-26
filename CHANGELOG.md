@@ -13,6 +13,7 @@
 
 ### 修复
 
+- 跑在 worker 上的 ACP 常驻会话现在也拿到 server 拼的每轮提醒（gofer-nwo4）：此前 server 进程内的每轮注入（`TurnNote`）不转发到 worker，worker 会话拿不到流程提醒；改为 server 在下发每轮输入（第一轮的 prompt 与每条 say）时把同一行拼进文本，本机与 worker 同一份内容、每轮只出现一次。需要人回复的约定在 worker 会话上本来就由 worker 自己的服务在第一轮加好，不受影响（用例钉住只出现一次）。
 - 「设置 → 通知 → 通知全局设置」里的 `session_reply_delay_sec`（会话等你回复多久后提醒一次）填 `0`（后端含义：关掉这个提醒）保存后不再被改成 120：写机器人表时曾按「假值兜底」处理，显式 `0` 与留空分不开。现在 `0` 原样提交，留空 / 不是数字才回退默认 120（与「等我」提醒延迟同一口径），输入框下面写明 `0` 的含义。
 - acp 常驻会话（seat）绑上一个**正在跑或等输入**的 job 时，现在立刻把该位置的章程 say 进去（带 gofer 系统前缀），命令提示「已向会话送去章程」：正在跑的 job 不会重启，之前只有 restart 才带章程，所以它从来没收到过。同一个 job 重复 bind（含 `--replace` 换走再换回、解绑后再绑）不重复送；已结束的 job 不送（它的 restart 会把章程放进开口 prompt）。送失败不让 bind 失败，只提示原因。
 - acp 位置坐着的 job 被删除（`gofer job rm`、保留期清理、包含工作流的 step job）后不再悬空：位置在同一事务里回到空位，历史里记一条 `job_deleted`（操作者 `system`）；旧数据库里指向已不存在 job 的 `current_ref` 也按空位（`none`）显示，定时送话按空位处理（`offline`），不再报错。
@@ -24,6 +25,7 @@
 
 ### 新增
 
+- **流程提醒注入**（二期 F3，工作项流程 stage）：会话所在的工作项有进行中的流程时，终端会话每次 UserPromptSubmit（人敲的与 harness 生成的都算）在附加上下文**最末**多一行 `[gofer · 流程] …`（当前第几步、完成后 `gofer stage done`、回退 `gofer stage back --reason`、卡住 `gofer stage blocked --reason`），ACP 会话（本机与 worker）每轮 prompt 前带同一行；SessionStart 在项目开着 `stage.enabled`（默认）且会话没有进行中的流程时提示「实现类工作先 `gofer stage start <issue>`」，seat 会话放在常驻会话那一节末尾。会话视图（登记 / 心跳回应、`GET /v1/sessions/{sid}`）新增 `stage` 字段（工作项、步骤序号、状态，≤300 字节；不跑门禁、不跑 git），列表不带。文案随项目语言。
 - **工作项流程推进（stage）的数据层、服务与 HTTP**（二期 F1，命令行与 skill 在后续提交提供）：工作项可以开始一个流程（`feature`：design → review → plan → doing → verify → done；`small`：doing → verify → done），步骤在开始时快照；只有显式的 `done` / `back` / `blocked` 或人的批准才推进。每一步有只读存储事实和 git 的门禁，不过时返回缺什么（`missing`），判不了（项目不在本机、git 读不了、评审轮次用完）时返回 `needs_human`，不放行也不报错。新增 `GET|POST /v1/work-items/{id}/stage`、`POST /v1/work-items/stage`（按 issue 开始）与 `POST .../stage/done|back|blocked|approve|drop`（approve 只认人的凭据，会话里的 agent 不行）；工作项链接新增 `kind=doc`（设计稿 / 计划文档，带 `role`）与 job 链接的 `role=review`；步骤与门禁结果写进工作项日志（`kind=stage`）。项目配置新增 `projects.<key>.stage.enabled`（默认 true）与 `verify_templates`（默认 `[verify]`）。接口见 `docs/reference/http-api.md`。
 - **工作台按座位定位**：`/workbench?seat=<座位 id>` 展开侧栏的常驻会话名册、滚到那一行并高亮（与选中行同一套样式）；定位时放开项目筛选（座位可能在别的项目分组里），处理完参数从地址栏去掉，座位已归档 / 已删除时给一条轻提示。「等我」与收件箱里「seat 定时消息没人收」那张卡的主动作改成带座位 id 的这条深链（原来只到 `/workbench`），点它就是打开那个座位。
 - **seat 定时消息离线排队补送**：定时到点时位置空着、终端会话离线或已结束、acp 位置没有 job，话不再丢弃，而是排进队列（每个位置每个定时只留一条，再次到点只更新内容并累计次数；结果仍记 `offline`）。位置重新可收时补送——有会话绑进位置时立刻送，另外服务端每 30 秒的周期扫描会检查「有待送且现在可收」的位置——走与到点送达完全相同的路径，带「补送，原定于 …，累计 N 次未送达」一行，送出后定时的 `last_result` 变为 `delivered`（acp 已结束重启则为 `restarted:<job>`）；补送失败留在队里下次再试。超过 24 小时未送出的丢弃，位置归档、定时删除时队列一并丢弃。新增表 `seat_pending_messages`。

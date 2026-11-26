@@ -169,6 +169,7 @@ gofer session find 登录 --path web/src -p <project> --limit 5
 - `find` 每个会话一行：短 id、agent、状态（离线的带「可能不在线」）、主题（带来源）、范围、命中原因（`scope` 范围命中 > `scope_weak` 弱命中 > `topic` > `peer_name` > `project`）。只搜还能收到消息的会话；看不到他人会话的调用方只搜到自己的。
 - MCP：`gofer_session_set_topic`（`topic` / `scope` / `clear_scope` / `session_id`）与 `gofer_session_find`（`query` / `path` / `project` / `limit`），语义同 CLI，需要 gofer server（单机本地模式会报需要 server）。
 - SessionStart hook：登记回应里主题为空或只有推断值时，会往 additionalContext 加一行提示，告诉 agent 用 `gofer session topic` 记下主题；已有自己或人设的主题不再提示。
+- 流程提醒（stage）：会话所在的工作项有进行中的流程时，UserPromptSubmit hook 在附加上下文的**最末**追加一行 `[gofer · 流程] …`（当前第几步、做完执行 `gofer stage done`、回退 `gofer stage back --reason`、卡住 `gofer stage blocked --reason`），人敲的 prompt 与 harness 生成的 prompt（job 完成通知等）都带；没有进行中的流程就没有这一行。数据来自心跳回应里会话视图的 `stage` 字段，不跑门禁、不跑 git。SessionStart：项目的 `stage.enabled` 为真（默认）且会话没有进行中的流程时，加一句「实现类工作先 `gofer stage start <issue>`」；有进行中的流程则给当前步一行；项目关掉 `stage.enabled` 就没有这句提示（已开始的流程照常注入）。坐在 seat 里的会话这一句放在「常驻会话」那一节的末尾。ACP 会话（本机或 worker）每轮的同一行由 server 拼进轮次输入，见 job-advanced.md。
 - **压缩 / 恢复后重新注入**：`source` 为 `compact` / `resume` 时，`gofer repo prime --hook-json` 在仓库级内容之后追加一段 `[gofer · 提示]`「本会话当前任务」——主题、认领中的 issue、监督中的 plan、在等的 job、未回的信件，每项一行带接手命令；`startup` / `clear` 不追加。数据来自 `GET /v1/sessions/{sid}/focus`，详见 `tracker.md` 的「prime」一节。
 
 ## 信箱（mail）
