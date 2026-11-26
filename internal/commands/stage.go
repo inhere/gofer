@@ -51,8 +51,8 @@ func NewStageCmd() *gcli.Command {
 				Config: func(c *gcli.Command) {
 					bind(c)
 					c.AddArg("issue", "tracker issue id the work is for", false)
-					c.StrOpt(&stageOpts.size, "size", "s", "", "template: feature (design->review->plan->doing->verify->done, default) | small (doing->verify->done)")
-					c.StrOpt(&stageOpts.work, "work", "w", "", "work item id (instead of / along with the issue)")
+					c.StrOpt(&stageOpts.size, "size", "", "", "template: feature (design->review->plan->doing->verify->done, default) | small (doing->verify->done)")
+					c.StrOpt(&stageOpts.work, "work", "", "", "work item id (instead of / along with the issue)")
 					c.StrOpt(&stageOpts.project, "project", "p", "", "project key (only when a new work item is created; default: the project of this directory)")
 				},
 				Func: runStageStart,
@@ -62,7 +62,7 @@ func NewStageCmd() *gcli.Command {
 				Desc: "Show the flow: current step, the steps line and what the current gate is still waiting for",
 				Config: func(c *gcli.Command) {
 					bind(c)
-					c.StrOpt(&stageOpts.work, "work", "w", "", "work item id (default: the flow of this session's work item)")
+					c.StrOpt(&stageOpts.work, "work", "", "", "work item id (default: the flow of this session's work item)")
 				},
 				Func: runStageStatus,
 			},
@@ -70,7 +70,7 @@ func NewStageCmd() *gcli.Command {
 				Name: "done", Desc: "Evaluate the current step's gate and move on when it passes (exit code 2 when it does not; the gate's missing items are printed)",
 				Config: func(c *gcli.Command) {
 					bind(c)
-					c.StrOpt(&stageOpts.work, "work", "w", "", "work item id (default: the flow of this session's work item)")
+					c.StrOpt(&stageOpts.work, "work", "", "", "work item id (default: the flow of this session's work item)")
 				},
 				Func: runStageDone,
 			},
@@ -78,8 +78,8 @@ func NewStageCmd() *gcli.Command {
 				Name: "back", Desc: "Send the flow one step back (use when a review sends the work back)",
 				Config: func(c *gcli.Command) {
 					bind(c)
-					c.StrOpt(&stageOpts.work, "work", "w", "", "work item id (default: the flow of this session's work item)")
-					c.StrOpt(&stageOpts.reason, "reason", "r", "", "why it goes back (required; goes to the journal)")
+					c.StrOpt(&stageOpts.work, "work", "", "", "work item id (default: the flow of this session's work item)")
+					c.StrOpt(&stageOpts.reason, "reason", "", "", "why it goes back (required; goes to the journal)")
 				},
 				Func: runStageBack,
 			},
@@ -87,8 +87,8 @@ func NewStageCmd() *gcli.Command {
 				Name: "blocked", Desc: "Mark the flow blocked on its current step (a later `stage done` lifts it)",
 				Config: func(c *gcli.Command) {
 					bind(c)
-					c.StrOpt(&stageOpts.work, "work", "w", "", "work item id (default: the flow of this session's work item)")
-					c.StrOpt(&stageOpts.reason, "reason", "r", "", "what it is blocked on (required)")
+					c.StrOpt(&stageOpts.work, "work", "", "", "work item id (default: the flow of this session's work item)")
+					c.StrOpt(&stageOpts.reason, "reason", "", "", "what it is blocked on (required)")
 				},
 				Func: runStageBlocked,
 			},
@@ -96,7 +96,7 @@ func NewStageCmd() *gcli.Command {
 				Name: "approve", Desc: "A person's approval of the current step: passes the review gate and waives a gate this server cannot judge (refused inside a session)",
 				Config: func(c *gcli.Command) {
 					bind(c)
-					c.StrOpt(&stageOpts.work, "work", "w", "", "work item id (default: the flow of this session's work item)")
+					c.StrOpt(&stageOpts.work, "work", "", "", "work item id (default: the flow of this session's work item)")
 				},
 				Func: runStageApprove,
 			},
@@ -104,8 +104,8 @@ func NewStageCmd() *gcli.Command {
 				Name: "drop", Desc: "Abandon the flow (the work item itself is untouched)",
 				Config: func(c *gcli.Command) {
 					bind(c)
-					c.StrOpt(&stageOpts.work, "work", "w", "", "work item id (default: the flow of this session's work item)")
-					c.StrOpt(&stageOpts.reason, "reason", "r", "", "why it is abandoned (optional)")
+					c.StrOpt(&stageOpts.work, "work", "", "", "work item id (default: the flow of this session's work item)")
+					c.StrOpt(&stageOpts.reason, "reason", "", "", "why it is abandoned (optional)")
 				},
 				Func: runStageDrop,
 			},

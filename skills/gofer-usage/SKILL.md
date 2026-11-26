@@ -34,6 +34,7 @@ gofer project list           # 找本工作区的 project key（client 模式即
 - 会话开场 prime 已注入：提交策略、当前重点（进行中 plan、未提交 / 未推送的改动）、ready issue、rule 记忆全文、记忆索引。缺了就手动 `gofer repo prime`。
 - 接手某个 issue / plan：**先跑** `gofer issue brief <id>` / `gofer plan brief <plan>`——一次拿齐字段、方案评论、上下文树、设计稿、相关提交与代码入口、相关 job / plan、验证命令、适用记忆。不要自己 grep / 翻 git log 拼。
 - 开工：`gofer issue update <id> --claim`。
+- 实现类工作先开流程：`gofer stage start <issue> [--size feature|small]`，之后 `gofer stage status` 看当前步与门禁缺项、`gofer stage done` 推进（门禁没过退出码 2）。见 [references/stage.md](references/stage.md)。
 
 ### 立项：issue + 验收标准
 

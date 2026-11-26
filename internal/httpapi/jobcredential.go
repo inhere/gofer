@@ -175,8 +175,9 @@ var jobRouteWords = map[string]bool{
 	// gofer-9b1b: approving a held job is a person's (default-denied for every job credential).
 	"approve": true,
 	// F2 stage flows: the write routes a job's agent may reach (the list route needs its own
-	// literal, the others are `*` parameters).
-	"stage": true, "stages": true,
+	// literal, the others are `*` parameters). The step actions are literals too, so a refused
+	// one still names what it was (approve / drop).
+	"stage": true, "stages": true, "done": true, "back": true, "blocked": true,
 }
 
 // jobRouteKey reduces a request to the `<METHOD> <collapsed path>` key the SEC-01 tables
@@ -225,6 +226,7 @@ var jobWriteAllowlist = map[string]bool{
 	// F2: a resident agent moves the flow of a work item in its OWN project (start / done /
 	// back / blocked; the project rule is enforced in the handler). Approve and drop stay a
 	// person's: the flow is the record of how the work went, not something a job closes.
+	"POST /v1/work-items/stage":           true,
 	"POST /v1/work-items/*/stage":         true,
 	"POST /v1/work-items/*/stage/done":    true,
 	"POST /v1/work-items/*/stage/back":    true,

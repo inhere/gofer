@@ -51,6 +51,12 @@ func stageRemind(c *gcli.Command, cli *client.Client, projectKey string) {
 	c.Println("hint: implementation work — start a flow first with `gofer stage start <issue>`; `gofer stage status` shows the current step and what its gate is waiting for")
 }
 
+// stageRemindAgent is the "implementation class" test for the hint after `job run`: any
+// agent but the shell runner (and an unresolved agent, which says nothing about the work).
+func stageRemindAgent(agent string) bool {
+	return agent != "" && agent != config.BuiltinExecAgentKey
+}
+
 // stageEnabledFor reads the project's `stage.enabled` from this machine's config (the CLI
 // holds no server session here). An unknown or unresolvable project is not reminded: the
 // switch exists so a project can keep the hint out of its output.
