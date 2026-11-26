@@ -196,8 +196,8 @@ export function cardLink(card: TodayCard): string {
       // worker 自助注册：卡片的唯一动作就是跳 Runners 页的「待接受」区
       return ENROLLMENTS_LINK
     case 'seat_schedule':
-      // 没人能收的 seat 定时消息已排队：名册在工作台，主动作带 value=/workbench，未知时也回到工作台
-      return '/workbench'
+      // 没人能收的 seat 定时消息已排队：主动作带 value=/workbench?seat=<id>，未知时也定位到那个座位
+      return r.seat_id ? `/workbench?seat=${encodeURIComponent(r.seat_id)}` : '/workbench'
     case 'schedule.paused':
       // 被自动暂停的定时任务：动作里带 value=/schedules，未知时也回到定时页
       return '/schedules'

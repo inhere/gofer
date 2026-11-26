@@ -7,7 +7,7 @@ const workbench = Object.values(import.meta.glob('./Workbench.vue', { eager: tru
 describe('Workbench ?job= deep link', () => {
   it('registers the job as a launch intent on mount and when the query changes', () => {
     expect(workbench).toMatch(/function consumeRequestedJob\(\): void \{[\s\S]*?route\.query\.job[\s\S]*?delete next\.job[\s\S]*?submitted\(jobID\)/)
-    expect(workbench).toMatch(/locateRequestedThread\(true\)\n\s*consumeRequestedJob\(\)\n\s*poller\.start\(\)/)
+    expect(workbench).toMatch(/locateRequestedThread\(true\)\n\s*consumeRequestedJob\(\)\n\s*consumeRequestedSeat\(\)\n\s*poller\.start\(\)/)
     expect(workbench).toMatch(/\(\) => route\.query\.job,\n\s*\(\) => \{\n\s*if \(layoutReady\.value\) consumeRequestedJob\(\)/)
   })
 })

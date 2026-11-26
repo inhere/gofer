@@ -4,7 +4,7 @@
 //
 // 只渲染传进来的分组（分组与排序在 seatRoster.ts 的 groupSeats 里定，顺序只由名字决定），
 // 取数在 SeatRosterPanel.vue。动作走 seatActions.ts，接口同样由父组件给。
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { SeatHistory, SeatPatch, SeatOpenPlan, SeatView } from '../../api/types'
 import { t } from '../../i18n'
@@ -32,6 +32,8 @@ const props = defineProps<{
   seats: SeatView[]
   // 项目筛选（与侧栏的 ProjectFilter 同一值；空 = 全部）
   project?: string
+  // 要定位并高亮的那一行（工作台 ?seat=）：名册展开、滚到它、行上打高亮
+  highlight?: string
   // 「等我」快照里出现的 seat 主体 key（useWaiting）
   waitingKeys: string[]
   fetchOpenPlan: (seatID: string) => Promise<SeatOpenPlan>
@@ -67,6 +69,31 @@ const notice = ref('')
 
 const shell = ref<SeatShell>(detectShell(typeof navigator === 'undefined' ? '' : navigator.userAgent))
 
+// 定位（?seat=<id>）：展开名册、把那一行滚进视野并打上高亮（样式与侧栏会话的选中行同一套）。
+// 行元素按座位 id 记下来，滚动不用 querySelector 拼选择器。
+const focusID = ref('')
+const rowEls = new Map<string, HTMLElement>()
+
+function setRowEl(seatID: string, el: unknown): void {
+  if (el && typeof el === 'object' && 'scrollIntoView' in el) rowEls.set(seatID, el as HTMLElement)
+  else rowEls.delete(seatID)
+}
+
+function scrollToSeat(seatID: string): void {
+  rowEls.get(seatID)?.scrollIntoView?.({ block: 'nearest' })
+}
+
+watch(
+  () => props.highlight,
+  (value) => {
+    focusID.value = value ?? ''
+    if (!focusID.value) return
+    open.value = true
+    void nextTick(() => scrollToSeat(focusID.value))
+  },
+  { immediate: true },
+)
+
 // dot 按「等我」快照算（实时的那一份），seat 自己的 waiting 字段也算。
 function dot(seat: SeatView): SeatDot {
   return seatDot(seat, new Set(props.waitingKeys))
@@ -80,6 +107,8 @@ function toggleMenu(seat: SeatView): void {
 
 function openThread(seat: SeatView): void {
   menuSeatID.value = ''
+  // 定位高亮是「它在这儿」的一次性提示：点开某一行之后不再挂在那一行上
+  focusID.value = ''
   // ACP 位置以 open-plan 给的线程为准（会话重启过时 seat 行上的可能还没刷新）；
   // 终端位置直接由 seat 自己给出 r:<sid>。
   const thread = seatThreadID(seat)
@@ -220,7 +249,13 @@ function reasonText(reason: string): string {
     <template v-if="open">
       <div v-for="group in groups" :key="group.project_key" class="seat-group" :data-project="group.project_key">
         <p class="seat-project">{{ group.project_key }}</p>
-        <div v-for="seat in group.seats" :key="seat.id" class="seat-row" :class="{ 'seat-row--open': menuSeatID === seat.id }">
+        <div
+          v-for="seat in group.seats"
+          :key="seat.id"
+          :ref="(el) => setRowEl(seat.id, el)"
+          class="seat-row"
+          :class="{ 'seat-row--open': menuSeatID === seat.id, 'seat-row--focus': focusID === seat.id }"
+        >
           <button class="seat" type="button" :data-test="`seat-row-${seat.name}`" @click="openThread(seat)">
             <span class="dot" :data-state="dot(seat)" :title="t(`workbench.seat.dot.${dot(seat)}`)" aria-hidden="true" />
             <span class="nm" :title="seat.name">{{ seat.name }}</span>
@@ -393,6 +428,11 @@ function reasonText(reason: string): string {
 }
 .seat:hover {
   background: var(--sunken);
+}
+/* 定位高亮（?seat=）：与侧栏会话的选中行同一套样式，一眼看出是哪一行 */
+.seat-row--focus .seat {
+  background: var(--surface);
+  box-shadow: var(--shadow-1), inset 0 0 0 1px var(--accent);
 }
 .seat:focus-visible {
   outline: 2px solid var(--focus);

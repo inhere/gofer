@@ -32,6 +32,8 @@ const props = defineProps<{
   loadingMore?: boolean
   // 只读上限：新建会话是写入口，只读时不给。
   readOnly?: boolean
+  // 要定位的常驻会话 id（工作台 ?seat=）：名册展开、滚到那一行并高亮
+  focusSeat?: string
 }>()
 
 const emit = defineEmits<{
@@ -43,6 +45,7 @@ const emit = defineEmits<{
   (e: 'new'): void
   (e: 'openOrphans'): void
   (e: 'loadMore'): void
+  (e: 'seatLocated', result: { seatID: string; ok: boolean }): void
 }>()
 
 // 已结束分组默认折叠（上百条历史会话不一次进场全建 DOM）。
@@ -184,7 +187,12 @@ defineExpose({ focusSearch })
 
     <div class="wb-sessions">
       <!-- 常驻会话名册（计划 T5）：按项目分组，顺序只跟名字走；取数与行菜单在组件里 -->
-      <SeatRosterPanel :project="projectFilter" :reload="seatsReload" />
+      <SeatRosterPanel
+        :project="projectFilter"
+        :reload="seatsReload"
+        :focus-seat="focusSeat"
+        @located="emit('seatLocated', $event)"
+      />
       <section v-for="group in THREAD_GROUP_ORDER" :key="group" class="sess-group" :data-group="group">
         <template v-if="group === 'ended'">
           <button
