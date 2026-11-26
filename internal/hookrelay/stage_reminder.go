@@ -1,6 +1,8 @@
 package hookrelay
 
 import (
+	"strings"
+
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/stagenote"
 )
@@ -39,4 +41,15 @@ func (r *runner) appendContext(res Result, text string) Result {
 	}
 	res.Context += text
 	return res
+}
+
+// teamTurnReminder appends the leader protocol block the server returned for a session on a
+// team's leader seat. It goes after the stage line: both are gofer speaking, and the team block
+// ends with a blank line the context join already supplies. Nothing is added for any other
+// session, or for an agent whose hook output does not reach the model.
+func (r *runner) teamTurnReminder(res Result, a client.AgentSession) Result {
+	if a.TeamNote == "" || !CatchUpAgent(r.p.dialect()) {
+		return res
+	}
+	return r.appendContext(res, strings.TrimSpace(a.TeamNote))
 }

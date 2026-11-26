@@ -266,6 +266,9 @@ func (s *Server) handleStageDone(c *rux.Context) {
 	if !s.stageJobItem(c, c.Param("id")) {
 		return
 	}
+	if s.leaderFinishRefused(c, svc, c.Param("id")) {
+		return
+	}
 	res, err := svc.Done(c.Param("id"), s.stageBy(c))
 	if err != nil {
 		writeStageError(c, err, "stage done")
@@ -384,4 +387,29 @@ func (s *Server) withLinkRoles(id string, links []jobstore.WorkLink) []jobstore.
 		links[i].Role = byKey[links[i].Kind+"\x00"+links[i].Ref]
 	}
 	return links
+}
+
+// leaderFinishRefused answers 403 when the caller is the session / job sitting in a team's
+// leader seat and `done` would move the flow to its final step: only a person completes a work
+// item (plan 2026-11-26-team-plan.md §2.4). Leader identity is the server's (the seat table);
+// any other caller, and every earlier step, passes untouched.
+func (s *Server) leaderFinishRefused(c *rux.Context, svc *stage.Service, workItemID string) bool {
+	p := s.leaderProtocol()
+	if p == nil {
+		return false
+	}
+	origin, ok := s.leaderOrigin(c)
+	if !ok {
+		return false
+	}
+	if _, isLeader, err := p.IsLeader(origin); err != nil || !isLeader {
+		return false
+	}
+	next, err := svc.NextStep(workItemID)
+	if err != nil || next != stage.StepDone {
+		return false
+	}
+	writeError(c, http.StatusForbidden, "stage done refused",
+		"the team leader cannot finish a work item: only a person completes it. Tell the person the work is ready for the last step")
+	return true
 }

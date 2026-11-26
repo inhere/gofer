@@ -254,6 +254,10 @@ type sessionView struct {
 	// hooks inject their reminder from it. Absent on a list (one query per session) and for a
 	// project with the flow off and no flow in progress. At most stagenote.MaxBytes of JSON.
 	Stage *stagenote.Brief `json:"stage,omitempty"`
+	// TeamNote is the leader protocol block of the session sitting in a team's leader seat. It is
+	// only present on the answer to a UserPromptSubmit heartbeat (the hook injects it as context,
+	// that beat opens the leader's turn) and never on a list or any other event.
+	TeamNote string `json:"team_note,omitempty"`
 	// RelayMode is the three-state switch (auto|on|off, R1) — what the CLI/web
 	// toggle writes. WaitReason says whether a Stop would wait right now and WHY
 	// (mode_on / idle_probe / turn_age, empty = does not wait); it is what the
@@ -982,7 +986,26 @@ func (s *Server) handleSessionHeartbeat(c *rux.Context) {
 		writeError(c, relayStatus(err), "session heartbeat failed", err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, s.toSessionView(s.requestLang(c), a))
+	v := s.toSessionView(s.requestLang(c), a)
+	v.TeamNote = s.leaderTurnBeat(body.Event, a, !body.Injected)
+	c.JSON(http.StatusOK, v)
+}
+
+// leaderTurnBeat is the terminal half of the leader protocol: a UserPromptSubmit beat of a
+// session on a team's leader seat opens its turn and returns the block to inject (human = a
+// person typed the prompt); a Stop beat ends it. Every other session and event gets "".
+func (s *Server) leaderTurnBeat(event string, a jobstore.AgentSession, human bool) string {
+	switch event {
+	case sessionrelay.EventUserPromptSubmit:
+		if p := s.leaderProtocol(); p != nil {
+			return p.BeginTurn(s.textLanguage(a.ProjectKey), a.SessionID, human)
+		}
+	case sessionrelay.EventStop:
+		if p := s.leaderProtocol(); p != nil {
+			p.EndTurn(a.SessionID)
+		}
+	}
+	return ""
 }
 
 // sessionRelayReq is the POST /v1/sessions/{sid}/relay body: the three-state

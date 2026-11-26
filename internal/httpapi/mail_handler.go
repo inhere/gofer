@@ -16,6 +16,7 @@ import (
 	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/mail"
+	"github.com/inhere/gofer/internal/team"
 	"github.com/inhere/gofer/internal/util"
 )
 
@@ -90,6 +91,8 @@ func (s *Server) writeMailError(c *rux.Context, err error) {
 		writeError(c, http.StatusNotFound, "team not found", err.Error())
 	case errors.Is(err, mail.ErrRouteInFlight):
 		writeError(c, http.StatusConflict, "mail still being stored", err.Error())
+	case errors.Is(err, team.ErrIdleTurn):
+		writeError(c, http.StatusConflict, "turn already idle", err.Error())
 	case errors.Is(err, mail.ErrJobCannotReceive):
 		writeError(c, http.StatusConflict, "job cannot receive mail", err.Error())
 	case errors.Is(err, mail.ErrNotAnswerable):

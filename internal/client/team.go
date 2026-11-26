@@ -198,3 +198,20 @@ func (c *Client) TeamRoutes(id string, limit int) ([]TeamRoute, error) {
 func (c *Client) TeamEvals(id string, limit int) ([]TeamEval, error) {
 	return teamRecordList[TeamEval](c, teamPath(id)+"/evals", "evals", limit)
 }
+
+// TeamEvalRecord is the POST /v1/teams/eval body: how the leader's turn went (outcome is
+// dispatched, idle or failed).
+type TeamEvalRecord struct {
+	Outcome string `json:"outcome"`
+	Reason  string `json:"reason,omitempty"`
+}
+
+// RecordTeamEval records the leader's evaluation of its current turn. Only the job credential of
+// the job sitting in a team's leader seat, or the terminal session sitting in it, is accepted
+// (403 for anyone else); after idle was recorded a turn takes no further team letter (409 on the
+// letter).
+func (c *Client) RecordTeamEval(in TeamEvalRecord) (TeamEval, error) {
+	var out TeamEval
+	err := c.teamBody(http.MethodPost, "/v1/teams/eval", in, &out)
+	return out, err
+}

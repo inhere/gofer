@@ -121,6 +121,9 @@ func (s *Server) waitingFor(c *rux.Context, queue []today.Card) (waiting, fyi []
 		if svc := s.stages(); svc != nil {
 			in.Stage = svc
 		}
+		if svc := s.teams(); svc != nil {
+			in.Team = svc
+		}
 		if s.ceilingActive(c) {
 			in.Allow = s.scopeFilter(c)
 		}

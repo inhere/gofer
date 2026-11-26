@@ -2829,6 +2829,9 @@ type AgentSession struct {
 	// Stage is where the stage flow of the work item this session is on stands (or {enabled}
 	// when it has none and its project has the flow on); the hooks inject their reminder from it.
 	Stage *stagenote.Brief `json:"stage,omitempty"`
+	// TeamNote is the leader protocol block of a session on a team's leader seat, present on the
+	// answer to a UserPromptSubmit heartbeat only.
+	TeamNote string `json:"team_note,omitempty"`
 }
 
 // SessionSeat is the seat of a session as the session view carries it.

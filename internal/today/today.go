@@ -70,6 +70,13 @@ const (
 	// .../stage/back {reason}. Not a queue card: advice cannot be written for it. It goes away
 	// by itself when the fact does (approved, sent back, verify passed).
 	KindStage = "stage"
+	// KindTeam is the card of a team that needs a person (inbox.TeamCards builds it outside this
+	// package from team_evals): Subtype missing_eval — the leader ended its last three turns
+	// without recording a gofer team eval. It enters the 「等我」 list under the attention class
+	// and is not a queue card: advice cannot be written for it. It goes away by itself when the
+	// leader records an evaluation. (A chain that ended with a result for the person is a letter
+	// in their box instead, see mail.NoteChainEnd.)
+	KindTeam = "team"
 	// KindCallerTokenExpiring is the card of a stored caller whose token expires within 7
 	// days, or already has (inbox.CallerTokenCards builds it outside this package from the
 	// auth_callers rows). It enters the 「等我」 list under the attention class, only for a
@@ -211,6 +218,8 @@ type Refs struct {
 	SeatID string `json:"seat_id,omitempty"`
 	// WorkItemID (stage cards) is the work item whose flow waits.
 	WorkItemID string `json:"work_item_id,omitempty"`
+	// TeamID (team cards) is the team that needs a person.
+	TeamID string `json:"team_id,omitempty"`
 	// CallerID (caller.token_expiring cards) is the caller whose token expires.
 	CallerID string `json:"caller_id,omitempty"`
 }

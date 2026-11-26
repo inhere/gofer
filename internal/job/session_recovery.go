@@ -236,6 +236,14 @@ func (s *Service) applyRemoteSessionState(entry *jobEntry, state WorkerInflightJ
 		// this session is delivered here, and the batch it just worked through is
 		// confirmed (design 2026-11-03 两条进入路径).
 		s.onParentAwaitingInput(snap.ID)
+		// Only an idle report from a turn LATER than the last say counts: a replay of the
+		// idle state from before the say must not close the turn that say just opened.
+		entry.mu.Lock()
+		after := snap.TurnNo > entry.sessionCommandTurn
+		entry.mu.Unlock()
+		if after {
+			s.teamTurnEnded(snap.ID)
+		}
 	}
 }
 

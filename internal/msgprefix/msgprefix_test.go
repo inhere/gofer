@@ -94,6 +94,7 @@ func TestDefaultSpellingsMatchTheTable(t *testing.T) {
 		Memory:      MemoryOpen,
 		Hint:        HintOpen,
 		Stage:       StageOpen,
+		Team:        TeamOpen,
 		Bounce:      BounceOpen,
 	}
 	for kind, spelling := range want {

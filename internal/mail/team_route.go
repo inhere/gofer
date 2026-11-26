@@ -26,6 +26,17 @@ type TeamRouter interface {
 	MemberFailure(jobID string) (team.Failure, bool, error)
 }
 
+// LeaderTurns is the leader protocol seam (*team.Protocol satisfies it): a team letter of the
+// leader is refused in a turn that already recorded idle, and a letter it did send is noted so the
+// end of the turn can tell a quiet turn from a busy one. Nil switches the binding off.
+type LeaderTurns interface {
+	CheckSend(team.Party) error
+	NoteSent(team.Party)
+}
+
+// SetLeaderTurns installs the leader protocol's turn state (nil = none).
+func (s *Service) SetLeaderTurns(t LeaderTurns) { s.turns = t }
+
 // SetTeamRouter replaces the routing engine (tests; nil = no team routing).
 func (s *Service) SetTeamRouter(r TeamRouter) { s.router = r }
 
@@ -95,6 +106,14 @@ func (s *Service) routeTeam(ts teamSend) (out SendResult, handled bool, err erro
 	if !d.Applies {
 		return SendResult{}, false, nil
 	}
+	leader := team.Party{Kind: ts.org.Kind, ID: ts.org.ID, Caller: ts.org.Caller}
+	deliverable := d.SenderLeader && !d.Drop && s.turns != nil
+	if deliverable {
+		// Eval bound to the turn: after idle the leader sends nothing more in the same turn.
+		if err := s.turns.CheckSend(leader); err != nil {
+			return SendResult{}, true, err
+		}
+	}
 	plans, err := s.teamPlans(ts, d)
 	if err != nil {
 		return SendResult{}, true, err
@@ -114,6 +133,9 @@ func (s *Service) routeTeam(ts teamSend) (out SendResult, handled bool, err erro
 		extra = append(extra, one.Mail)
 	}
 	first.Extra = extra
+	if deliverable {
+		s.turns.NoteSent(leader)
+	}
 	return *first, true, nil
 }
 

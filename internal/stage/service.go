@@ -320,6 +320,19 @@ func (s *Service) issueTitle(issue string) string {
 // exactly one advances the flow; the others see Moved.
 func (s *Service) Done(id, by string) (Result, error) { return s.advance(id, by, triggerDone) }
 
+// NextStep is the name of the step `done` would move the flow of work item id to ("" when the
+// flow is finished or already on its last step). It reads the stored flow only, never a gate.
+func (s *Service) NextStep(id string) (string, error) {
+	ws, _, err := s.load(id)
+	if err != nil {
+		return "", err
+	}
+	if !ws.Open() || ws.Step+1 >= len(ws.Steps) {
+		return "", nil
+	}
+	return ws.Steps[ws.Step+1], nil
+}
+
 // Approve records a person's approval of the current step and advances when the gate passes
 // with it: the review gate is the approval itself, and a gate that cannot be judged here
 // (needs_human) is waived. A gate that is plainly unmet (a doc missing) stays unmet.

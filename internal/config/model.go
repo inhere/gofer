@@ -765,6 +765,8 @@ func DefaultInboxRules() []InboxRule {
 			// stage: a stage flow waits for a person (review approval, a gate nobody can judge,
 			// a failed verify run).
 			"stage",
+			// team: a team's leader missed its per-turn evaluation three turns in a row.
+			"team",
 			// caller.token_expiring: a stored caller's token expires within 7 days (or has).
 			// server.health: a server self-check item (storage / disk / sweep / notification) kept
 			// failing past server.health.fail_threshold; only a person can put it right.

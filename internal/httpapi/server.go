@@ -417,6 +417,8 @@ type Server struct {
 	seatSvc seatHolder
 	// teamSvc is the team service, built on first use (team_handler.go).
 	teamSvc teamHolder
+	// proto is the leader protocol engine, built on first use (team_protocol.go).
+	proto protocolHolder
 	// stageSvc is the stage flow service, built on first use (stage_handler.go).
 	stageSvc stageHolder
 	// waitNotices is the 「等我」 notice scanner, built on first use (waiting_notice.go).
@@ -701,6 +703,7 @@ func (s *Server) SetRunners(runners map[string]config.RunnerConfig) {
 func (s *Server) SetMail(m *mail.Service) {
 	if m != nil {
 		s.mail = m
+		m.SetLeaderTurns(lazyProtocol{s})
 	}
 }
 
@@ -937,6 +940,8 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		s.relay.SetLanguageFor(s.textLanguage)
 		// A resident ACP session takes the stage-flow line in front of every turn (job cannot import stage).
 		jobs.SetStageNotes(s.stages())
+		// A session on a team's leader seat takes the leader protocol block too (job cannot import team).
+		jobs.SetTeamNotes(lazyProtocol{s})
 		// A schedule that targets a seat hands its text to the seat service (job cannot import seat).
 		if d := jobs.ScheduleDispatcher(); d != nil {
 			d.SetSeatDeliverer(seatScheduleDeliverer{s})
@@ -944,6 +949,7 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		s.mail = mail.NewService(jobs.Meta(), s.relay)
 		// Whether a job: address can take a letter is the job service's judgement (gofer-0n6r).
 		s.mail.SetSessionJobCheck(mail.SessionJobLookup(jobs.Get))
+		s.mail.SetLeaderTurns(lazyProtocol{s})
 		// A member job that fails tells the team leader (team rule member_failed); s.mail is read
 		// at call time because serve may replace the mailbox (SetMail).
 		jobs.OnTerminal(func(r job.JobResult) {
@@ -1616,6 +1622,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/seats/{id}/restart", s.handleSeatRestart)
 		r.GET("/teams", s.handleTeamList)
 		r.POST("/teams", s.handleTeamCreate)
+		r.POST("/teams/eval", s.handleTeamEval)
 		r.GET("/teams/{id}", s.handleTeamGet)
 		r.PATCH("/teams/{id}", s.handleTeamPatch)
 		r.DELETE("/teams/{id}", s.handleTeamArchive)

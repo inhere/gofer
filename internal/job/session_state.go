@@ -84,7 +84,7 @@ func (s *Service) configureResidentACP(entry *jobEntry, request *runner.ACPReque
 		if hold := entry.dirHold.Load(); hold != nil {
 			note += hold.takeNote()
 		}
-		return note + s.stageNoteOf(entry)
+		return note + s.teamNoteOf(entry) + s.stageNoteOf(entry)
 	}
 }
 
@@ -173,5 +173,6 @@ func (s *Service) awaitSessionInput(entry *jobEntry) error {
 	// A child receipt that had to wait for this turn is delivered now (and the batch
 	// the session just worked through is confirmed). Cheap for a parent with none.
 	s.onParentAwaitingInput(snap.ID)
+	s.teamTurnEnded(snap.ID)
 	return nil
 }

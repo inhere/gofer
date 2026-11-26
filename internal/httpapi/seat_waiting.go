@@ -17,6 +17,9 @@ func (s *Server) waitingSubjectsFor(caller string) ([]inbox.Subject, error) {
 	if svc := s.stages(); svc != nil {
 		in.Stage = svc
 	}
+	if svc := s.teams(); svc != nil {
+		in.Team = svc
+	}
 	q := today.Query{Lang: in.Lang}
 	if cfg := s.serverCfg(); cfg != nil && caller != "" {
 		if ceil, ok := cfg.CallerCeiling(caller); ok && ceil != nil && len(ceil.Projects) > 0 {
