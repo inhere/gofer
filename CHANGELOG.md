@@ -18,6 +18,7 @@
 - acp 位置坐着的 job 被删除（`gofer job rm`、保留期清理、包含工作流的 step job）后不再悬空：位置在同一事务里回到空位，历史里记一条 `job_deleted`（操作者 `system`）；旧数据库里指向已不存在 job 的 `current_ref` 也按空位（`none`）显示，定时送话按空位处理（`offline`），不再报错。
 - seat 定时消息在会话里不再显示成 `[来自 web，schedule:<id>]`（agent 会当成用户本人所说）：现在以系统前缀 `[gofer · 定时消息「<名称>」]`（英文 `[gofer · scheduled message "<name>"]`）开头；终端消息的 operator 以 `schedule:` 开头的一律走系统通道，acp 的 say / 重启文本使用同一前缀。
 - 清理工作流（保留期）时，step job 的 job 凭据与重试记录不再留下孤儿行：`PruneWorkflows` 删 step job 的语句列表漏了 `job_tokens` / `job_retries`，现在与 `PruneJobs` 共用同一份「job 拥有的行」清单，两条路径不会再漂移。
+- 预览（preview）租约到期、或它绑定的 worker 进程已换成另一个实例时，代理现在**先回 404 再关掉该租约**：以前关闭可能抢在响应之前，访问者看到的是连接被断（EOF / 空响应）而不是 404。
 
 ### 变更
 

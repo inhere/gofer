@@ -311,11 +311,22 @@ func isUpgrade(r *http.Request) bool {
 func (m *Manager) handler(id, token string, rp *httputil.ReverseProxy, lv *live) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rec, ok, e := m.store.GetPreview(id)
+		// answerThenClose refuses the request and only then ends the lease: Close shuts
+		// this lease's server down without waiting for the response, so a close that ran
+		// first took the 404 away and the visitor got a reset connection instead.
+		answerThenClose := func(reason string) {
+			http.NotFound(w, r)
+			// The 404 waits in the server's write buffer until the handler returns; flush
+			// it so the close that follows cannot cut it off.
+			_ = http.NewResponseController(w).Flush()
+			m.wg.Add(1)
+			go func() { defer m.wg.Done(); _ = m.Close(id, reason) }()
+		}
 		if e == nil && ok && rec.State == "active" && rec.ExpiresAt <= time.Now().Unix() {
 			// Not synchronously: Close shuts this very server down, and a handler
 			// waiting for its own server to drain never returns.
-			m.wg.Add(1)
-			go func() { defer m.wg.Done(); _ = m.Close(id, "expired") }()
+			answerThenClose("expired")
+			return
 		}
 		if e != nil || !ok || rec.State != "active" || rec.ExpiresAt <= time.Now().Unix() {
 			http.NotFound(w, r)
@@ -324,9 +335,7 @@ func (m *Manager) handler(id, token string, rp *httputil.ReverseProxy, lv *live)
 		if e == nil && ok && rec.State == "active" && !m.workerAlive(rec.WorkerID, rec.WorkerInstanceID) {
 			// The worker process the lease was bound to is gone (or replaced): never
 			// send this request to whatever runs there now.
-			m.wg.Add(1)
-			go func() { defer m.wg.Done(); _ = m.Close(id, "worker_lost") }()
-			http.NotFound(w, r)
+			answerThenClose("worker_lost")
 			return
 		}
 		// The one-time token in the URL is traded, once, for a random cookie scoped to this preview's
