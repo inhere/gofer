@@ -95,13 +95,18 @@ func TestSeatPendingFlushedTheMomentTheSessionComesBack(t *testing.T) {
 		t.Fatalf("the queued text went out %d times, want once", msgr.sent())
 	}
 
-	// The session in no seat comes back too, and nothing happens: no queue, no send, no error.
+	// The session in no seat comes back too: the beat succeeds, and the flush the hook runs is a
+	// no-op for it (no queue, no send, no error). A sync call reads the same code the hook body
+	// reads, so nothing here depends on when the hook's goroutine runs.
 	free := do(t, s, http.MethodPost, "/v1/sessions/sess-free/heartbeat", ceilTokPlain, map[string]any{"event": "Notification"})
 	if free.StatusCode != http.StatusOK {
 		t.Fatalf("heartbeat of a session in no seat = %d", free.StatusCode)
 	}
 	free.Body.Close()
-	if msgr.sent() != 1 {
-		t.Fatalf("a session in no seat sent a text: %d sends in total, want 1", msgr.sent())
+	if n, err := seats.FlushSeatOf(context.Background(), "sess-free"); err != nil || n != 0 {
+		t.Fatalf("a session in no seat flushed %d (%v), want a no-op", n, err)
+	}
+	if n, err := s.jobs.Meta().SeatPendingCount("sch-live"); err != nil || n != 0 {
+		t.Fatalf("a session in no seat touched the queue: %d (%v)", n, err)
 	}
 }
