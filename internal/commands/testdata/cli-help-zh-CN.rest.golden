@@ -1279,7 +1279,7 @@ team list	flag json	按 JSON 打印服务端返回
 team list	flag project	项目 key（默认取当前目录所在项目）
 team list	flag server	server address (overrides config server.addr)
 team list	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
-team member	desc	团队的成员位置（leader 用 `gofer team add --leader` 或 `gofer team set --leader` 指定）
+team member	desc	团队的成员位置（leader 在建团队或 team set 时用 --leader 指定）
 team member	help	
 team member	examples	
 team member add	desc	把一个 seat 加为团队成员
