@@ -178,7 +178,7 @@ gofer schedule rotate-token <id>        # 换 webhook 触发 token（旧的立�
 - **只统计定时触发**：次数与连续失败只算 cron 到点的那些运行；`schedule run` 与 webhook 是人工 / 外部行为，不计入也不清零。`failed` / `timeout` 让连续失败加一（提交就被拒、前置检查失败也算一次），`done` / `needs_review` 清零，`cancelled` / `rejected` 不算。一次性（`once`）调度不使用这三个计数。
 - **人工切开关清零**：手动切一次启停（`schedule enable` / `disable`、`schedule edit --enable/--disable`、web 上的开关、今天页卡片的「启用」）会把连续失败数与暂停原因清零；已经跑掉的次数 `runs` 不清——要继续跑就调大 `--max-runs`。
 - **新建与已有调度的默认值不同**：新建的调度默认 `overlap=skip`、`max_failures=3`、`context=on`；升级前就存在的调度在升级后保持原行为（`overlap=allow`、不因失败暂停、`context=off`），要这些保护就逐个 `schedule edit` 打开。
-- **投递到 seat 的定时**：`gofer seat schedule <name> --cron … --text …` 建的定时，目标是 `seat:<id>`，到点把话送给**那一刻**坐在位置里的会话（`schedule list` 的 `TARGET` 列、`show` 的 `target` / `last_result` 可见）；它不提交 job，沿用 cron、catch_up、失败计数与自动暂停。seat 归档或删除后，指向它的定时被停用（`paused: seat_archived` / `seat_deleted`），不会静默删除。
+- **投递到 seat 的定时**：`gofer seat schedule <name> --cron … --text …` 建的定时，目标是 `seat:<id>`，到点把话送给**那一刻**坐在位置里的会话（`schedule list` 的 `TARGET` 列、`show` 的 `target` / `last_result` 可见）；它不提交 job，沿用 cron、catch_up、失败计数与自动暂停。会话离线 / 已结束、位置空着时话排进队列（每位置每定时只留一条），绑进会话或会话重新上线时立即补送（周期扫描兜底），超过 24 小时丢弃。seat 归档或删除后，指向它的定时被停用（`paused: seat_archived` / `seat_deleted`），不会静默删除。
 - **`schedule list` / `show` 看到什么**：列表的 `RUNS` 列是「n / 上限」（没设上限只写 n）；`show` 另有 `overlap`、`context`、`runs`、`failures`（`3 consecutive (pauses at 5)` / `0 consecutive (never pauses)`）、`precheck`，以及 `enabled` 上的暂停原因（`false (paused: failures)` / `false (paused: max_runs)`）。发生了什么看 `schedule events <id>`：`schedule.run_skipped`（这次没提交、不是失败）、`schedule.run_failed`（这次没能提交）、`schedule.paused`（gofer 自己停的）、`schedule.run_now`（有人手动立即运行）。
 
 ### 前置检查（到点先跑一遍再决定）
