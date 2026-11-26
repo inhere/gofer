@@ -220,6 +220,13 @@ func forEachJobTableText(q textQueryer, table, jobID string, visit func(table, c
 	}
 	defer data.Close()
 	emit := func(values []any) error {
+		// The predicate and this filter are the same rule in two places; keeping the
+		// in-Go half on the narrowed read makes a drifted predicate drop the rows it
+		// wrongly reached instead of rewriting them (TestJobRowSQLWhereMatchesGoFilter
+		// pins the two together).
+		if !jobRowBelongs(table, cols, values[1:], jobID) {
+			return nil
+		}
 		rowID, ok := values[0].(int64)
 		if !ok {
 			return nil
