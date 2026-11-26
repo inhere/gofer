@@ -155,6 +155,9 @@ func signalsOf(c today.Card) (subject string, s Signals, ok bool) {
 			return "stage:" + c.Refs.WorkItemID, Signals{HeldForApproval: true}, true
 		}
 		return "stage:" + c.Refs.WorkItemID, Signals{Attention: true}, true
+	case today.KindTeam:
+		// A team whose leader stopped evaluating its turns is the person's to look at.
+		return "team:" + c.Refs.TeamID, Signals{Attention: true}, true
 	case KindCallerTokenExpiring:
 		return "caller:" + c.Refs.CallerID, Signals{Attention: true}, true
 	case KindServerHealth:

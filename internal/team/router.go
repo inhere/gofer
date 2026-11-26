@@ -39,6 +39,9 @@ const (
 	RulePeerLeader = "peer_leader"
 	// RuleMemberFailed: the system letter a failed member job sends the leader (9).
 	RuleMemberFailed = "member_failed"
+	// RuleChainEnd: the system letter that puts a finished chain's last result in front of the
+	// team creator (leader protocol, plan §2.4).
+	RuleChainEnd = "chain_end"
 	// RuleOutbound: a team seat wrote to somebody outside the team; recorded so the ledger
 	// run is broken.
 	RuleOutbound = "outbound"
@@ -47,8 +50,12 @@ const (
 	RuleDirect = "direct"
 )
 
-// SystemMemberFailed is mail.system_kind of the letter a failed member job produces.
-const SystemMemberFailed = "member_failed"
+// SystemMemberFailed is mail.system_kind of the letter a failed member job produces;
+// SystemChainEnd that of the letter a chain end produces.
+const (
+	SystemMemberFailed = "member_failed"
+	SystemChainEnd     = "chain_end"
+)
 
 // Party is a sender as the entry layer vouched for it.
 type Party struct {
@@ -99,6 +106,9 @@ type Decision struct {
 	Handed bool
 	// Drop: record only, deliver nothing (rule self).
 	Drop bool
+	// SenderLeader: the sender is, right now, the session / job sitting in the leader seat of
+	// the team that sends (the leader protocol's eval binding keys on it).
+	SenderLeader bool
 	// Hold is set when the letter must be parked instead of delivered (a peer pair over the
 	// loop limit: there is nobody to redirect to but the leader that is already the target).
 	Hold string
@@ -238,11 +248,35 @@ func (r *Router) recipient(in Input) (jobstore.Team, bool, jobstore.Seat, bool, 
 	return t, true, seat, haveSeat, nil
 }
 
-var namedMember = regexp.MustCompile(`@([\p{L}\p{N}_.\-]+)`)
+// namedMember finds `@name`. The `@` must not continue a word: `user@host` is an e-mail-like
+// token, not a mention (Go's regexp has no look-behind, so the character before the `@` is part
+// of the match and group 2 is the name).
+var namedMember = regexp.MustCompile(`(^|[^\p{L}\p{N}_.+%\-])@([\p{L}\p{N}_.\-]+)`)
+
+// codeFence / codeSpan are the code a mention must not be read from: a fenced block (an
+// unterminated fence runs to the end of the body) and an inline span on one line.
+var (
+	codeFence = regexp.MustCompile("(?s)```.*?(```|$)")
+	codeSpan  = regexp.MustCompile("`[^`\n]*`")
+)
+
+// mentionedNames lists the `@name` mentions of a body in order, leaving out e-mail-like tokens
+// and anything inside inline or fenced code (gofer-x6v6).
+func mentionedNames(body string) []string {
+	body = codeSpan.ReplaceAllString(codeFence.ReplaceAllString(body, " "), " ")
+	var out []string
+	for _, h := range namedMember.FindAllStringSubmatch(body, -1) {
+		// A name ends a sentence with its dot or dash: "ask @alice." names alice.
+		if n := strings.TrimRight(h[2], ".-"); n != "" {
+			out = append(out, n)
+		}
+	}
+	return out
+}
 
 // namedSeats are the seats of the team an `@name` in the body points at (members and leader).
 func (r *Router) namedSeats(t jobstore.Team, body string) ([]jobstore.Seat, error) {
-	hits := namedMember.FindAllStringSubmatch(body, -1)
+	hits := mentionedNames(body)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -270,7 +304,7 @@ func (r *Router) namedSeats(t jobstore.Team, body string) ([]jobstore.Seat, erro
 	var out []jobstore.Seat
 	seen := map[string]bool{}
 	for _, h := range hits {
-		x, ok := byName[strings.ToLower(h[1])]
+		x, ok := byName[strings.ToLower(h)]
 		if ok && !seen[x.ID] {
 			seen[x.ID] = true
 			out = append(out, x)
@@ -312,7 +346,7 @@ func (r *Router) Decide(in Input) (Decision, error) {
 			rseat, hasSeat = x, true
 		}
 	}
-	d := Decision{FromRef: fromRefOf(in.Origin, snd)}
+	d := Decision{FromRef: fromRefOf(in.Origin, snd), SenderLeader: snd.leader()}
 	if !hasTeam {
 		if !snd.inTeam {
 			return Decision{}, nil
@@ -461,7 +495,7 @@ func ignored(row jobstore.TeamRoute) bool {
 		// run; one parked because its seat was vacant never reached anybody.
 		return row.Rule != RuleOutbound
 	}
-	return row.Rule == RuleMemberFailed
+	return row.Rule == RuleMemberFailed || row.Rule == RuleChainEnd
 }
 
 func rowPair(row jobstore.TeamRoute) (string, string, bool) {

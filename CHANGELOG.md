@@ -18,6 +18,10 @@
 
 ### 新增
 
+- **Team leader 协议**（三期 Team 的 T3）：坐在 leader 位置上的会话每一轮都会收到一个 `[gofer · team]` 块——协议、花名册（成员名、用途、状态、当前步骤、最近活动）、团队说明；终端在 UserPromptSubmit 注入，ACP（本机与远端 worker）在每次 say 之前注入，唤醒这一轮的信件摘要放在每轮随机的边界标签里，成员位置不变。
+  - 新增 `gofer team eval --outcome dispatched|idle|failed --reason "…"`（`POST /v1/teams/eval`）：leader 每轮结束前记评估，只认 leader 位置上的会话或该位置上 job 的凭据（人的 token、成员、其他 job 都是 403）；记了 `idle` 之后同一轮再发团队信返回 409。没记评估就结束的一轮记 `missing_eval`，连续 3 轮在「等我」里出现团队卡（`team` 类，`gofer team show` 可查）。
+  - leader 被成员结果唤醒、这一轮没发信也没留唤醒时，视为链条结束，触发它的结果作为系统信送到团队创建者的信箱。leader 位置上的会话推进到最后一步 `gofer stage done` 被拒（403，只有人能完成工作项）。
+  - 修复（gofer-x6v6）：团队信里的 `@成员名` 不再把邮箱（`user@host`）和代码（行内 / 围栏）里的文字当点名；`relay_mode` 的说明改正为 leader / direct 目前行为相同。
 - **`gofer team` 命令（三期 Team 的 CLI）**：团队可以在命令行里管起来——`team add <名字> --leader <seat> [--brief "…" | --brief @<文件>]`（说明只给 leader 看）、`team member add|rm <团队> <seat>`、`team ls [--json]`、`team show`（花名册 leader 在前，每行 seat 名、角色、状态、当前步骤、最近活动，另附最近 10 条路由判定）、`team say <团队> "…"`（人发给团队，等价于向 `team:<名字>[@<项目>]` 发信：点名 `@成员` 只给这些成员，没点名给 leader）、`team routes|evals <团队> [--limit n] [--json]`、`team set`（换 leader / 改说明，`-` 清空）、`team rm`（归档：名字与位置重新可用，历史保留）。`<团队>` 写 id 或名字（名字按 `-p`，没给就按当前目录所在项目；跨项目写 `name@project`），查不到时报错带名字与项目并提示 `team ls`。用法与谁收到信见 skill 的 `references/teams.md`。
 - **Team 数据层与 `seat:` / `team:` 信箱地址**（三期 Team 的 T1）：新增团队实体——一个 leader seat 加若干成员 seat，都在同一项目，团队名在项目内唯一，一个 seat 同一时间最多属于一个团队，leader 不能同时是成员；归档团队会释放名字与 seat。HTTP 接口 `/v1/teams`（列表 / 创建 / 详情含花名册 / 修改 / 归档 / 成员增删 / 路由记录 / 评估记录），权限沿用 `seat.manage.others`（自己的团队无需权限，job 与 worker 凭据一律拒绝）。信箱新增两种地址：`seat:<名字>[@<项目>]` 送给该 seat 当前坐着的会话（空 seat 或会话已结束时进收集箱，离线照常排队），`team:<名字>[@<项目>]` 送给团队 leader 并给信件打上 `team_id`；`@<项目>` 省略时取发信会话所在项目，写别的项目可在两个团队的 leader 之间互发信。CLI、HTTP、MCP 的发信都支持。本批只有实体与地址，路由规则、leader 协议与 `gofer team` 命令后续提供；不建团队时行为不变。
 - **控制台里的流程条与就地批准**（二期 F5，工作项流程 stage）：工作项详情抽屉在有流程时多一块流程区——模板名、步骤条（已过 / 当前 / 阻塞）、当前步门禁缺项、放权等级（只记录 / 提醒，只有人的凭据能改，改不了时提示原因），以及批准（当前步是评审或门禁在这里判不了时）、退回（必填理由）、推进（门禁没过就把缺项列出来，不当错误）三个动作；步骤变化与门禁结果仍写在原来的日志时间线里。工作台会话标题旁显示「<步骤> n/N」的小标签（阻塞为红色），点它去工作项详情。「等我」里 `kind=stage` 的流程卡在今天就 / 收件箱 / 弹卡里都能就地处理：批准直接调批准接口，退回弹出输入框填意见，成功后卡片自行消失。

@@ -24,8 +24,11 @@ import (
 // Team member roles.
 const TeamRoleMember = "member"
 
-// Team relay modes: leader (every member-to-member relay is handed to the leader; the only one
-// implemented) and direct (reserved).
+// Team relay modes. The column is stored and validated but no routing code reads it yet: leader
+// and direct behave the same today. In both, a member may name another member (rule relay), and
+// only the loop guard (round / daily limits) hands a relay to the leader (outcome
+// handed_to_leader). direct is reserved for a later step that lets relays skip that guard's
+// leader hand-off; until then do not rely on a difference between the two (gofer-x6v6).
 const (
 	TeamRelayLeader = "leader"
 	TeamRelayDirect = "direct"

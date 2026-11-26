@@ -155,6 +155,8 @@ type Service struct {
 	// router is the team routing engine (team_route.go); a letter no team is involved in never
 	// touches it beyond one read.
 	router TeamRouter
+	// turns is the leader protocol's per-turn state (team_route.go); nil = no eval binding.
+	turns LeaderTurns
 }
 
 // NewService builds the mailbox over the store, resolving topic: / path: through finder (nil =

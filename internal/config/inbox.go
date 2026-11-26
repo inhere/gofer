@@ -27,6 +27,7 @@ var inboxKindEvents = map[string][]string{
 	"schedule.paused":       {"schedule.paused"},
 	"seat_schedule":         {"schedule.seat_pending"},
 	"stage":                 {"session.awaiting_reply"},
+	"team":                  {"session.awaiting_reply"},
 	"server.health":         {"server.health_failing"},
 }
 

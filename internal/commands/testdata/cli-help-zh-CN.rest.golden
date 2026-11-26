@@ -1262,6 +1262,15 @@ team add	flag leader	leader 的 seat（名字或 id）
 team add	flag project	项目 key（默认取当前目录所在项目）
 team add	flag server	server address (overrides config server.addr)
 team add	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+team eval	desc	记录 leader 这一轮的结果（只有坐在 leader 位置上的会话或 job 才可以）
+team eval	help	
+team eval	examples	
+team eval	flag config	path to the gofer config file
+team eval	flag json	按 JSON 打印服务端返回
+team eval	flag outcome	dispatched（派出了活）、idle（没有事做）或 failed（走不下去）
+team eval	flag reason	原因，一句话
+team eval	flag server	server address (overrides config server.addr)
+team eval	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 team evals	desc	列出 leader 每轮的评估，最新在前
 team evals	help	
 team evals	examples	

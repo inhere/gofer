@@ -214,6 +214,7 @@ var routeDecls = map[string]routeDecl{
 	"POST /v1/seats/{id}/restart":                      {user: Require(authz.PermJobSubmit), scope: Resource("seat")},
 	"GET /v1/teams":                                    {user: InHandler(permFilter, authz.PermSeatManageOthers), scope: Filter()},
 	"POST /v1/teams":                                   {user: InHandler(permDeny, authz.PermSeatManageOthers), scope: BodyProject()},
+	"POST /v1/teams/eval":                              {user: Public(), jobCred: "POST /v1/teams/eval", scope: NoProject()}, // the leader's own evaluation only: the handler asks the seat table who sits in the leader seat
 	"GET /v1/teams/{id}":                               {user: InHandler(permDeny, authz.PermSeatManageOthers), scope: Resource("team")},
 	"PATCH /v1/teams/{id}":                             {user: InHandler(permDeny, authz.PermSeatManageOthers), scope: Resource("team")},
 	"DELETE /v1/teams/{id}":                            {user: InHandler(permDeny, authz.PermSeatManageOthers), scope: Resource("team")},

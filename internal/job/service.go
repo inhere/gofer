@@ -293,6 +293,9 @@ type Service struct {
 	issueLinker IssueLinker
 	// stageNotes supplies the stage-flow line a resident session takes before each turn; nil adds none.
 	stageNotes StageNoter
+	// teamNotes supplies the leader-protocol block a session on a team's leader seat takes before
+	// each turn; nil adds none.
+	teamNotes TeamNoter
 
 	// wf is the workflow engine seam (layering design §13.4): the ONLY reverse
 	// dependency from the single-job path to the workflow sub-package. finish drives

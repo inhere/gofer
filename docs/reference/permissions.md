@@ -394,6 +394,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `POST` | `/v1/steward/stop` | `Require` | `steward.manage` | — | `NoProject` | 写 |
 | `GET` | `/v1/teams` | `InHandler(filter)` | `seat.manage.others` | — | `Filter` | 读 |
 | `POST` | `/v1/teams` | `InHandler(deny)` | `seat.manage.others` | — | `BodyProject` | 写 |
+| `POST` | `/v1/teams/eval` | `Public` | — | `job` | `NoProject` | 写 |
 | `DELETE` | `/v1/teams/{id}` | `InHandler(deny)` | `seat.manage.others` | — | `Resource(team)` | 写 |
 | `GET` | `/v1/teams/{id}` | `InHandler(deny)` | `seat.manage.others` | — | `Resource(team)` | 读 |
 | `PATCH` | `/v1/teams/{id}` | `InHandler(deny)` | `seat.manage.others` | — | `Resource(team)` | 写 |

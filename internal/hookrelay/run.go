@@ -220,11 +220,11 @@ func Run(api API, p Payload, opts Options) (Result, error) {
 		if isHarnessInput(p) {
 			log("harness prompt %q → injected", head(p.Prompt, 60))
 			a := r.beatAndLog(client.SessionHeartbeat{Event: p.Event, Injected: true})
-			return r.stageTurnReminder(r.catchUp(noticeResult(a), a), a), nil
+			return r.teamTurnReminder(r.stageTurnReminder(r.catchUp(noticeResult(a), a), a), a), nil
 		}
 		log("human prompt %q", head(p.Prompt, 60))
 		a := r.beatAndLog(client.SessionHeartbeat{Event: p.Event, Title: makeTitle(p.Cwd, p.Prompt)})
-		return r.stageTurnReminder(r.injectPromptMemories(r.catchUp(noticeResult(a), a)), a), nil
+		return r.teamTurnReminder(r.stageTurnReminder(r.injectPromptMemories(r.catchUp(noticeResult(a), a)), a), a), nil
 	case "Stop":
 		return r.stop(), nil
 	case "PostToolUse":

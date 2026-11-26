@@ -94,6 +94,7 @@ func flagGlobals() map[string]any {
 		"teamAddOpts":           &teamAddOpts,
 		"teamListOpts":          &teamListOpts,
 		"teamRecordOpts":        &teamRecordOpts,
+		"teamEvalOpts":          &teamEvalOpts,
 		"teamRefOpts":           &teamRefOpts,
 		"teamSayOpts":           &teamSayOpts,
 		"teamSetOpts":           &teamSetOpts,

@@ -56,6 +56,12 @@ var teamRecordOpts struct {
 	json    bool
 }
 
+var teamEvalOpts struct {
+	outcome string
+	reason  string
+	json    bool
+}
+
 var teamSayOpts struct {
 	project string
 }
@@ -168,6 +174,18 @@ func NewTeamCmd() *gcli.Command {
 					c.BoolOpt(&teamRecordOpts.json, "json", "", false, cliText("cli.team.flag.json"))
 				},
 				Func: runTeamEvals,
+			},
+			{
+				Name: "eval",
+				Desc: cliText("cli.team.eval.desc"),
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.StrOpt(&teamEvalOpts.outcome, "outcome", "", "", cliText("cli.team.eval.flag.outcome"))
+					c.StrOpt(&teamEvalOpts.reason, "reason", "", "", cliText("cli.team.eval.flag.reason"))
+					c.BoolOpt(&teamEvalOpts.json, "json", "", false, cliText("cli.team.flag.json"))
+				},
+				Func: runTeamEval,
 			},
 			newTeamMemberCmd(),
 		},
@@ -618,6 +636,30 @@ func runTeamEvals(c *gcli.Command, _ []string) error {
 		fmt.Fprintf(&b, "%-6d %-9s %-12s %-16s %s\n", e.ID, ago(e.At), dash(e.Outcome), dash(e.LeaderRef), oneLine(e.Reason, 60))
 	}
 	c.Print(b.String())
+	return nil
+}
+
+// runTeamEval records the leader's evaluation of the turn it is in. Who may is the server's call
+// (the job on the leader seat, or the terminal session on it); a refusal says so.
+func runTeamEval(c *gcli.Command, _ []string) error {
+	outcome := strings.ToLower(strings.TrimSpace(teamEvalOpts.outcome))
+	switch outcome {
+	case "dispatched", "idle", "failed":
+	default:
+		return fmt.Errorf("%s", cliText("cli.team.eval.err.outcome"))
+	}
+	cli, err := teamClient()
+	if err != nil {
+		return err
+	}
+	e, err := cli.RecordTeamEval(client.TeamEvalRecord{Outcome: outcome, Reason: strings.TrimSpace(teamEvalOpts.reason)})
+	if err != nil {
+		return err
+	}
+	if teamEvalOpts.json {
+		return printTeamJSON(c, e)
+	}
+	c.Println(cliText("cli.team.eval.done", "outcome", e.Outcome))
 	return nil
 }
 

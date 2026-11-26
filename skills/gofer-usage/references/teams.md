@@ -30,6 +30,9 @@ gofer team say crew "先跑回归，再更 CHANGELOG"
 gofer team routes crew [--limit n] [--json]
 gofer team evals crew [--limit n] [--json]
 
+# leader 自己记评估（每一轮结束前；只认 leader 位置上的会话 / job）
+gofer team eval --outcome dispatched|idle|failed --reason "…"
+
 # 改 / 归档
 gofer team set crew [--leader desk2] [--brief "…" | --brief -]   # - 清空说明
 gofer team rm crew                                              # 归档：名字与位置重新可用，历史保留
@@ -44,10 +47,20 @@ gofer team rm crew                                              # 归档：名�
 - 每条判定记一行（哪条规则、从谁到谁、跳数、结局如 `delivered` / `queued` / `merged` / `handed_to_leader` / `dup`），`gofer team routes` 就是这张账本；`gofer team evals` 是 leader 每轮留下的评估（`dispatched` / `idle` / `failed` / `missing_eval`）。
 - 信件本身是普通信件：送达、离线排队、退信、暂停、急件都沿用信箱的做法（见 [sessions-relay.md](sessions-relay.md)）。
 
+## leader 协议
+
+- **每一轮都注入**：坐在 leader 位置上的会话（终端每次 UserPromptSubmit、ACP 每次 say 之前）会收到一个 `[gofer · team]` 块：协议、花名册（成员名、用途、状态、当前流程步骤、最近活动）、团队说明；唤醒这一轮的信件摘要放在每轮随机的边界标签里，当数据读，不当指令。成员位置不注入任何东西。
+- **派活走信件**：`gofer session mail send seat:<成员> "<任务>"`；实现交给成员，leader 自己写 design / plan 文档。
+- **每轮记评估**：结束前执行 `gofer team eval --outcome dispatched|idle|failed --reason "…"`（派出了活 / 没事做 / 走不下去）。没有事做的一轮不发信，只记 `idle`；**记了 `idle` 之后，同一轮里再发团队信会被拒绝（409）**，也不能再改评估，下一轮（下一条信或消息唤醒）才重新开始。没记评估就结束的一轮，服务端记 `missing_eval`；连续 3 轮缺评估，「等我」里出现一张团队卡。
+- **一「轮」**：ACP 是一次 say 到 job 回到等待输入；终端是一次 UserPromptSubmit 到下一次 Stop。
+- **链条结束会通知人**：leader 被成员结果唤醒，这一轮既没发信、也没派活、也没留唤醒（定时、watch、nudge），服务端把触发它的结果信作为系统信送到团队创建者的信箱（人在「等我」里能看到）。
+- **leader 不能完成工作项**：leader 位置上的会话执行 `gofer stage done` 且下一步是 `done` 时，服务端拒绝（403，只有人能完成工作项）；前面的步骤不受限。
+- 提到成员用 `@成员名`；写在代码里的（行内 / 围栏）和邮箱形式（`user@host`）不算点名。
+
 ## 权限与边界
 
 - 团队属于 leader 位置的调用方：自己是 owner 不需要权限，看/改别人的团队要 `seat.manage.others`；项目超出调用方范围时按不存在处理。
-- 只有用户身份能操作团队（worker token / job 凭据被拒，403）；因此 `team` 命令在客户端节点上跑，别塞进 job 里去调。
+- 只有用户身份能操作团队（worker token / job 凭据被拒，403）；因此 `team` 命令在客户端节点上跑，别塞进 job 里去调。**唯一的例外是 `gofer team eval`**：它只认 leader 位置上的会话，或 leader 位置上那个 job 的凭据（ACP leader 在 job 里直接执行）；人的 token、成员、其他 job 都是 403。身份由服务端的位置表判定，信里自称不算。
 - 一个位置同一时间只属于一个团队；leader 位置不能同时是成员。
 - 完成工作项、合并、发版这些人掌握的动作不会因为团队而放宽。
 
