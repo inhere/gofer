@@ -1073,7 +1073,7 @@ settings set	flag config	path to the gofer config file
 settings set	flag file	read the value from this file ('-' reads stdin), for multi-line prompts
 settings set	flag server	server address (overrides config server.addr)
 settings set	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
-stage	desc	Flow progression of a work item: design -> review -> plan -> doing -> verify -> done (start / status / done / back / blocked / approve / drop / ls)
+stage	desc	Flow progression of a work item: design -> review -> plan -> doing -> verify -> done (start / status / done / back / blocked / approve / drop / level / report / ls)
 stage	help	
 stage	examples	
 stage approve	desc	A person's approval of the current step: passes the review gate and waives a gate this server cannot judge (refused inside a session)
@@ -1119,6 +1119,14 @@ stage drop	flag reason	why it is abandoned (optional)
 stage drop	flag server	server address (overrides config server.addr)
 stage drop	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 stage drop	flag work	work item id (default: the flow of this session's work item)
+stage level	desc	Set how much the flow may do for itself: record (only note what it would do) | remind (also send the session a continue turn when the next step is the agent's); a person's command, refused inside a session
+stage level	help	
+stage level	examples	
+stage level	flag config	path to the gofer config file
+stage level	flag json	print JSON
+stage level	flag server	server address (overrides config server.addr)
+stage level	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+stage level	flag work	work item id (default: the flow of this session's work item)
 stage ls	desc	List the flows in progress
 stage ls	help	
 stage ls	examples	
@@ -1127,6 +1135,15 @@ stage ls	flag json	print JSON
 stage ls	flag project	only this project key
 stage ls	flag server	server address (overrides config server.addr)
 stage ls	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+stage report	desc	How often what a level would have done matched what happened next (per action and per rule; newest 20 resolved)
+stage report	help	
+stage report	examples	
+stage report	flag config	path to the gofer config file
+stage report	flag json	print JSON
+stage report	flag project	project key (default: the project of this directory)
+stage report	flag server	server address (overrides config server.addr)
+stage report	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+stage report	flag work	work item id (default: every flow of the project)
 stage start	desc	Start a flow on the work item of <issue> (the linked one, else a new one); this session becomes a current session of it
 stage start	help	
 stage start	examples	
