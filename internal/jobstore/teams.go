@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/inhere/gofer/internal/util"
 )
 
 // The Team entities (design 2026-11-18 §7, plan 2026-11-26-team-plan.md §2.1): a team is one
@@ -579,6 +581,81 @@ func (s *Store) SettleTeamRoute(id int64, outcome string) (bool, error) {
 	}
 	n, _ := res.RowsAffected()
 	return n > 0, nil
+}
+
+// SettleTeamRouteMail points a route row at the letter it produced and sets its outcome (the
+// pending row is written before the letter exists). ok is false when the id is unknown.
+func (s *Store) SettleTeamRouteMail(id, mailID int64, outcome string) (bool, error) {
+	if !ValidTeamOutcome(outcome) || mailID < 0 {
+		return false, fmt.Errorf("%w: unknown route outcome %q", ErrTeamInvalid, outcome)
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	res, err := s.db.Exec(`UPDATE team_routes SET mail_id=?, outcome=? WHERE id=?`, mailID, outcome, id)
+	if err != nil {
+		return false, fmt.Errorf("jobstore: settle team route: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// SettleTeamRoutesOfMail sets the outcome of the routing rows of one letter that are still in
+// one of the `from` outcomes (a letter absorbed into another letter's turn becomes merged).
+func (s *Store) SettleTeamRoutesOfMail(mailID int64, outcome string, from ...string) (int64, error) {
+	if !ValidTeamOutcome(outcome) || len(from) == 0 {
+		return 0, fmt.Errorf("%w: unknown route outcome %q", ErrTeamInvalid, outcome)
+	}
+	args := make([]any, 0, util.CapSum(len(from), 2))
+	args = append(args, outcome, mailID)
+	for _, f := range from {
+		args = append(args, f)
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	res, err := s.db.Exec(`UPDATE team_routes SET outcome=? WHERE mail_id=? AND outcome IN (`+mailPlaceholders(len(from))+`)`, args...)
+	if err != nil {
+		return 0, fmt.Errorf("jobstore: settle team routes of mail %d: %w", mailID, err)
+	}
+	return res.RowsAffected()
+}
+
+// MarkStaleTeamRoutesUnknown turns pending rows decided before `before` (unix seconds) that
+// never got a letter into unknown: the process that wrote them died or lost the answer, so
+// whether the letter exists can only be told by looking the route key up again.
+func (s *Store) MarkStaleTeamRoutesUnknown(before int64) (int64, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	res, err := s.db.Exec(`UPDATE team_routes SET outcome=? WHERE outcome=? AND mail_id=0 AND decided_at<?`,
+		TeamOutcomeUnknown, TeamOutcomePending, before)
+	if err != nil {
+		return 0, fmt.Errorf("jobstore: mark stale team routes: %w", err)
+	}
+	return res.RowsAffected()
+}
+
+// ListTeamRoutesSince lists a team's routing decisions decided at or after since (unix
+// seconds), newest first, at most limit (<=0: 1000).
+func (s *Store) ListTeamRoutesSince(teamID string, since int64, limit int) ([]TeamRoute, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+	rows, err := s.db.Query(`SELECT id, team_id, mail_id, from_ref, to_seat_ids, rule, hop, route_key, outcome, decided_at
+  FROM team_routes WHERE team_id = ? AND decided_at >= ? ORDER BY id DESC LIMIT ?`, strings.TrimSpace(teamID), since, limit)
+	if err != nil {
+		return nil, fmt.Errorf("jobstore: list team routes since: %w", err)
+	}
+	defer rows.Close()
+	var out []TeamRoute
+	for rows.Next() {
+		var r TeamRoute
+		var ids string
+		if err := rows.Scan(&r.ID, &r.TeamID, &r.MailID, &r.FromRef, &ids, &r.Rule, &r.Hop, &r.RouteKey, &r.Outcome, &r.DecidedAt); err != nil {
+			return nil, fmt.Errorf("jobstore: list team routes since: %w", err)
+		}
+		_ = json.Unmarshal([]byte(ids), &r.ToSeatIDs)
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 // TeamRouteByKey reads the route a team recorded under route_key (ok=false: none).

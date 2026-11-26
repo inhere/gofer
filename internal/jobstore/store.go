@@ -1312,7 +1312,10 @@ var schemaStmts = []string{
   ack_kind        TEXT NOT NULL DEFAULT '',
   ack_by          TEXT NOT NULL DEFAULT '',
   ack_at          INTEGER NOT NULL DEFAULT 0,
-  team_id         TEXT NOT NULL DEFAULT ''
+  team_id         TEXT NOT NULL DEFAULT '',
+  hop             INTEGER NOT NULL DEFAULT 0,
+  route_key       TEXT NOT NULL DEFAULT '',
+  system_kind     TEXT NOT NULL DEFAULT ''
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_mail_to_state ON mail(to_kind, to_id, state, id)`,
 	`CREATE INDEX IF NOT EXISTS idx_mail_from ON mail(from_kind, from_id, id)`,
@@ -1445,6 +1448,7 @@ var schemaStmts = []string{
   decided_at  INTEGER NOT NULL
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_team_routes_team ON team_routes(team_id, id)`,
+	`CREATE INDEX IF NOT EXISTS idx_team_routes_mail ON team_routes(mail_id)`,
 	`CREATE UNIQUE INDEX IF NOT EXISTS idx_team_routes_key ON team_routes(team_id, route_key) WHERE route_key <> ''`,
 	`CREATE TABLE IF NOT EXISTS team_evals (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2796,6 +2800,9 @@ func (s *Store) migrateMail() error {
 		{"ack_by", "ALTER TABLE mail ADD COLUMN ack_by TEXT NOT NULL DEFAULT ''"},
 		{"ack_at", "ALTER TABLE mail ADD COLUMN ack_at INTEGER NOT NULL DEFAULT 0"},
 		{"team_id", "ALTER TABLE mail ADD COLUMN team_id TEXT NOT NULL DEFAULT ''"},
+		{"hop", "ALTER TABLE mail ADD COLUMN hop INTEGER NOT NULL DEFAULT 0"},
+		{"route_key", "ALTER TABLE mail ADD COLUMN route_key TEXT NOT NULL DEFAULT ''"},
+		{"system_kind", "ALTER TABLE mail ADD COLUMN system_kind TEXT NOT NULL DEFAULT ''"},
 	} {
 		if _, ok := cols[c.name]; !ok {
 			if _, e := s.db.Exec(c.ddl); e != nil {
@@ -2810,6 +2817,9 @@ func (s *Store) migrateMail() error {
 	}
 	if _, e := s.db.Exec("CREATE INDEX IF NOT EXISTS idx_mail_broadcast ON mail(broadcast_id, id)"); e != nil {
 		return fmt.Errorf("jobstore: migrate mail index: %w", e)
+	}
+	if _, e := s.db.Exec("CREATE INDEX IF NOT EXISTS idx_mail_route_key ON mail(route_key) WHERE route_key <> ''"); e != nil {
+		return fmt.Errorf("jobstore: migrate mail route_key index: %w", e)
 	}
 	return nil
 }
