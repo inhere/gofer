@@ -105,29 +105,45 @@ func (s *Service) AskSession(ctx context.Context, in AskInput) (AskResult, error
 			return res, fmt.Errorf("%w: delivery failed: %v", ErrAskOffline, err)
 		}
 		res.Channel = ch
-	} else if rec, isJob, err := s.store.GetJob(sid); err != nil {
+	} else if rec, isJob, err := s.lookupJob(sid); err != nil {
 		return res, err
 	} else if isJob {
-		res.Kind = "job"
-		if in.Allow != nil && !in.Allow(sid, true) {
-			return res, ErrAskDenied
+		if err := s.askJob(sid, rec, deliver, in.Allow, &res); err != nil {
+			return res, err
 		}
-		if jobStatusEnded(rec.Status) {
-			return res, fmt.Errorf("%w: job session %s is %s", ErrAskOffline, shortID(sid), rec.Status)
-		}
-		if s.sayer == nil {
-			return res, fmt.Errorf("%w: job sessions are not wired", ErrAskUnsupported)
-		}
-		if err := s.sayer.SaySession(sid, deliver); err != nil {
-			return res, fmt.Errorf("%w: %v", ErrAskOffline, err)
-		}
-		res.Channel = "job_say"
 	} else {
 		return res, fmt.Errorf("%w: %s", ErrAskNotFound, sid)
 	}
 
 	res.WorkItems = s.logAsk(in.WorkID, sid, text, by)
 	return res, nil
+}
+
+// lookupJob finds the job an id names: a job id, else the job whose agent session id it is.
+func (s *Service) lookupJob(sid string) (jobstore.JobRecord, bool, error) {
+	if rec, ok, err := s.store.GetJob(sid); err != nil || ok {
+		return rec, ok, err
+	}
+	return s.jobBySessionID(sid)
+}
+
+// askJob delivers to a resident session job through `job say`.
+func (s *Service) askJob(sid string, rec jobstore.JobRecord, deliver string, allow func(string, bool) bool, res *AskResult) error {
+	res.Kind = "job"
+	if allow != nil && !allow(sid, true) {
+		return ErrAskDenied
+	}
+	if jobStatusEnded(rec.Status) {
+		return fmt.Errorf("%w: job session %s is %s", ErrAskOffline, shortID(sid), rec.Status)
+	}
+	if s.sayer == nil {
+		return fmt.Errorf("%w: job sessions are not wired", ErrAskUnsupported)
+	}
+	if err := s.sayer.SaySession(rec.ID, deliver); err != nil {
+		return fmt.Errorf("%w: %v", ErrAskOffline, err)
+	}
+	res.Channel = "job_say"
+	return nil
 }
 
 // logAsk writes the "已向会话带话" journal line on the named item, else on the open
@@ -143,7 +159,7 @@ func (s *Service) logAsk(workID, sid, text, by string) []string {
 	}
 	logged := ids[:0]
 	for _, id := range ids {
-		line := i18n.T(s.itemLang(id), "work.journal.ask_sent", "session", shortID(sid), "text", clipRunes(text, 200))
+		line := i18n.T(s.itemLang(id), "work.journal.ask_sent", "session", jobstore.SessionLabel(sid), "text", clipRunes(text, 200))
 		if _, err := s.store.AppendWorkJournal(id, jobstore.WorkJournalNote, line, by); err != nil {
 			slog.Warn("work.journal_failed", "event", "work.journal_failed", "id", id, "err", err)
 			continue

@@ -828,6 +828,9 @@ func (s *Service) view(lang i18n.Lang, w jobstore.WorkItem, now int64, includePa
 			}
 		} else if rec, isJob, jerr := s.store.GetJob(r.SessionID); jerr == nil && isJob {
 			b = jobBrief(rec, r.Role)
+		} else if rec, found, jerr := s.jobBySessionID(r.SessionID); jerr == nil && found {
+			b = jobBrief(rec, r.Role)
+			b.SessionID = r.SessionID
 		} else {
 			b = SessionBrief{SessionID: r.SessionID, Role: r.Role, Missing: true, Offline: true}
 		}

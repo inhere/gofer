@@ -176,10 +176,7 @@ func (s *Service) remind(item jobstore.WorkItem, step string) {
 	ctx, cancel := context.WithTimeout(context.Background(), deliverTimeout)
 	defer cancel()
 	out, err := s.deliver(ctx, Delivery{WorkItemID: item.ID, SessionID: sid, Step: step, Text: text})
-	short := sid
-	if len(short) > 8 {
-		short = short[:8]
-	}
+	short := jobstore.SessionLabel(sid)
 	switch {
 	case err != nil:
 		s.noteRemind(item.ID, fmt.Sprintf("stage remind: continue %s not delivered to session %s: %v", step, short, err))

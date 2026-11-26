@@ -178,6 +178,22 @@ func TestRemindLevelDoesNotSendForAPersonsStep(t *testing.T) {
 	}
 }
 
+func TestRemindJournalKeepsAJobIDWhole(t *testing.T) {
+	f := newFix(t)
+	f.withDelivery(&sink{})
+	id := f.item(TemplateSmall)
+	f.attach(id, "job-20261126-101010-ab12cd34")
+	if _, err := f.svc.SetLevel(id, "remind", "human:a"); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := f.svc.Done(id, "session:job-20261126-101010-ab12cd34"); err != nil || !res.Advanced {
+		t.Fatalf("done = %+v %v", res, err)
+	}
+	if !f.journalHas(id, jobstore.WorkJournalStage, "sent to session job-20261126-101010-ab12cd34") {
+		t.Fatal("the job id is not whole in the journal")
+	}
+}
+
 func TestRemindOutcomesAreJournaled(t *testing.T) {
 	cases := []struct {
 		name string
