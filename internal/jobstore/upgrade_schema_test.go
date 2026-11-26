@@ -54,6 +54,17 @@ func TestOpenUpgradesPreviousReleaseSchema(t *testing.T) {
 			if _, err := s.CreateSeat(Seat{CallerID: "up", ProjectKey: "p", Name: "n"}); err != nil {
 				t.Fatalf("create a seat on the migrated database: %v", err)
 			}
+			// The team tables exist on an upgraded database and a letter carries the team tag.
+			lead, err := s.CreateSeat(Seat{CallerID: "up", ProjectKey: "p", Name: "lead"})
+			if err != nil {
+				t.Fatalf("create a leader seat on the migrated database: %v", err)
+			}
+			if _, err := s.CreateTeam(Team{ProjectKey: "p", Name: "t", LeaderSeatID: lead.ID}, nil); err != nil {
+				t.Fatalf("create a team on the migrated database: %v", err)
+			}
+			if m, err := s.InsertMail(MailInput{FromKind: MailKindCaller, ToKind: MailKindSession, ToID: "s1", Body: "hi", TeamID: "team-x"}); err != nil || m.TeamID != "team-x" {
+				t.Fatalf("team-tagged mail on the migrated database: %+v %v", m, err)
+			}
 			// The token lifetime columns of auth_callers are added to an old database, and the
 			// admin audit table exists.
 			if err := s.WithCallerTx(func(tx CallerTx) error {
