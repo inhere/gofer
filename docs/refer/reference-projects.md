@@ -136,3 +136,21 @@ dsh 上游重推同一内容、Proma 与 crewbot-connector 无更新；liaison �
 | 9 | 每成员 × 载体一行交付记录（outcome、返工轮数 shots、成本） | team_evals 之后的统计 | 中 |
 
 不学：模型路由分类器、职责判断、失败卡模型改写（模型判断不进平台）；a2ui 卡片、分享与访客、计费、UI 打磨；运行时适配。
+
+### OpenRig（mvschwarz/openrig，e124a74..1ebf8e84，1673 提交，2026-11-26 复查）
+
+前次分析见工作区 `docs/refer/2026-10-22-openrig-analysis.md`。
+
+| # | 做法 | gofer 落点 | 推荐 |
+|---|---|---|---|
+| 1 | 跨节点请求 id 由 (node, hub, participant, requestId) 哈希派生；先落本地条目并挂起，再外发；回复丢失按 id 查，「结果未知」是显式状态（`packages/daemon/src/domain/network/network-requests.ts`） | Team 2.3 第 5 条（pending → 结清、`unknown` 对账） | 高 |
+| 2 | 升级类通知是终点：唤醒失败按「声明父级 → 创建者 → operator」投递并跳过不能认领的目标，升级通知本身不再升级（#2987、#3651） | Team 2.3 第 9 条 | 高 |
+| 3 | 纯信息行（roster-ready）明说不用认领，停滞巡检不追它；实测座席把它当活认领后被催办（#3973、#3576） | Team 2.4 花名册只作信息 | 高 |
+| 4 | 人自己的会话有稳定收件地址（每会话一个，服务端派生、丢弃客户端自带的 key），结果必须显式发到该地址再关闭（`domain/return-route.ts`，#3964） | 链条结束通知人；人的收件以服务端身份为准 | 高 |
+| 5 | 人在自己会话里回答成员座席的权限提示：答案绑定到那一次提示，先到先得，stale / withdrawn 显式，失败不阻塞，成员不能自批（#3969，`domain/runner-permissions.ts`） | 「等我」卡的应答约束 | 中 |
+| 6 | 同一座席挂在同一 blocker 上的多行合并成一条唤醒，只在 sender / stamp / urgency 相同时合并，回执逐行记（#3899） | Team 2.3 第 6 条合并边界 | 中 |
+| 7 | 座席可达后只重发「确定从未发送」的唤醒，已送达 / 不确定 / 已转交的不重放（#2790） | seat 离线补发队列 | 中 |
+| 8 | watch 重连先读一次快照、用同一去重规则补打漏掉的行，再回到事件流（#3940） | `job watch` / 事件订阅 | 中 |
+| 9 | seat pool 按需克隆成员、lease 下复查再动手；handover 按座席身份寻址（#3044、#3335） | 暂不做 | 低 |
+
+不学：seat pool 扩缩容、靠 plugin hook 唤醒会话（gofer 由服务端调度）、tmux 形态的权限对话框并行、hub / binding 认证体系。
