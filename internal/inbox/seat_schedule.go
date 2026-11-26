@@ -2,6 +2,7 @@ package inbox
 
 import (
 	"encoding/json"
+	"net/url"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -80,7 +81,8 @@ func SeatScheduleCards(src SeatScheduleSource, lang i18n.Lang, allow func(string
 			WaitingSince: rec.LastRunAt,
 			Refs:         today.Refs{ScheduleID: rec.ID, SeatID: x.ID},
 			Actions: []today.Action{
-				{ID: "open", Label: i18n.T(lang, "today.action.open_seat"), Style: "link", Value: "/workbench"},
+				// 工作台的 ?seat= 直接把名册定位到这一行（席位 id 是卡片 refs 里已有的事实）。
+				{ID: "open", Label: i18n.T(lang, "today.action.open_seat"), Style: "link", Value: "/workbench?seat=" + url.QueryEscape(x.ID)},
 				{ID: "open", Label: i18n.T(lang, "today.action.details"), Style: "link", Value: "/schedules"},
 			},
 		})

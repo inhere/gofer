@@ -122,7 +122,9 @@ func TestSeatScheduleCardFollowsTheQueue(t *testing.T) {
 		t.Fatalf("cards = %+v, %v", cards, err)
 	}
 	c := cards[0]
-	if len(c.Actions) != 2 || c.Actions[0].Value != "/workbench" || c.Actions[1].Value != "/schedules" {
+	// The primary action opens the workbench ON that seat, so the roster can locate the row
+	// (the bare /workbench could not be told which seat the card is about).
+	if len(c.Actions) != 2 || c.Actions[0].Value != "/workbench?seat=seat-1" || c.Actions[1].Value != "/schedules" {
 		t.Fatalf("actions = %+v, want the seat first and /schedules second", c.Actions)
 	}
 	if !strings.Contains(c.Summary, "2") || strings.Contains(c.Summary, "不会补发") {
