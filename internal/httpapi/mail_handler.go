@@ -140,8 +140,12 @@ type mailView struct {
 	AckBy       string `json:"ack_by,omitempty"`
 	AckAt       int64  `json:"ack_at,omitempty"`
 	// TeamID is the team a `team:` letter was addressed through (additive).
-	TeamID    string             `json:"team_id,omitempty"`
-	Broadcast *mailBroadcastView `json:"broadcast,omitempty"`
+	TeamID string `json:"team_id,omitempty"`
+	// Hop and SystemKind are the team routing marks (additive): the number of team relays the
+	// letter went through, and the kind of a gofer-written team notice (e.g. member_failed).
+	Hop        int                `json:"hop,omitempty"`
+	SystemKind string             `json:"system_kind,omitempty"`
+	Broadcast  *mailBroadcastView `json:"broadcast,omitempty"`
 }
 
 func toMailView(m jobstore.Mail) mailView {
@@ -153,7 +157,7 @@ func toMailView(m jobstore.Mail) mailView {
 		JobID:     m.JobID, Urgent: m.Urgent, Body: m.Body, State: m.State, Attempts: m.Attempts,
 		LastError: m.LastError, CreatedAt: m.CreatedAt, DeliveredAt: m.DeliveredAt, ReadAt: m.ReadAt,
 		DeliverBy: m.DeliverBy, CaptureItemID: m.CaptureItemID, BroadcastID: m.BroadcastID,
-		AckKind: m.AckKind, AckBy: m.AckBy, AckAt: m.AckAt, TeamID: m.TeamID,
+		AckKind: m.AckKind, AckBy: m.AckBy, AckAt: m.AckAt, TeamID: m.TeamID, Hop: m.Hop, SystemKind: m.SystemKind,
 	}
 }
 

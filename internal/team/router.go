@@ -326,7 +326,7 @@ func (r *Router) Decide(in Input) (Decision, error) {
 	}
 	d.Applies, d.Team, d.Ledgers = true, rteam, []jobstore.Team{rteam}
 	d.keyBase = keyBase(in)
-	label := senderLabel(in.Origin, snd, r.store)
+	label := senderLabel(in.Origin, snd)
 	tag := func(hop int) string {
 		return fmt.Sprintf("[team %s · from %s · hop %d]", rteam.Name, label, hop)
 	}
@@ -378,6 +378,7 @@ func (r *Router) Decide(in Input) (Decision, error) {
 		// The leader of another team (rule 10): only this team's leader reads it, `@member`
 		// does not apply, and the two leaders count as one pair for the loop guard.
 		d.Rule, d.Hop = RulePeerLeader, in.ReplyHop+1
+		label = snd.seat.Name + "@" + snd.seat.ProjectKey
 		d.Ledgers = append(d.Ledgers, snd.team)
 		lead, lerr := r.leaderSeat(rteam)
 		if lerr != nil {
@@ -429,7 +430,7 @@ func keyBase(in Input) string {
 	return ""
 }
 
-func senderLabel(o Party, p party, store *jobstore.Store) string {
+func senderLabel(o Party, p party) string {
 	switch {
 	case p.seated && p.inTeam:
 		return p.seat.Name
