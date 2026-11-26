@@ -450,7 +450,7 @@ func (p *Protocol) rosterLines(lang i18n.Lang, t jobstore.Team) string {
 		if e.Stage != nil && e.Stage.InFlow() {
 			step = fmt.Sprintf("%s (%d/%d)", e.Stage.Step, e.Stage.StepNo, e.Stage.StepTotal)
 		}
-		b.WriteString(i18n.T(lang, "team.protocol.member", "name", e.Status.Seat.Name, "role", e.Role,
+		b.WriteString(i18n.T(lang, "team.protocol.member", "name", e.Status.Seat.Name, "role", i18n.T(lang, "team.protocol.role_"+e.Role),
 			"purpose", cut(purpose, 120), "state", e.Status.State, "step", step, "active", agoText(lang, now, e.Status.ActivityAt)))
 		b.WriteByte('\n')
 	}

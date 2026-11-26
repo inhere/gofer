@@ -153,6 +153,7 @@ gofer team ls [-p <project>] [--json] / show <team> [--json]
 gofer team member add|rm <team> <seat>
 gofer team say <team> "…"                                   # 人发给团队（发到 team:<名字>[@<项目>] 地址）
 gofer team routes|evals <team> [--limit n] [--json]         # 服务端判定记录 / leader 每轮评估
+gofer team eval --outcome dispatched|idle|failed [--reason "…"]   # leader 每轮结束前记评估（只认 leader 位置上的会话 / job；idle 之后同轮不能再发团队信）
 gofer team set <team> [--leader <seat>] [--brief "…" | --brief -]   # - 清空说明
 gofer team rm <team>                                        # 归档：名字与位置重新可用，历史保留
 ```
