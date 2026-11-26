@@ -9,6 +9,7 @@ import { canCancelJob } from '../../utils/jobCancel'
 import type { Interaction, Job, SSEEvent, SSEInteractionData, SSELogData, WorkbenchThread } from '../../api/types'
 import { supervisionText } from '../../utils/supervision'
 import { patchWorkbenchThread, turnWorkbenchThread } from '../../api/workbench'
+import StageBadge from './StageBadge.vue'
 import { attachmentCapability } from '../../utils/attachments'
 import { canContinueThread, continueThread } from '../../utils/sessionContinue'
 import { formatNumber, formatRelative } from '../../utils/format'
@@ -475,6 +476,7 @@ onUnmounted(() => {
           @click="showChanges"
         >{{ t('workbench.view.changes') }}</button>
       </nav>
+      <StageBadge v-if="thread" :thread-id="thread.id" />
       <button class="btn sm desk-only" type="button" :disabled="!latestJobID" @click="openDetails">
         {{ t('workbench.head.detail') }}
       </button>

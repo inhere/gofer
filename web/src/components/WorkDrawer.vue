@@ -32,6 +32,9 @@ import {
   workToTodo,
 } from '../api/client'
 import { fmtAgo, fmtDateTime } from '../api/time'
+import { getWorkStage, stageApprove, stageBack, stageDone, stageSetLevel } from '../api/stage'
+import WorkStage from './WorkStage.vue'
+import { stageDoneNotice, stageStepLabel } from '../utils/stage'
 import { runnerLabel } from '../utils/runnerDisplay'
 import { agentStateLabel } from '../utils/sessionState'
 import { healthText } from '../utils/workHealth'
@@ -54,7 +57,7 @@ import {
   WORK_STATUSES,
 } from '../utils/work'
 import { suggestionLabelKey, workRequestLine } from '../utils/workBoard'
-import type { AgentSession, Plan, WorkDetail, WorkItem, WorkItemPatch, WorkReportRequestResult, WorkStatus } from '../api/types'
+import type { AgentSession, Plan, StageLevel, WorkDetail, WorkItem, WorkItemPatch, WorkReportRequestResult, WorkStageView, WorkStatus } from '../api/types'
 
 const props = defineProps<{
   id: string
@@ -73,6 +76,9 @@ const emit = defineEmits<{
 }>()
 
 const detail = ref<WorkDetail | null>(null)
+// 流程（stage）：进行中 / 已结束的流程都会显示；没有流程时为空（不加「开流程」按钮，开流程由 CLI 做）。
+const stage = ref<WorkStageView | null>(null)
+const stageBusy = ref(false)
 const loading = ref(false)
 const busy = ref(false)
 const error = ref('')
@@ -118,6 +124,8 @@ async function load(opts?: { silent?: boolean }): Promise<void> {
   try {
     const d = await getWorkItem(props.id)
     detail.value = d
+    // 流程（stage）跟着详情一起读：没有流程时接口 404，这里只当「不显示」，不是错误。
+    stage.value = await getWorkStage(props.id).catch(() => null)
     // 正在编辑时（有未保存改动）不覆盖输入，只刷新其它区域
     if (!opts?.silent || !dirty.value) fillForm(d)
     error.value = ''
@@ -193,6 +201,68 @@ async function saveFields(): Promise<void> {
 async function setStatus(st: WorkStatus): Promise<void> {
   if (st === 'dropped' && !window.confirm(t('work.d.dropConfirm'))) return
   await patch({ status: st }, t('work.d.statusSet', { status: t(`status.${st}`) }))
+}
+
+// ---------------- 流程（stage） ----------------
+// 推进 / 批准：门禁没过不是错误——把缺项写进提示（notice），不当罪错弹窗。
+async function stageAdvance(kind: 'done' | 'approve'): Promise<void> {
+  const d = detail.value
+  if (!d || stageBusy.value) return
+  stageBusy.value = true
+  error.value = ''
+  notice.value = ''
+  try {
+    const res = kind === 'done' ? await stageDone(d.id) : await stageApprove(d.id)
+    stage.value = res.stage
+    if (res.advanced) {
+      notice.value = t('work.stage.notice.advanced', { step: stageStepLabel(res.stage.step) })
+      emit('changed')
+      await load({ silent: true })
+    } else {
+      notice.value = stageDoneNotice(res.gate)
+      stage.value = await getWorkStage(d.id).catch(() => stage.value)
+    }
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 403) notice.value = t('work.stage.err.forbidden')
+    else error.value = errText(e)
+  } finally {
+    stageBusy.value = false
+  }
+}
+
+async function stageBackTo(reason: string): Promise<void> {
+  const d = detail.value
+  if (!d || stageBusy.value || !reason.trim()) return
+  stageBusy.value = true
+  error.value = ''
+  notice.value = ''
+  try {
+    stage.value = await stageBack(d.id, reason.trim())
+    notice.value = t('work.stage.notice.back')
+    emit('changed')
+    await load({ silent: true })
+  } catch (e) {
+    error.value = errText(e)
+  } finally {
+    stageBusy.value = false
+  }
+}
+
+async function setStageLevel(level: StageLevel): Promise<void> {
+  const d = detail.value
+  if (!d || stageBusy.value || stage.value?.level === level) return
+  stageBusy.value = true
+  error.value = ''
+  notice.value = ''
+  try {
+    stage.value = await stageSetLevel(d.id, level)
+  } catch (e) {
+    // 只有人的凭据能改等级（服务端 403）：提示原因，不改显示
+    if (e instanceof ApiError && e.status === 403) notice.value = t('work.stage.err.forbidden')
+    else error.value = errText(e)
+  } finally {
+    stageBusy.value = false
+  }
 }
 
 // 永久删除（仅已完成 / 已放弃的项）：二次确认，成功后通知列表刷新并关闭抽屉。
@@ -519,6 +589,8 @@ const KIND_LABEL_KEY: Record<string, string> = {
   status: 'work.d.kindStatus',
   steward: 'work.d.kindSteward',
   link: 'work.d.kindLink',
+  stage: 'work.d.kindStage',
+  stage_action: 'work.d.kindStageAction',
 }
 
 const live = createLiveTopic('work', { initial: false, fetch: () => load({ silent: true }) })
@@ -596,6 +668,18 @@ onUnmounted(() => live.stop())
             <Button v-if="closed" size="sm" :disabled="busy" data-test="delete-item" @click="removeItem">{{ t('work.d.delete') }}</Button>
           </div>
         </section>
+
+        <!-- 流程（stage）：有流程才显示；模板名、步骤条、门禁缺项、等级与三个动作。 -->
+        <WorkStage
+          v-if="stage"
+          :stage="stage"
+          :busy="stageBusy"
+          :now-sec="nowSec"
+          @approve="stageAdvance('approve')"
+          @done="stageAdvance('done')"
+          @back="stageBackTo"
+          @level="setStageLevel"
+        />
 
         <!-- 模型参考（设计稿 2026-11-01 §4.2）：整理用的模型给的建议默认折起，不驱动任何提醒 -->
         <details v-if="suggestions.length" class="sec modelref" data-test="drawer-suggestions">
