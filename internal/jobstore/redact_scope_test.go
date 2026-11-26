@@ -328,17 +328,19 @@ func TestRedactJobRewritesOnlyItsOwnRows(t *testing.T) {
 	}
 }
 
-// TestJobRowSQLWhereMatchesGoFilter: the predicate is the Go rule's SQL twin. Every
-// ownership shape the schema has (job id in a column of its own, the comments scope
-// pair, the jobs primary key, and a table no column of which names the job) is tried
-// against the rows jobRowBelongs accepts, so a predicate that matches another column
-// or forgets a shape fails here before any scan runs.
+// TestJobRowSQLWhereMatchesGoFilter: the predicate is the Go rule's SQL twin, table by
+// table. Every ownership shape the schema has (job id in a column of its own, the
+// comments scope pair, the jobs primary key, and the tables no column of which names
+// the job) is compared against the rows jobRowBelongs accepts, so a predicate that
+// matches another column or forgets a shape fails here before any scan runs.
 func TestJobRowSQLWhereMatchesGoFilter(t *testing.T) {
 	s := openTest(t)
 	seedJobScopeRows(t, s, "scope-target", 100)
 	const jobID = "scope-target"
-	for _, table := range []string{"jobs", "job_events", "comments", "plan_leader_wakes",
-		"job_retries", "job_wakeups", "work_summaries", "mail", "audit_events", "settings"} {
+	for _, table := range testTables(t, s) {
+		if table == "sqlite_sequence" {
+			continue
+		}
 		t.Run(table, func(t *testing.T) {
 			cols := tableColumns(t, s, table)
 			where, args, narrowed := jobRowSQLWhere(table, cols, jobID)
@@ -518,6 +520,28 @@ func tableCarriesJobID(t *testing.T, s *Store, table string) bool {
 		return true // the scope pair names its job rows
 	}
 	return false
+}
+
+// testTables lists the user tables the enumeration walks.
+func testTables(t *testing.T, s *Store) []string {
+	t.Helper()
+	rows, err := s.db.Query(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`)
+	if err != nil {
+		t.Fatalf("list tables: %v", err)
+	}
+	defer rows.Close()
+	var tables []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatal(err)
+		}
+		tables = append(tables, name)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return tables
 }
 
 // tableColumns reads a table's columns the way the enumerator does.
