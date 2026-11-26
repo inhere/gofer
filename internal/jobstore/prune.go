@@ -1,10 +1,55 @@
 package jobstore
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
 	"time"
 )
+
+// jobOwnedRows is the set of rows a job owns, keyed by the job id: every retention path that
+// removes a job row removes these first, in the same transaction. ONE list on purpose
+// (gofer-twt7): the two paths used to keep their own copies, and the step-job path of
+// PruneWorkflows silently left job_tokens / job_retries behind. The job row itself is not
+// here — the callers clear the seat reference that may name the job first, then delete it.
+var jobOwnedRows = []string{
+	"DELETE FROM interactions WHERE job_id = ?",
+	// E13: the append-only event stream is owned by the job; drop it with the
+	// job row (same tx) so a pruned job leaves no orphaned events.
+	"DELETE FROM job_events WHERE job_id = ?",
+	// E14: the webhook delivery rows are also owned by the job; drop them in the
+	// same tx so a pruned job leaves no orphaned deliveries.
+	"DELETE FROM event_deliveries WHERE job_id = ?",
+	// WEB-03 P3 (retention regime 2, D-P3-6): pty_sessions are jobstore-owned;
+	// drop this job's session rows in the same tx so a pruned job leaves no
+	// orphaned recording metadata (the cast file rides result_dir removal).
+	"DELETE FROM pty_sessions WHERE job_id = ?",
+	// JOB-09: a wakeup is owned by the job it resumes — a pruned job leaves
+	// nothing to continue, so its wakeups go in the same tx (design §五.1
+	// 目标 job 被 retention 清理时级联删).
+	"DELETE FROM job_wakeups WHERE job_id = ?",
+	// R2/AUTO-03: a retry row exists to re-run THIS job, so a pruned job leaves
+	// a retry nobody wants — and its request_json is the pruned job's own payload.
+	// Drop it in the same tx (the job detail lists the chain by source_job_id).
+	"DELETE FROM job_retries WHERE source_job_id = ?",
+	// MCP-05: a comment is owned by the object it is written on, so a pruned job
+	// takes its thread with it (same tx, no orphaned comments).
+	"DELETE FROM comments WHERE scope = 'job' AND scope_id = ?",
+	// SEC-01: a job's credential is meaningless without the job (and the row holds
+	// only a hash), so it goes in the same tx — a pruned job leaves no live token.
+	"DELETE FROM job_tokens WHERE job_id = ?",
+}
+
+// deleteJobOwnedRowsTx deletes everything a job owns except the job row itself, inside the
+// caller's transaction (see jobOwnedRows).
+func deleteJobOwnedRowsTx(tx *sql.Tx, jobID string) error {
+	for _, stmt := range jobOwnedRows {
+		if _, err := tx.Exec(stmt, jobID); err != nil {
+			return fmt.Errorf("jobstore: prune job rows %q: %w", jobID, err)
+		}
+	}
+	return nil
+}
 
 // terminalStatuses is the set of job statuses PruneJobs is allowed to evict.
 // Live jobs (queued/running/pending_interaction) are never pruned: removing one
@@ -89,58 +134,15 @@ func (s *Store) PruneJobs(policy RetentionPolicy, now int64) (deleted int, prune
 		return 0, nil, fmt.Errorf("jobstore: prune begin tx: %w", err)
 	}
 	for _, id := range ids {
-		if _, err := tx.Exec("DELETE FROM interactions WHERE job_id = ?", id); err != nil {
-			_ = tx.Rollback()
-			return 0, nil, fmt.Errorf("jobstore: prune interactions %q: %w", id, err)
-		}
-		// E13: the append-only event stream is owned by the job; drop it with the
-		// job row (same tx) so a pruned job leaves no orphaned events.
-		if _, err := tx.Exec("DELETE FROM job_events WHERE job_id = ?", id); err != nil {
-			_ = tx.Rollback()
-			return 0, nil, fmt.Errorf("jobstore: prune job events %q: %w", id, err)
-		}
-		// E14: the webhook delivery rows are also owned by the job; drop them in the
-		// same tx so a pruned job leaves no orphaned deliveries.
-		if _, err := tx.Exec("DELETE FROM event_deliveries WHERE job_id = ?", id); err != nil {
-			_ = tx.Rollback()
-			return 0, nil, fmt.Errorf("jobstore: prune deliveries %q: %w", id, err)
-		}
-		// WEB-03 P3 (retention regime 2, D-P3-6): pty_sessions are jobstore-owned;
-		// drop this job's session rows in the same tx so a pruned job leaves no
-		// orphaned recording metadata (the cast file rides result_dir removal).
-		if _, err := tx.Exec("DELETE FROM pty_sessions WHERE job_id = ?", id); err != nil {
-			_ = tx.Rollback()
-			return 0, nil, fmt.Errorf("jobstore: prune pty sessions %q: %w", id, err)
-		}
-		// JOB-09: a wakeup is owned by the job it resumes — a pruned job leaves
-		// nothing to continue, so its wakeups go in the same tx (design §五.1
-		// 目标 job 被 retention 清理时级联删).
-		if _, err := tx.Exec("DELETE FROM job_wakeups WHERE job_id = ?", id); err != nil {
-			_ = tx.Rollback()
-			return 0, nil, fmt.Errorf("jobstore: prune wakeups %q: %w", id, err)
-		}
-		// R2/AUTO-03: a retry row exists to re-run THIS job, so a pruned job leaves
-		// a retry nobody wants — and its request_json is the pruned job's own payload.
-		// Drop it in the same tx (the job detail lists the chain by source_job_id).
-		if _, err := tx.Exec("DELETE FROM job_retries WHERE source_job_id = ?", id); err != nil {
-			_ = tx.Rollback()
-			return 0, nil, fmt.Errorf("jobstore: prune retries %q: %w", id, err)
-		}
-		// MCP-05: a comment is owned by the object it is written on, so a pruned job
-		// takes its thread with it (same tx, no orphaned comments).
-		if err := deleteCommentsTx(tx, CommentScopeJob, id); err != nil {
-			_ = tx.Rollback()
-			return 0, nil, err
-		}
-		// SEC-01: a job's credential is meaningless without the job (and the row holds
-		// only a hash), so it goes in the same tx — a pruned job leaves no live token.
-		if _, err := tx.Exec("DELETE FROM job_tokens WHERE job_id = ?", id); err != nil {
-			_ = tx.Rollback()
-			return 0, nil, fmt.Errorf("jobstore: prune job token %q: %w", id, err)
-		}
 		// A seat pointing at a pruned job is emptied in the same tx: retention must not leave a
 		// current_ref naming a job that no longer exists.
 		if err := s.clearSeatRefTx(tx, id, SeatActionJobDeleted, "system", s.unixNow()); err != nil {
+			_ = tx.Rollback()
+			return 0, nil, err
+		}
+		// The rows the job owns (jobOwnedRows: interactions, events, deliveries, pty
+		// sessions, wakeups, retries, comments, the job credential) go in the same tx.
+		if err := deleteJobOwnedRowsTx(tx, id); err != nil {
 			_ = tx.Rollback()
 			return 0, nil, err
 		}
@@ -261,7 +263,7 @@ func (s *Store) PruneWorkflows(policy WorkflowRetentionPolicy, now int64) (delet
 			return 0, nil, fmt.Errorf("jobstore: prune workflows jobs rows %q: %w", wfID, jrErr)
 		}
 		jrows.Close()
-		// Drop each step-job's owned rows (interactions / job_events / deliveries) and
+		// Drop each step-job's owned rows (jobOwnedRows — the very list PruneJobs uses) and
 		// the job row itself — same连带删 set as PruneJobs (no悬挂).
 		for _, jid := range jobIDs {
 			// A seat pointing at a step-job goes vacant in the same tx (PruneJobs covers
@@ -270,22 +272,13 @@ func (s *Store) PruneWorkflows(policy WorkflowRetentionPolicy, now int64) (delet
 				_ = tx.Rollback()
 				return 0, nil, derr
 			}
-			for _, stmt := range []string{
-				"DELETE FROM interactions WHERE job_id = ?",
-				"DELETE FROM job_events WHERE job_id = ?",
-				"DELETE FROM event_deliveries WHERE job_id = ?",
-				// WEB-03 P3 (D-P3-6): drop each step-job's pty_sessions in the same tx.
-				"DELETE FROM pty_sessions WHERE job_id = ?",
-				// JOB-09: and its wakeups — same连带删 set as PruneJobs.
-				"DELETE FROM job_wakeups WHERE job_id = ?",
-				// MCP-05: and its comment thread — a step-job is a job.
-				"DELETE FROM comments WHERE scope = 'job' AND scope_id = ?",
-				"DELETE FROM jobs WHERE id = ?",
-			} {
-				if _, derr := tx.Exec(stmt, jid); derr != nil {
-					_ = tx.Rollback()
-					return 0, nil, fmt.Errorf("jobstore: prune workflow job %q: %w", jid, derr)
-				}
+			if derr := deleteJobOwnedRowsTx(tx, jid); derr != nil {
+				_ = tx.Rollback()
+				return 0, nil, derr
+			}
+			if _, derr := tx.Exec("DELETE FROM jobs WHERE id = ?", jid); derr != nil {
+				_ = tx.Rollback()
+				return 0, nil, fmt.Errorf("jobstore: prune workflow job %q: %w", jid, derr)
 			}
 		}
 		// Drop the workflow's events and the header row.

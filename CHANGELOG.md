@@ -17,6 +17,7 @@
 - acp 常驻会话（seat）绑上一个**正在跑或等输入**的 job 时，现在立刻把该位置的章程 say 进去（带 gofer 系统前缀），命令提示「已向会话送去章程」：正在跑的 job 不会重启，之前只有 restart 才带章程，所以它从来没收到过。同一个 job 重复 bind（含 `--replace` 换走再换回、解绑后再绑）不重复送；已结束的 job 不送（它的 restart 会把章程放进开口 prompt）。送失败不让 bind 失败，只提示原因。
 - acp 位置坐着的 job 被删除（`gofer job rm`、保留期清理、包含工作流的 step job）后不再悬空：位置在同一事务里回到空位，历史里记一条 `job_deleted`（操作者 `system`）；旧数据库里指向已不存在 job 的 `current_ref` 也按空位（`none`）显示，定时送话按空位处理（`offline`），不再报错。
 - seat 定时消息在会话里不再显示成 `[来自 web，schedule:<id>]`（agent 会当成用户本人所说）：现在以系统前缀 `[gofer · 定时消息「<名称>」]`（英文 `[gofer · scheduled message "<name>"]`）开头；终端消息的 operator 以 `schedule:` 开头的一律走系统通道，acp 的 say / 重启文本使用同一前缀。
+- 清理工作流（保留期）时，step job 的 job 凭据与重试记录不再留下孤儿行：`PruneWorkflows` 删 step job 的语句列表漏了 `job_tokens` / `job_retries`，现在与 `PruneJobs` 共用同一份「job 拥有的行」清单，两条路径不会再漂移。
 
 ### 变更
 
@@ -26,7 +27,7 @@
 
 - **工作项流程推进（stage）的数据层、服务与 HTTP**（二期 F1，命令行与 skill 在后续提交提供）：工作项可以开始一个流程（`feature`：design → review → plan → doing → verify → done；`small`：doing → verify → done），步骤在开始时快照；只有显式的 `done` / `back` / `blocked` 或人的批准才推进。每一步有只读存储事实和 git 的门禁，不过时返回缺什么（`missing`），判不了（项目不在本机、git 读不了、评审轮次用完）时返回 `needs_human`，不放行也不报错。新增 `GET|POST /v1/work-items/{id}/stage`、`POST /v1/work-items/stage`（按 issue 开始）与 `POST .../stage/done|back|blocked|approve|drop`（approve 只认人的凭据，会话里的 agent 不行）；工作项链接新增 `kind=doc`（设计稿 / 计划文档，带 `role`）与 job 链接的 `role=review`；步骤与门禁结果写进工作项日志（`kind=stage`）。项目配置新增 `projects.<key>.stage.enabled`（默认 true）与 `verify_templates`（默认 `[verify]`）。接口见 `docs/reference/http-api.md`。
 - **工作台按座位定位**：`/workbench?seat=<座位 id>` 展开侧栏的常驻会话名册、滚到那一行并高亮（与选中行同一套样式）；定位时放开项目筛选（座位可能在别的项目分组里），处理完参数从地址栏去掉，座位已归档 / 已删除时给一条轻提示。「等我」与收件箱里「seat 定时消息没人收」那张卡的主动作改成带座位 id 的这条深链（原来只到 `/workbench`），点它就是打开那个座位。
-- **seat 定时消息离线排队补送**：定时到点时位置空着、终端会话离线或已结束、acp 位置没有 job，话不再丢弃，而是排进队列（每个位置每个定时只留一条，再次到点只更新内容并累计次数；结果仍记 `offline`）。位置重新可收时补送——有会话绑进位置时立刻送，另外服务端每 30 秒的周期扫描会检查「有待送且现在可收」的位置——走与到点送达完全相同的路径，带「补送，原定于 …，累计 N 次未送达」一行，送出后定时的 `last_result` 变为 `delivered`（acp 已结束重启则为 `restarted:<job>`）；补送失败留在队里下次再试。超过 24 小时未送出的丢弃，位置归档、定时删除时队列一并丢弃。新增表 `seat_pending_messages`。
+- **seat 定时消息离线排队补送**：定时到点时位置空着、终端会话离线或已结束、acp 位置没有 job，话不再丢弃，而是排进队列（每个位置每个定时只留一条，再次到点只更新内容并累计次数；结果仍记 `offline`）。位置重新可收时补送——有会话绑进位置时立刻送；会话重新上线时（它的 hook 重新注册或重新心跳，从离线 / 已结束回到可收）也立刻送，另外服务端每 30 秒的周期扫描会检查「有待送且现在可收」的位置作兜底——走与到点送达完全相同的路径，带「补送，原定于 …，累计 N 次未送达」一行，送出后定时的 `last_result` 变为 `delivered`（acp 已结束重启则为 `restarted:<job>`）；补送失败留在队里下次再试。超过 24 小时未送出的丢弃，位置归档、定时删除时队列一并丢弃。新增表 `seat_pending_messages`。
 - 「等我」/收件箱里没人能收的 seat 定时消息卡改为「已排队，会话上线后补发（共 N 条）」，主动作改为打开那个位置（`/workbench?seat=<id>`，名册直接定位到它），「看详情」（定时页）作次要动作；有排队才出现，补送后消失。
 - **「等我」提醒延迟可在控制台改**：`server.notification.reminder_after_min`（多久没处理再提醒一次，默认 30 分钟，`0` = 不再提醒）现在出现在「设置 → 通知 → 通知全局设置」与 `GET /v1/config` 的通知视图（`reminder_after_min` 是实际生效值，`reminder_after_min_default` 说明它是不是默认值）；保存走 `PUT /v1/config/server` 的 `notification` 补丁，改完立即生效（扫描每轮读当前配置），负数被配置校验拒绝（`400`，`error_fields` 指向 `server.notification`）。
 

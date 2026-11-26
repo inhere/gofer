@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -239,6 +240,9 @@ type Service struct {
 	// (log_events.go): the last state this process observed per session.
 	stateMu   sync.Mutex
 	stateSeen map[string]stateStamp
+	// onLive is the came-back hook (live_hook.go): a session the store just moved out of
+	// offline / ended, or that this process has never seen, can take a message again.
+	onLive atomic.Pointer[liveHookFunc]
 }
 
 // SetLanguageFor injects the config's language resolution (config.LanguageFor):
@@ -517,6 +521,11 @@ func (s *Service) register(in RegisterInput, enforceOwner bool) (jobstore.AgentS
 	var a jobstore.AgentSession
 	var allowed bool
 	var err error
+	// A registration is a session's own announcement that it is here: it is the canonical
+	// "this terminal is up again" moment (a resumed CLI re-registers with SessionStart).
+	// The state it is leaving is read before the write, because the store's upsert does not
+	// report it back (live_hook.go).
+	prior, priorSeen := s.cameBackBefore(in.SessionID, jobstore.SessionRunning)
 	if enforceOwner {
 		a, allowed, err = s.store.UpsertAgentSessionForOwner(stored)
 	} else {
@@ -534,6 +543,7 @@ func (s *Service) register(in RegisterInput, enforceOwner bool) (jobstore.AgentS
 		s.workHook.OnHumanPrompt(a, in.Title)
 	}
 	s.noteStateChange(a, in.Event)
+	s.noteCameBack(in.SessionID, prior, a.State, priorSeen)
 	return a, true, nil
 }
 
@@ -698,6 +708,9 @@ func (s *Service) heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 			}
 		}
 	}
+	// The state this beat is about to move the session OUT of: it decides whether the beat is a
+	// comeback (live_hook.go), and the store's write does not report it back.
+	cameBackPrior, cameBackSeen := s.cameBackBefore(sid, state)
 	a, ok, err := s.store.TouchAgentSession(sid, jobstore.SessionHeartbeat{
 		Event: touchEvent, State: state, LastMessage: in.LastMessage, Title: in.Title,
 		IdleSec: in.IdleSec, HumanInput: human, CallerID: in.CallerID,
@@ -768,6 +781,7 @@ func (s *Service) heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 		}
 	}
 	s.noteStateChange(a, in.Event)
+	s.noteCameBack(sid, cameBackPrior, a.State, cameBackSeen)
 	return a, nil
 }
 

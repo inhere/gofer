@@ -93,6 +93,25 @@ func (s *Service) flushSeat(ctx context.Context, seatID string) (int, error) {
 	return sent, nil
 }
 
+// FlushSeatOf sends what is queued for the seat a session / job sits in, if it can take it now,
+// and does nothing for a ref that sits in no seat or whose queue is empty. It is the immediate
+// late send for a session that just came back (a registration / a beat after offline), so a
+// person whose terminal was away does not wait for the periodic sweep.
+//
+// The send goes through flushSeat, which claims each row conditionally: two reports for the same
+// session (a SessionStart followed by ticks, the sweep racing this one) never send a text twice,
+// and a report for a seat whose session still cannot take it leaves the row queued.
+func (s *Service) FlushSeatOf(ctx context.Context, ref string) (int, error) {
+	if strings.TrimSpace(ref) == "" {
+		return 0, nil
+	}
+	x, ok, err := s.SeatOfRef(ref)
+	if err != nil || !ok {
+		return 0, err
+	}
+	return s.flushSeat(ctx, x.ID)
+}
+
 // lateText is the queued text with the line that says it is late: when it was due and how
 // many runs went undelivered.
 func (s *Service) lateText(p jobstore.SeatPending) string {

@@ -206,6 +206,54 @@ func TestPruneWorkflowsCascades(t *testing.T) {
 	assert.True(t, ok)
 }
 
+// TestPruneWorkflowsCascadesEveryJobOwnedRow (gofer-twt7): a step-job is a job, so it loses the
+// same owned rows PruneJobs removes — job_tokens and job_retries used to stay behind because the
+// step-job path kept its own copy of the list.
+func TestPruneWorkflowsCascadesEveryJobOwnedRow(t *testing.T) {
+	s := openTest(t)
+	const now = int64(1_000_000)
+	assert.NoErr(t, s.InsertWorkflow(Workflow{
+		ID: "wf-owned", Status: WorkflowDone, CurrentStep: 1, StepAttempt: 1, TotalSteps: 1,
+		SpecJSON: "{}", CreatedAt: 1, UpdatedAt: 100,
+	}))
+	j := sampleJob("owned-s1", "p", 100)
+	j.Status = "done"
+	j.WorkflowID = "wf-owned"
+	j.StepIndex = 1
+	assert.NoErr(t, s.UpsertJob(j))
+	assert.NoErr(t, s.UpsertJobToken(JobTokenRecord{
+		JobID: "owned-s1", TokenHash: "hash-owned-s1", Kind: JobCredentialMember, ExpiresAt: 200, CreatedAt: 100,
+	}))
+	assert.NoErr(t, s.InsertRetry(RetryRecord{
+		ID: "retry-owned-s1", SourceJobID: "owned-s1", Attempt: 1, RequestJSON: "{}", CreatedAt: 100,
+	}))
+	assert.NoErr(t, s.UpsertJob(termJob("kept-job", "done", now-100000, now-100000)))
+	assert.NoErr(t, s.UpsertJobToken(JobTokenRecord{
+		JobID: "kept-job", TokenHash: "hash-kept-job", Kind: JobCredentialMember, ExpiresAt: 200, CreatedAt: 100,
+	}))
+	assert.NoErr(t, s.InsertRetry(RetryRecord{
+		ID: "retry-kept-job", SourceJobID: "kept-job", Attempt: 1, RequestJSON: "{}", CreatedAt: 100,
+	}))
+
+	deleted, _, err := s.PruneWorkflows(WorkflowRetentionPolicy{MaxAge: 24 * time.Hour}, now)
+	assert.NoErr(t, err)
+	assert.Eq(t, 1, deleted)
+
+	if rec, ok, err := s.GetJobToken("owned-s1"); err != nil || ok {
+		t.Fatalf("the step-job's credential survived the prune: %+v, %v", rec, err)
+	}
+	if rows, err := s.ListRetriesByJob("owned-s1"); err != nil || len(rows) != 0 {
+		t.Fatalf("the step-job's retries survived the prune: %+v, %v", rows, err)
+	}
+	// A job the policy does not evict keeps everything it owns.
+	if _, ok, err := s.GetJobToken("kept-job"); err != nil || !ok {
+		t.Fatalf("an unpruned job lost its credential: ok=%v err=%v", ok, err)
+	}
+	if rows, err := s.ListRetriesByJob("kept-job"); err != nil || len(rows) != 1 {
+		t.Fatalf("an unpruned job lost its retries: %+v, %v", rows, err)
+	}
+}
+
 // TestPruneWorkflowsZeroIsNoop asserts a zero workflow policy prunes nothing.
 func TestPruneWorkflowsZeroIsNoop(t *testing.T) {
 	s := openTest(t)
