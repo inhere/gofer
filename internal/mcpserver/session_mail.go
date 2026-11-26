@@ -69,7 +69,7 @@ func registerSessionMailTools(s *mcp.Server, b Backend) {
 	}, mailAckHandler(b))
 	addGoferTool(s, &mcp.Tool{
 		Name: "gofer_session_mail_send",
-		Description: "Send a letter to another session, a session job, a gofer mail agent or yourself. to: session:<sid> | job:<id> | agent:<name>[@<project>] | topic:<keyword> | path:<sub-path> | caller (your own capture box); give several, or an each:topic:<kw> / each:path:<sub> / each:project:<key> / each:agent:<name> selector, to send one letter to every match. " +
+		Description: "Send a letter to another session, a session job, a gofer mail agent or yourself. to: session:<sid> | job:<id> | agent:<name>[@<project>] | seat:<name>[@<project>] | team:<name>[@<project>] | topic:<keyword> | path:<sub-path> | caller (your own capture box); give several, or an each:topic:<kw> / each:path:<sub> / each:project:<key> / each:agent:<name> selector, to send one letter to every match. " +
 			"Only a unique recipient is delivered to; an ambiguous topic / path address is held in the capture box; an ambiguous or unknown session prefix is an error with its candidates (held=true in the answer — pick one and send again with session:<sid>). " +
 			"A letter arrives in the recipient's next turn wrapped in a <gofer-mail> tag; it is not a user message. urgent=true asks for delivery inside the running turn. Needs a running gofer server.",
 	}, mailSendHandler(b))

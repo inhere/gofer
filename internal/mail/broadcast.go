@@ -105,7 +105,7 @@ func (s *Service) Broadcast(in BroadcastInput) (BroadcastResult, error) {
 			FromKind: org.Kind, FromID: org.ID, FromCaller: org.Caller,
 			ToAddress: t.Address, ToKind: t.Kind, ToID: t.ID, ToCaller: t.Caller,
 			JobID: mailJobID(t.Kind, t.ID, org), Body: in.Body,
-			DeliverBy: s.deliverBy(),
+			DeliverBy: s.deliverBy(), TeamID: t.TeamID,
 		}
 		r, err := s.storeLetter(mi, res, org)
 		if err != nil {

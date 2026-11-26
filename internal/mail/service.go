@@ -44,6 +44,10 @@ var (
 	ErrMailNotFound = fmt.Errorf("mail: letter not found")
 	// ErrJobNotFound: a job: address names no job at all (a typo, a deleted row).
 	ErrJobNotFound = fmt.Errorf("mail: job not found")
+	// ErrSeatNotFound: a seat: address names no active seat of the sender's in that project.
+	ErrSeatNotFound = fmt.Errorf("mail: seat not found")
+	// ErrTeamNotFound: a team: address names no active team in that project.
+	ErrTeamNotFound = fmt.Errorf("mail: team not found")
 	// ErrJobCannotReceive: a job: address names a job that can never take a letter — an ended
 	// job, or a one-off run (no ACP session, so nothing can be said into it). The send is
 	// refused instead of storing a letter that would hang until the delivery deadline.
@@ -260,7 +264,7 @@ func (s *Service) Send(in SendInput) (SendResult, error) {
 		FromKind: org.Kind, FromID: org.ID, FromCaller: org.Caller,
 		ToAddress: addr.Raw, ToKind: res.target.Kind, ToID: res.target.ID, ToCaller: res.target.Caller,
 		JobID: mailJobID(res.target.Kind, res.target.ID, org), Urgent: in.Urgent, Body: in.Body,
-		DeliverBy: s.deliverBy(), CaptureItemID: in.CaptureItemID,
+		DeliverBy: s.deliverBy(), CaptureItemID: in.CaptureItemID, TeamID: res.target.TeamID,
 	}
 	return s.storeLetter(mi, res, org)
 }
