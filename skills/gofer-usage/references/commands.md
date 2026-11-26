@@ -151,7 +151,7 @@ gofer seat schedule <name> --cron '<表达式>' --text '<话>' [--title <名>]  
 gofer team add <name> --leader <seat> [--brief "…" | --brief @<文件>] [-p <project>]
 gofer team ls [-p <project>] [--json] / show <team> [--json]
 gofer team member add|rm <team> <seat>
-gofer team say <team> "…"                                   # 人发给团队（发到 team:<名字>@{<项目>} 地址）
+gofer team say <team> "…"                                   # 人发给团队（发到 team:<名字>[@<项目>] 地址）
 gofer team routes|evals <team> [--limit n] [--json]         # 服务端判定记录 / leader 每轮评估
 gofer team set <team> [--leader <seat>] [--brief "…" | --brief -]   # - 清空说明
 gofer team rm <team>                                        # 归档：名字与位置重新可用，历史保留
