@@ -21,7 +21,8 @@ const (
 	StageDropped = "dropped"
 )
 
-// Stage autonomy levels (work_stages.level); only record exists in this phase.
+// Stage autonomy levels (work_stages.level): record only notes what it would do, remind also
+// sends the session a "continue" turn when the next step is the agent's.
 const StageLevelRecord = "record"
 
 // WorkJournalStage is the journal kind of step changes and gate results. It is written by
@@ -177,6 +178,9 @@ type StageTransition struct {
 	Journal string
 	Level   string
 	By      string
+	// Action, when set, is the "would do" line (WorkJournalStageAction) recorded with the
+	// change in the same transaction: what the autonomy level would do about the new step.
+	Action string
 }
 
 // TransitionWorkStage applies t. applied=false means the flow was no longer at FromStep (or
@@ -227,6 +231,9 @@ func (s *Store) TransitionWorkStage(t StageTransition) (applied bool, err error)
 		level = WorkLevelMilestone
 	}
 	if err := s.stageJournalTx(tx, id, t.Journal, t.By, level, now); err != nil {
+		return false, err
+	}
+	if err := s.stageActionTx(tx, id, t.Action, t.By, now); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(); err != nil {

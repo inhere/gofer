@@ -1954,6 +1954,9 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/work-items/{id}/stage/blocked", s.handleStageBlocked)
 		r.POST("/work-items/{id}/stage/approve", s.handleStageApprove)
 		r.POST("/work-items/{id}/stage/drop", s.handleStageDrop)
+		r.POST("/work-items/{id}/stage/level", s.handleStageLevel)
+		r.GET("/work-items/{id}/stage/report", s.handleStageReport)
+		r.GET("/work-items/stages/report", s.handleStagesReport)
 
 		r.POST("/decisions", s.handleAskDecision)
 		r.GET("/decisions", s.handleListDecisions)

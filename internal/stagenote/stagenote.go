@@ -88,6 +88,14 @@ func Line(lang i18n.Lang, b Brief) string {
 	return msgprefix.FormatIn(lang, msgprefix.Stage, "", body)
 }
 
+// RemindLine is the turn the `remind` level sends a session when the flow enters one of its
+// steps: continue with b.Step. The text carries the stage system prefix.
+func RemindLine(lang i18n.Lang, b Brief) string {
+	body := i18n.T(lang, "stage.remind.continue",
+		"work", b.WorkItemID, "no", strconv.Itoa(b.StepNo), "total", strconv.Itoa(b.StepTotal), "step", b.Step)
+	return msgprefix.FormatIn(lang, msgprefix.Stage, "", body)
+}
+
 // StartLine is the SessionStart hint for a session with no flow in progress.
 func StartLine(lang i18n.Lang) string {
 	return msgprefix.FormatIn(lang, msgprefix.Stage, "", i18n.T(lang, "stage.note.start"))

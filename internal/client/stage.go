@@ -119,3 +119,33 @@ func (c *Client) ListOpenStages(projectKey string) ([]stage.View, error) {
 	err := c.doJSON(http.MethodGet, path, nil, &out)
 	return out.Stages, err
 }
+
+// StageSetLevel sets the autonomy level (record | remind) of a flow; the server accepts a
+// person's credential only.
+func (c *Client) StageSetLevel(workItemID, level string) (stage.View, error) {
+	body, err := jsonBody(map[string]any{"level": strings.TrimSpace(level)})
+	if err != nil {
+		return stage.View{}, err
+	}
+	var out stage.View
+	err = c.doJSON(http.MethodPost, stagePath(workItemID, "level"), body, &out)
+	return out, err
+}
+
+// StageReport reads the consistency report of one flow (workItemID != "") or of a project
+// (workItemID "" and projectKey != ""; both empty = every flow the caller sees).
+func (c *Client) StageReport(workItemID, projectKey string) (stage.Report, error) {
+	var out stage.Report
+	if id := strings.TrimSpace(workItemID); id != "" {
+		err := c.doJSON(http.MethodGet, stagePath(id, "report"), nil, &out)
+		return out, err
+	}
+	path := "/v1/work-items/stages/report"
+	if k := strings.TrimSpace(projectKey); k != "" {
+		q := url.Values{}
+		q.Set("project", k)
+		path += "?" + q.Encode()
+	}
+	err := c.doJSON(http.MethodGet, path, nil, &out)
+	return out, err
+}

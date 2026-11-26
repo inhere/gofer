@@ -40,7 +40,8 @@ func (s *Server) stages() *stage.Service {
 			return
 		}
 		s.stageSvc.svc = stage.New(stage.Deps{
-			Store: s.jobs.Meta(),
+			Store:   s.jobs.Meta(),
+			Deliver: s.deliverStageRemind,
 			Config: func() *config.Config {
 				if s.projects == nil {
 					return nil
