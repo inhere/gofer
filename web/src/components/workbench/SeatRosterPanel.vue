@@ -72,10 +72,8 @@ watch(
   () => props.focusSeat,
   (value) => {
     pendingFocus.value = (value ?? '').trim()
-    if (!pendingFocus.value) {
-      highlightSeat.value = ''
-      return
-    }
+    // 定位成功后父组件会立即把这个值清空（参数已用掉）：高亮留在那一行上，不跟着闪掉
+    if (!pendingFocus.value) return
     tryLocate()
   },
   { immediate: true },
