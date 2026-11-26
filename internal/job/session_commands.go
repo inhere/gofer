@@ -153,15 +153,19 @@ func (s *Service) saySessionCommand(id, message string, images []ImageInput, cmd
 		entry.sessionCommandTurn = entry.result.TurnNo
 		entry.mu.Unlock()
 		var sendErr error
+		// The worker's own service adds the turn notes it can know; the stage-flow line lives
+		// on this side, so it is put in front of the text here (a local session gets the same
+		// line from TurnNote).
+		wire := s.stageNoteOf(entry) + message
 		if len(images) > 0 {
 			imgSender, ok := s.workers.(SessionSayImageSender)
 			if !ok {
 				sendErr = fmt.Errorf("%w: job %s (worker transport lacks image say)", ErrImagesNotSupported, id)
 			} else {
-				sendErr = imgSender.SendSessionSay(workerID, id, cmdID, message, images)
+				sendErr = imgSender.SendSessionSay(workerID, id, cmdID, wire, images)
 			}
 		} else {
-			sendErr = sender.SendSessionCommand(workerID, id, cmdID, "say", message)
+			sendErr = sender.SendSessionCommand(workerID, id, cmdID, "say", wire)
 		}
 		if sendErr != nil {
 			entry.mu.Lock()
@@ -234,7 +238,7 @@ func (s *Service) resendSessionSay(id, cmdID, message string) error {
 	if !ok || !sender.IsWorkerOnline(workerID) {
 		return sayRefused(ErrWorkerOffline, fmt.Errorf("%w: worker offline, retry later", ErrJobNotRunning))
 	}
-	if err := sender.SendSessionCommand(workerID, id, cmdID, "say", message); err != nil {
+	if err := sender.SendSessionCommand(workerID, id, cmdID, "say", s.stageNoteOf(entry)+message); err != nil {
 		return err
 	}
 	entry.mu.Lock()

@@ -26,6 +26,7 @@ func TestEveryKindRoundTrips(t *testing.T) {
 		{Steward, "", "资源到了", false, "[gofer · 管家带话] 资源到了"},
 		{Memory, "", "因“发版”命中", false, "[gofer · 记忆] 因“发版”命中"},
 		{Hint, "", "本会话还没有话题", false, "[gofer · 提示] 本会话还没有话题"},
+		{Stage, "", "当前步 doing", false, "[gofer · 流程] 当前步 doing"},
 		{Bounce, "", "信件 #12 没有送到", false, "[gofer · 退信] 信件 #12 没有送到"},
 	}
 	for _, c := range cases {
@@ -60,6 +61,7 @@ func TestEnglishPrefixes(t *testing.T) {
 		{Steward, "", "the resource arrived", false, "[gofer · steward relay] the resource arrived"},
 		{Memory, "", "matched \"release\"", false, "[gofer · memory] matched \"release\""},
 		{Hint, "", "no topic yet", false, "[gofer · hint] no topic yet"},
+		{Stage, "", "step doing", false, "[gofer · stage] step doing"},
 		{Bounce, "", "letter #12 was not delivered", false, "[gofer · bounce] letter #12 was not delivered"},
 	}
 	for _, c := range cases {
@@ -91,6 +93,7 @@ func TestDefaultSpellingsMatchTheTable(t *testing.T) {
 		Steward:     StewardOpen,
 		Memory:      MemoryOpen,
 		Hint:        HintOpen,
+		Stage:       StageOpen,
 		Bounce:      BounceOpen,
 	}
 	for kind, spelling := range want {

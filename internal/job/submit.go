@@ -839,6 +839,10 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	}
 	if remote {
 		runReq.Forward = remoteForward(req, prompt, timeoutSec, runReq)
+		if req.Session && isWorkerRunner(cfg, req.Runner) {
+			// First turn of a worker session: the stage-flow line (a resumed session may already be on a flow).
+			runReq.Forward.Prompt = s.stageNote(req.ProjectKey, jobID, req.SessionID) + runReq.Forward.Prompt
+		}
 		// gofer-e2x7: a worker mirrors its acp.jsonl into this host job's result dir.
 		runReq.ResultDir = resultDir
 		// Bridge the peer's running-job interactions (P9) onto this host job.

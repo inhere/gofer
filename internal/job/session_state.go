@@ -82,9 +82,9 @@ func (s *Service) configureResidentACP(entry *jobEntry, request *runner.ACPReque
 	request.TurnNote = func() string {
 		note := s.needsReplyConvention(entry)
 		if hold := entry.dirHold.Load(); hold != nil {
-			return note + hold.takeNote()
+			note += hold.takeNote()
 		}
-		return note
+		return note + s.stageNoteOf(entry)
 	}
 }
 

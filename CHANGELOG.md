@@ -19,6 +19,7 @@
 - seat 定时消息在会话里不再显示成 `[来自 web，schedule:<id>]`（agent 会当成用户本人所说）：现在以系统前缀 `[gofer · 定时消息「<名称>」]`（英文 `[gofer · scheduled message "<name>"]`）开头；终端消息的 operator 以 `schedule:` 开头的一律走系统通道，acp 的 say / 重启文本使用同一前缀。
 - 清理工作流（保留期）时，step job 的 job 凭据与重试记录不再留下孤儿行：`PruneWorkflows` 删 step job 的语句列表漏了 `job_tokens` / `job_retries`，现在与 `PruneJobs` 共用同一份「job 拥有的行」清单，两条路径不会再漂移。
 - 预览（preview）租约到期、或它绑定的 worker 进程已换成另一个实例时，代理现在**先回 404 再关掉该租约**：以前关闭可能抢在响应之前，访问者看到的是连接被断（EOF / 空响应）而不是 404。
+- 跑在 worker 上的 ACP 常驻会话现在也拿到 server 拼的每轮提醒（gofer-nwo4）：此前 server 进程内的每轮注入（`TurnNote`）不转发到 worker，worker 会话拿不到流程提醒；改为 server 在下发每轮输入（第一轮的 prompt 与每条 say）时把同一行拼进文本，本机与 worker 同一份内容、每轮只出现一次。需要人回复的约定在 worker 会话上本来就由 worker 自己的服务在第一轮加好，不受影响（用例钉住只出现一次）。
 
 ### 变更
 
@@ -31,6 +32,7 @@
 - **seat 定时消息离线排队补送**：定时到点时位置空着、终端会话离线或已结束、acp 位置没有 job，话不再丢弃，而是排进队列（每个位置每个定时只留一条，再次到点只更新内容并累计次数；结果仍记 `offline`）。位置重新可收时补送——有会话绑进位置时立刻送；会话重新上线时（它的 hook 重新注册或重新心跳，从离线 / 已结束回到可收）也立刻送，另外服务端每 30 秒的周期扫描会检查「有待送且现在可收」的位置作兜底——走与到点送达完全相同的路径，带「补送，原定于 …，累计 N 次未送达」一行，送出后定时的 `last_result` 变为 `delivered`（acp 已结束重启则为 `restarted:<job>`）；补送失败留在队里下次再试。超过 24 小时未送出的丢弃，位置归档、定时删除时队列一并丢弃。新增表 `seat_pending_messages`。
 - 「等我」/收件箱里没人能收的 seat 定时消息卡改为「已排队，会话上线后补发（共 N 条）」，主动作改为打开那个位置（`/workbench?seat=<id>`，名册直接定位到它），「看详情」（定时页）作次要动作；有排队才出现，补送后消失。
 - **「等我」提醒延迟可在控制台改**：`server.notification.reminder_after_min`（多久没处理再提醒一次，默认 30 分钟，`0` = 不再提醒）现在出现在「设置 → 通知 → 通知全局设置」与 `GET /v1/config` 的通知视图（`reminder_after_min` 是实际生效值，`reminder_after_min_default` 说明它是不是默认值）；保存走 `PUT /v1/config/server` 的 `notification` 补丁，改完立即生效（扫描每轮读当前配置），负数被配置校验拒绝（`400`，`error_fields` 指向 `server.notification`）。
+- **流程提醒注入**（二期 F3，工作项流程 stage）：会话所在的工作项有进行中的流程时，终端会话每次 UserPromptSubmit（人敲的与 harness 生成的都算）在附加上下文**最末**多一行 `[gofer · 流程] …`（当前第几步、完成后 `gofer stage done`、回退 `gofer stage back --reason`、卡住 `gofer stage blocked --reason`），ACP 会话（本机与 worker）每轮 prompt 前带同一行；SessionStart 在项目开着 `stage.enabled`（默认）且会话没有进行中的流程时提示「实现类工作先 `gofer stage start <issue>`」，seat 会话放在常驻会话那一节末尾。会话视图（登记 / 心跳回应、`GET /v1/sessions/{sid}`）新增 `stage` 字段（工作项、步骤序号、状态，≤300 字节；不跑门禁、不跑 git），列表不带。文案随项目语言。
 
 ## [0.218.0] - 2026-11-24
 

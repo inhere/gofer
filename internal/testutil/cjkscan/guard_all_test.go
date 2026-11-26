@@ -53,7 +53,7 @@ var guardAllExempt = map[string]Exempt{
 	"work/x2.go": {Max: 1, Class: classProtocol, Why: "completionBy is the stored author identifier of the completion write-back suggestion; changing it would split old and new rows"},
 
 	// ---- protocol constants -----------------------------------------------------------
-	"msgprefix/msgprefix.go": {Max: 28, Class: classProtocol, Why: "the message-prefix alias table: zh-CN forms of [gofer · …] / [来自 web …] prefixes that older stored messages and agents carry; recognised byte-exactly (design §5)"},
+	"msgprefix/msgprefix.go": {Max: 30, Class: classProtocol, Why: "the message-prefix alias table: zh-CN forms of [gofer · …] / [来自 web …] prefixes that older stored messages and agents carry; recognised byte-exactly (design §5)"},
 	"brief/issue.go":         {Max: 1, Class: classProtocol, Why: "planPrefix regex recognising Chinese plan headings in issue text (input recognition, not output)"},
 	"changelog/merge.go":     {Max: 1, Class: classProtocol, Why: "DefaultUnreleasedTitles: the Chinese \"unreleased\" heading CHANGELOG.md files carry; matched, not emitted"},
 

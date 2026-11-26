@@ -22,6 +22,7 @@ import (
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/sessionrelay"
+	"github.com/inhere/gofer/internal/stagenote"
 )
 
 type sessionOutboxCursor struct {
@@ -248,6 +249,11 @@ type sessionView struct {
 	// Seat is the seat this session sits in (name, purpose, charter summary); absent when it
 	// sits in none.
 	Seat *sessionSeatView `json:"seat,omitempty"`
+	// Stage is where the stage flow of the work item this session is on stands (step, position,
+	// blocked reason), or {enabled:true} when it has none and its project has the flow on; the
+	// hooks inject their reminder from it. Absent on a list (one query per session) and for a
+	// project with the flow off and no flow in progress. At most stagenote.MaxBytes of JSON.
+	Stage *stagenote.Brief `json:"stage,omitempty"`
 	// RelayMode is the three-state switch (auto|on|off, R1) — what the CLI/web
 	// toggle writes. WaitReason says whether a Stop would wait right now and WHY
 	// (mode_on / idle_probe / turn_age, empty = does not wait); it is what the
@@ -371,7 +377,9 @@ type sessionView struct {
 // derived from the relay service's single policy (the store only keeps the raw
 // mode and readings).
 func (s *Server) toSessionView(lang i18n.Lang, a jobstore.AgentSession) sessionView {
-	return s.toSessionViewIn(lang, a, nil)
+	v := s.toSessionViewIn(lang, a, nil)
+	v.Stage = s.stageBriefOf(a)
+	return v
 }
 
 // toSessionViewIn is toSessionView for a caller that already holds the seats of its sessions
