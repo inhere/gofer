@@ -92,6 +92,74 @@ func TestNudgeStalledRespectsProgress(t *testing.T) {
 	assert.Eq(t, int64(2), got.FireCount)
 }
 
+// TestNudgeStalledIgnoresHeartbeatBeats: the stall rule measures silence from the last REAL
+// activity, not from the last hook beat (gofer-28ss). A Claude Code session keeps beating
+// after its Stop — the idle reminder Notification, the away summary's SubagentStop — and a
+// reminder that proves the agent is sitting still must not postpone the nudge.
+func TestNudgeStalledIgnoresHeartbeatBeats(t *testing.T) {
+	s := newSvc(t)
+	t0 := time.Unix(1_760_100_000, 0)
+	clock := t0
+	s.store.SetClock(func() time.Time { return clock })
+	f := nudgeSession(t, s, "sid-ng-beat", EventUserPromptSubmit) // running, activity at t0
+	n := mkNudge(t, s, "sid-ng-beat", jobstore.NudgeStalled, 20*time.Minute)
+
+	// 18 min in, a beat that proves the process is alive but nobody did anything.
+	clock = t0.Add(18 * time.Minute)
+	_, _, err := s.store.TouchAgentSession("sid-ng-beat", jobstore.SessionHeartbeat{
+		Event: EventNotification, Silent: true, LastMessage: "idle reminder"})
+	assert.NoErr(t, err)
+	a, ok, err := s.store.GetAgentSession("sid-ng-beat")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, clock.Unix(), a.LastSeenAt)
+	assert.Eq(t, t0.Unix(), a.LastActivityAt)
+
+	// 21 min of real silence, although the last beat is only 3 min old: stalled.
+	assert.Eq(t, 1, s.SweepNudges(context.Background(), t0.Add(21*time.Minute).Unix()))
+	assert.Eq(t, 1, len(f.residentCalls))
+	got, err := s.Nudge(n.ID)
+	assert.NoErr(t, err)
+	assert.Eq(t, int64(1), got.FireCount)
+}
+
+// TestNudgeStalledRealActivityKeepsItQuiet: the other way round — work that really happened
+// restarts the silence clock (gofer-28ss).
+func TestNudgeStalledRealActivityKeepsItQuiet(t *testing.T) {
+	s := newSvc(t)
+	t0 := time.Unix(1_760_200_000, 0)
+	clock := t0
+	s.store.SetClock(func() time.Time { return clock })
+	f := nudgeSession(t, s, "sid-ng-work", EventUserPromptSubmit)
+	mkNudge(t, s, "sid-ng-work", jobstore.NudgeStalled, 20*time.Minute)
+
+	// 18 min in the agent does something real, then goes quiet again.
+	clock = t0.Add(18 * time.Minute)
+	_, err := s.Heartbeat("sid-ng-work", HeartbeatInput{Event: EventUserPromptSubmit})
+	assert.NoErr(t, err)
+
+	// 21 min after the start is only 3 min after the activity: not stalled yet.
+	assert.Eq(t, 0, s.SweepNudges(context.Background(), t0.Add(21*time.Minute).Unix()))
+	assert.Eq(t, 0, len(f.residentCalls))
+
+	// 21 min after the activity: stalled.
+	assert.Eq(t, 1, s.SweepNudges(context.Background(), t0.Add(39*time.Minute).Unix()))
+	assert.Eq(t, 1, len(f.residentCalls))
+}
+
+// TestLastProgressAtAnchorsOnActivity: rows from before last_activity_at existed (0) keep
+// their old last_seen_at behaviour, a beating row is anchored on its real activity, and the
+// progress / usage / start signals still win when they are newer (gofer-28ss).
+func TestLastProgressAtAnchorsOnActivity(t *testing.T) {
+	// legacy row: no activity column, falls back to the beat
+	assert.Eq(t, int64(100), lastProgressAt(jobstore.AgentSession{LastSeenAt: 100}))
+	// a beat 900 does not move the anchor of activity 100
+	assert.Eq(t, int64(100), lastProgressAt(jobstore.AgentSession{LastSeenAt: 900, LastActivityAt: 100}))
+	assert.Eq(t, int64(300), lastProgressAt(jobstore.AgentSession{LastSeenAt: 900, LastActivityAt: 100, ProgressAt: 300}))
+	assert.Eq(t, int64(400), lastProgressAt(jobstore.AgentSession{LastSeenAt: 900, LastActivityAt: 100, UsageAt: 400}))
+	assert.Eq(t, int64(500), lastProgressAt(jobstore.AgentSession{LastSeenAt: 900, LastActivityAt: 100, StartedAt: 500}))
+}
+
 func TestNudgeStalledStateRules(t *testing.T) {
 	s := newSvc(t)
 	t0 := time.Now()

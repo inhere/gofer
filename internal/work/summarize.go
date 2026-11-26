@@ -443,7 +443,10 @@ func (s *Service) RunSummarize(ctx context.Context, itemID string, o SummarizeOp
 	}
 	defer s.releaseSession(a.SessionID)
 
-	runID, err := s.store.BeginWorkSummary(w.ID, a.SessionID, a.LastSeenAt, o.Cause)
+	// The cursor is the session's real activity, not its last beat (gofer-28ss): the run
+	// covers what was done up to then, and the passive scan compares it against the same
+	// field (a.ActivityAt() <= last.ActivityAt).
+	runID, err := s.store.BeginWorkSummary(w.ID, a.SessionID, a.ActivityAt(), o.Cause)
 	if err != nil {
 		return fail(err.Error())
 	}
@@ -1021,7 +1024,7 @@ func (s *Service) scanSummarize(now time.Time) {
 			if err != nil {
 				continue
 			}
-			if has && (a.LastSeenAt <= last.ActivityAt || now.Unix()-last.At < gap) {
+			if has && (a.ActivityAt() <= last.ActivityAt || now.Unix()-last.At < gap) {
 				continue
 			}
 			// Noise reduction (design 2026-10-20 §关键流程): a short-lived session is not worth
@@ -1029,7 +1032,7 @@ func (s *Service) scanSummarize(now time.Time) {
 			// and it does not consume the daily cap (nothing was spent).
 			if reason, short := s.ShortSession(a, now); short {
 				slog.Info("work.summary_skipped", "event", "work.summary_skipped", "item", w.ID, "session", a.SessionID, "reason", reason)
-				if id, berr := s.store.BeginWorkSummary(w.ID, a.SessionID, a.LastSeenAt, CauseAuto); berr == nil {
+				if id, berr := s.store.BeginWorkSummary(w.ID, a.SessionID, a.ActivityAt(), CauseAuto); berr == nil {
 					_ = s.store.FinishWorkSummary(id, jobstore.SummarySkipped, "", reason)
 				} else {
 					slog.Warn("work.summary_skip_record_failed", "event", "work.summary_skip_record_failed", "session", a.SessionID, "err", berr)
@@ -1045,13 +1048,17 @@ func (s *Service) scanSummarize(now time.Time) {
 }
 
 // quietEnough reports whether a session is in a state worth a tidy-up now: idle (or
-// waiting for the human) for at least idleSec, or gone (offline / ended).
+// waiting for the human) for at least idleSec, or gone (offline / ended). The silence is
+// measured from ActivityAt (gofer-28ss), not from LastSeenAt: a Claude Code session keeps
+// beating while it sits idle (the idle reminder Notification, the away summary's
+// SubagentStop), and those beats must not postpone the tidy-up. A row from before
+// last_activity_at existed falls back to last_seen_at there, i.e. its previous behaviour.
 func quietEnough(a jobstore.AgentSession, now, idleSec int64) bool {
 	switch a.State {
 	case jobstore.SessionOffline, jobstore.SessionEnded:
 		return true
 	case jobstore.SessionIdle, jobstore.SessionWaitingReply:
-		return now-a.LastSeenAt >= idleSec
+		return now-a.ActivityAt() >= idleSec
 	}
 	return false
 }
