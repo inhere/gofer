@@ -465,7 +465,7 @@ func printTeamRouteRows(c *gcli.Command, rows []client.TeamRoute, names map[stri
 			to = append(to, teamSeatLabel(names, id))
 		}
 		from := r.FromRef
-		if name, ok := names[from]; ok && name != "" {
+		if name, ok := names[strings.TrimPrefix(from, "seat:")]; ok && name != "" {
 			from = name
 		}
 		fmt.Fprintf(&b, "%-6d %-9s %-16s %-16s %-20s %-4d %s\n", r.ID, ago(r.DecidedAt), dash(r.Rule),

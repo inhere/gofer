@@ -177,6 +177,17 @@ func TestRuleRelayLoopGuard(t *testing.T) {
 	if !strings.Contains(res.Mail.Body, "[handed to the leader:") {
 		t.Fatalf("redirect note missing: %q", res.Mail.Body)
 	}
+	// the hand-over does not reset the run: the pair stays held at the leader
+	for i, from := range []Origin{a, b, a, b} {
+		to := "seat:beta"
+		if from.ID == "sess-b" {
+			to = "seat:alpha"
+		}
+		res = x.send(t, from, to, "still bouncing")
+		if res.Mail.ToID != "sess-lead" {
+			t.Fatalf("after a hand-over, relay %d went to %s, want the leader", i, res.Mail.ToID)
+		}
+	}
 	// negative: the leader's dispatch ends the run, the pair may talk again
 	x.send(t, sess("sess-lead"), "seat:alpha", "carry on")
 	res = x.send(t, a, "seat:beta", "ping")

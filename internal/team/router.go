@@ -506,6 +506,16 @@ func rowPair(row jobstore.TeamRoute) (string, string, bool) {
 	return from, row.ToSeatIDs[0], true
 }
 
+// handedPair reads the sender seat of a relay row that was handed to the leader (its recipient
+// is the leader, not the member it named).
+func handedPair(row jobstore.TeamRoute) (string, string, bool) {
+	from := strings.TrimPrefix(row.FromRef, "seat:")
+	if from == row.FromRef {
+		return "", "", false
+	}
+	return from, "", true
+}
+
 func samePair(a1, b1, a2, b2 string) bool {
 	return (a1 == a2 && b1 == b2) || (a1 == b2 && b1 == a2)
 }
@@ -517,7 +527,7 @@ func samePair(a1, b1, a2, b2 string) bool {
 // ends it. A limit of 0 switches that check off.
 func (r *Router) relayGuard(t jobstore.Team, a, b string, now time.Time) (bool, string, error) {
 	if t.RelayRoundLimit > 0 {
-		rows, err := r.store.ListTeamRoutes(t.ID, t.RelayRoundLimit+8)
+		rows, err := r.store.ListTeamRoutes(t.ID, t.RelayRoundLimit+64)
 		if err != nil {
 			return false, "", err
 		}
@@ -525,6 +535,15 @@ func (r *Router) relayGuard(t jobstore.Team, a, b string, now time.Time) (bool, 
 		for _, row := range rows {
 			if ignored(row) {
 				continue
+			}
+			// A relay of this same pair that was already handed to the leader neither counts
+			// nor ends the run: the pair stays held at the leader until something else (the
+			// leader's dispatch, a third party, a person) breaks it, instead of getting another
+			// RelayRoundLimit letters after every hand-over.
+			if row.Rule == RuleRelay && row.Outcome == jobstore.TeamOutcomeHandedToLeader {
+				if f, _, ok := handedPair(row); ok && (f == a || f == b) {
+					continue
+				}
 			}
 			f, to, ok := rowPair(row)
 			if !ok || !counted(row.Outcome) || !samePair(f, to, a, b) {
