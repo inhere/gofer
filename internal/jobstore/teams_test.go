@@ -149,11 +149,36 @@ func TestTeamRoutesAndEvals(t *testing.T) {
 	if err != nil || r.ID == 0 {
 		t.Fatalf("append route: %+v %v", r, err)
 	}
+	if _, err := s.AppendTeamRoute(TeamRoute{TeamID: tm.ID, RouteKey: "7:" + lead.ID, Outcome: TeamOutcomePending}); !errors.Is(err, ErrTeamRouteKeyTaken) {
+		t.Fatalf("duplicate route key: %v", err)
+	}
+	// rows without a key (dup / self records) may repeat
+	for i := 0; i < 2; i++ {
+		if _, err := s.AppendTeamRoute(TeamRoute{TeamID: tm.ID, Outcome: TeamOutcomeDup}); err != nil {
+			t.Fatalf("keyless route %d: %v", i, err)
+		}
+	}
+	p, err := s.AppendTeamRoute(TeamRoute{TeamID: tm.ID, RouteKey: "8:x", Outcome: TeamOutcomePending})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.SettleTeamRoute(p.ID, TeamOutcomeQueued); err != nil || !ok {
+		t.Fatalf("settle: %v %v", ok, err)
+	}
+	if got, ok, _ := s.TeamRouteByKey(tm.ID, "8:x"); !ok || got.Outcome != TeamOutcomeQueued {
+		t.Fatalf("by key = %+v %v", got, ok)
+	}
+	if _, ok, _ := s.TeamRouteByKey(tm.ID, ""); ok {
+		t.Fatal("empty key must not match")
+	}
+	if _, err := s.SettleTeamRoute(p.ID, "bogus"); !errors.Is(err, ErrTeamInvalid) {
+		t.Fatalf("bad settle: %v", err)
+	}
 	if _, err := s.AppendTeamRoute(TeamRoute{TeamID: tm.ID, Outcome: "bogus"}); !errors.Is(err, ErrTeamInvalid) {
 		t.Fatalf("bad outcome: %v", err)
 	}
 	routes, err := s.ListTeamRoutes(tm.ID, 0)
-	if err != nil || len(routes) != 1 || len(routes[0].ToSeatIDs) != 1 || routes[0].ToSeatIDs[0] != lead.ID || routes[0].Rule != "member_result" {
+	if err != nil || len(routes) != 4 || len(routes[3].ToSeatIDs) != 1 || routes[3].ToSeatIDs[0] != lead.ID || routes[3].Rule != "member_result" {
 		t.Fatalf("routes = %+v %v", routes, err)
 	}
 	if _, err := s.AppendTeamEval(TeamEval{TeamID: tm.ID, LeaderRef: "s1", Outcome: TeamEvalIdle, Reason: "nothing"}); err != nil {

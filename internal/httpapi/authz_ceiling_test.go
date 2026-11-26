@@ -20,7 +20,7 @@ var kindParam = map[string]string{
 	"session": "sid", "work_item": "id", "tracker_repo": "tracker_id", "worker": "id",
 	"xfer": "id", "wakeup": "wid", "retry": "rid", "decision": "id", "nudge": "id",
 	"workbench_thread": "id", "merge_suggestion": "n", "memory_candidate": "n",
-	"issue": "id", "mail": "id", "attachment": "id", "seat": "id",
+	"issue": "id", "mail": "id", "attachment": "id", "seat": "id", "team": "id",
 }
 
 // kindID is the id of the world's record of `kind`.
@@ -71,6 +71,8 @@ func (w ceilWorld) kindID(kind string) string {
 		return w.attachmentID
 	case "seat":
 		return w.seatID
+	case "team":
+		return w.teamID
 	}
 	return "x"
 }
@@ -160,6 +162,8 @@ func (w ceilWorld) bodyFor(key string) any {
 		return map[string]any{"title": "t", "project_key": p}
 	case "POST /v1/seats":
 		return map[string]any{"name": "n", "project_key": p}
+	case "POST /v1/teams":
+		return map[string]any{"name": "n", "project_key": p, "leader": "x"}
 	case "POST /v1/xfer", "POST /v1/xfer/precheck":
 		return map[string]any{"op": "get", "runner": "local", "project": p, "path": "a"}
 	case "POST /v1/projects":
@@ -312,6 +316,7 @@ var ceilingStateCases = []struct {
 	{"merge_suggestion", "POST /v1/work-items/merge-suggestions/{n}/accept", false},
 	{"mail", "POST /v1/mail/{id}/cancel", true},
 	{"seat", "POST /v1/seats/{id}/unbind", true},
+	{"team", "DELETE /v1/teams/{id}", true},
 	// A sent attachment is judged by the handler (thread visibility), which answers 404 — not a
 	// permission 403 — to a caller that may not read it.
 	{"attachment", "GET /v1/attachments/{id}", false},
@@ -447,7 +452,7 @@ var bodyProjectKeys = []string{
 	"GET /v1/workflow-templates/{name}/source", "PUT /v1/workflow-templates/{name}", "DELETE /v1/workflow-templates/{name}",
 	"POST /v1/schedules", "POST /v1/plans", "POST /v1/work-items", "POST /v1/xfer", "POST /v1/xfer/precheck",
 	"POST /v1/projects", "POST /v1/memories", "POST /v1/mail", "POST /v1/memory-syntheses/run", "POST /v1/work-items/report", "POST /v1/seats",
-	"POST /v1/work-items/stage",
+	"POST /v1/work-items/stage", "POST /v1/teams",
 }
 
 // TestBodyProjectHandlersCheckScope: each BodyProject handler really calls the scope check —

@@ -38,6 +38,7 @@ type ceilWorld struct {
 	mailID                                        string
 	attachmentID                                  string
 	seatID                                        string
+	teamID                                        string
 }
 
 // allPermissionNames lists every permission of the catalog: a caller granted all of them is
@@ -206,6 +207,9 @@ func seedCeilingWorld(t *testing.T, s *Server, project string) ceilWorld {
 	sx, err := st.CreateSeat(jobstore.Seat{CallerID: ceilOwner, ProjectKey: project, Name: "seat " + project})
 	must("seat", err)
 	w.seatID = sx.ID
+	tm, err := st.CreateTeam(jobstore.Team{ProjectKey: project, Name: "team " + project, LeaderSeatID: sx.ID, RelayRoundLimit: 3, RelayDailyLimit: 20, MergeWindowSec: 120}, nil)
+	must("team", err)
+	w.teamID = tm.ID
 
 	// A SENT attachment: bound to the world's job thread, so it belongs to this project.
 	w.attachmentID = "att00000000000000-" + project
@@ -223,7 +227,7 @@ func (w ceilWorld) ids() []string {
 		w.jobID, w.planID, w.todoID, w.scheduleID, w.workflowID, w.sessionID, w.workItemID, w.workItem2ID,
 		w.trackerID, w.issueID, w.xferID, w.wakeupID, w.retryID, w.nudgeID,
 		"item " + w.project, "plan " + w.project, "sch " + w.project, "issue " + w.project,
-		"content " + w.project, "candidate " + w.project, "mailbody-" + w.project, w.seatID, "seat " + w.project,
+		"content " + w.project, "candidate " + w.project, "mailbody-" + w.project, w.seatID, "seat " + w.project, w.teamID, "team " + w.project,
 	}
 }
 

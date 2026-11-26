@@ -38,6 +38,10 @@ const (
 
 // Outcomes of a routing decision (team_routes.outcome).
 const (
+	// TeamOutcomePending is written before delivery and settled afterwards; TeamOutcomeUnknown
+	// marks a row whose delivery result could not be determined.
+	TeamOutcomePending        = "pending"
+	TeamOutcomeUnknown        = "unknown"
 	TeamOutcomeDelivered      = "delivered"
 	TeamOutcomeQueued         = "queued"
 	TeamOutcomeMerged         = "merged"
@@ -50,7 +54,7 @@ const (
 // ValidTeamOutcome reports whether o is a routing outcome.
 func ValidTeamOutcome(o string) bool {
 	switch o {
-	case TeamOutcomeDelivered, TeamOutcomeQueued, TeamOutcomeMerged, TeamOutcomeHandedToLeader,
+	case TeamOutcomePending, TeamOutcomeUnknown, TeamOutcomeDelivered, TeamOutcomeQueued, TeamOutcomeMerged, TeamOutcomeHandedToLeader,
 		TeamOutcomeDroppedSelf, TeamOutcomeDup, TeamOutcomeHeld:
 		return true
 	}
@@ -549,10 +553,52 @@ func (s *Store) AppendTeamRoute(r TeamRoute) (TeamRoute, error) {
 	res, err := s.db.Exec(`INSERT INTO team_routes (team_id, mail_id, from_ref, to_seat_ids, rule, hop, route_key, outcome, decided_at)
   VALUES (?,?,?,?,?,?,?,?,?)`, r.TeamID, r.MailID, r.FromRef, string(ids), r.Rule, r.Hop, r.RouteKey, r.Outcome, r.DecidedAt)
 	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE") && strings.Contains(err.Error(), "route_key") {
+			return TeamRoute{}, fmt.Errorf("%w: %q", ErrTeamRouteKeyTaken, r.RouteKey)
+		}
 		return TeamRoute{}, fmt.Errorf("jobstore: append team route: %w", err)
 	}
 	r.ID, _ = res.LastInsertId()
 	return r, nil
+}
+
+// ErrTeamRouteKeyTaken: a route with that (non-empty) route_key already exists for the team.
+var ErrTeamRouteKeyTaken = errors.New("team route key already recorded")
+
+// SettleTeamRoute sets the outcome of a route row (a pending row is settled after delivery).
+// ok is false when the id is unknown.
+func (s *Store) SettleTeamRoute(id int64, outcome string) (bool, error) {
+	if !ValidTeamOutcome(outcome) {
+		return false, fmt.Errorf("%w: unknown route outcome %q", ErrTeamInvalid, outcome)
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	res, err := s.db.Exec(`UPDATE team_routes SET outcome=? WHERE id=?`, outcome, id)
+	if err != nil {
+		return false, fmt.Errorf("jobstore: settle team route: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// TeamRouteByKey reads the route a team recorded under route_key (ok=false: none).
+func (s *Store) TeamRouteByKey(teamID, routeKey string) (TeamRoute, bool, error) {
+	rows, err := s.db.Query(`SELECT id, team_id, mail_id, from_ref, to_seat_ids, rule, hop, route_key, outcome, decided_at
+  FROM team_routes WHERE team_id = ? AND route_key = ? AND route_key <> '' LIMIT 1`, strings.TrimSpace(teamID), routeKey)
+	if err != nil {
+		return TeamRoute{}, false, fmt.Errorf("jobstore: team route by key: %w", err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return TeamRoute{}, false, rows.Err()
+	}
+	var r TeamRoute
+	var ids string
+	if err := rows.Scan(&r.ID, &r.TeamID, &r.MailID, &r.FromRef, &ids, &r.Rule, &r.Hop, &r.RouteKey, &r.Outcome, &r.DecidedAt); err != nil {
+		return TeamRoute{}, false, fmt.Errorf("jobstore: team route by key: %w", err)
+	}
+	_ = json.Unmarshal([]byte(ids), &r.ToSeatIDs)
+	return r, true, nil
 }
 
 // ListTeamRoutes returns a team's routing decisions, newest first, at most limit (<=0: 100).

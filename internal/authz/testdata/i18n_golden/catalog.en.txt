@@ -17,7 +17,7 @@ session.permission.answer	Answer the tool permission prompts of **someone else's
 session.transfer	Transfer session ownership
 plan.manage.others	Other callers' plan edit / run / pause / resume / attach / todo add, edit and dispatch / handoff
 plan.supervise.others	Bind a supervisor to someone else's plan, or bind someone else's session
-seat.manage.others	Read and change other callers' seats: list / detail / edit / bind / unbind / archive / delete / open plan (filtered)
+seat.manage.others	Read and change other callers' seats and the teams built from them: list / detail / edit / bind / unbind / archive / delete / open plan / team members, routes and evals (filtered)
 schedule.manage.others	Other callers' schedule delete / enable-disable / rotate token / run-now (run-now also needs `job.submit`)
 schedule.precheck	Set or change a schedule's pre-run check (a command the server runs under its own identity before each due tick; clearing one needs no permission)
 steward.manage	steward start / stop / restart / ask / review, and writing notes

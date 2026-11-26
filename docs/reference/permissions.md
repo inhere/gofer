@@ -41,7 +41,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `session.transfer` | 转移会话归属 | 高 | 否 | 否 | 仅根 |
 | `plan.manage.others` | 他人 plan 的修改 / run / pause / resume / attach / todo 增改与派发 / handoff | 中 | 否 | 是 | 种入 |
 | `plan.supervise.others` | 给他人 plan 绑定 supervisor，或绑定他人会话 | 中 | 否 | 是 | 仅根 |
-| `seat.manage.others` | 读取与修改他人的常驻会话（seat）：列表 / 详情 / 编辑 / 绑定 / 解绑 / 归档 / 删除 / 打开方案（按作用域过滤） | 中 | 否 | 是 | 仅根 |
+| `seat.manage.others` | 读取与修改他人的常驻会话（seat）及由它们组成的团队：列表 / 详情 / 编辑 / 绑定 / 解绑 / 归档 / 删除 / 打开方案 / 团队成员、路由与评估（按作用域过滤） | 中 | 否 | 是 | 仅根 |
 | `schedule.manage.others` | 他人 schedule 的删除 / 启停 / 轮换 token / run-now（run-now 另需 `job.submit`） | 中 | 否 | 是 | 种入 |
 | `schedule.precheck` | 设置或修改 schedule 的前置检查（server 在每次到点前以自身身份运行的命令；清除前置检查不需要） | 高 | 否 | 否 | 仅根 |
 | `steward.manage` | steward start / stop / restart / ask / review，以及 notes 写入 | 高 | 否 | 否 | 种入 |
@@ -392,6 +392,15 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `POST` | `/v1/steward/review-summary` | `Require` | `steward.manage` | `job` | `NoProject` | 写 |
 | `POST` | `/v1/steward/start` | `Require` | `steward.manage` | — | `NoProject` | 写 |
 | `POST` | `/v1/steward/stop` | `Require` | `steward.manage` | — | `NoProject` | 写 |
+| `GET` | `/v1/teams` | `InHandler(filter)` | `seat.manage.others` | — | `Filter` | 读 |
+| `POST` | `/v1/teams` | `InHandler(deny)` | `seat.manage.others` | — | `BodyProject` | 写 |
+| `DELETE` | `/v1/teams/{id}` | `InHandler(deny)` | `seat.manage.others` | — | `Resource(team)` | 写 |
+| `GET` | `/v1/teams/{id}` | `InHandler(deny)` | `seat.manage.others` | — | `Resource(team)` | 读 |
+| `PATCH` | `/v1/teams/{id}` | `InHandler(deny)` | `seat.manage.others` | — | `Resource(team)` | 写 |
+| `GET` | `/v1/teams/{id}/evals` | `InHandler(deny)` | `seat.manage.others` | — | `Resource(team)` | 读 |
+| `POST` | `/v1/teams/{id}/members` | `InHandler(deny)` | `seat.manage.others` | — | `Resource(team)` | 写 |
+| `DELETE` | `/v1/teams/{id}/members/{seat}` | `InHandler(deny)` | `seat.manage.others` | — | `Resource(team)` | 写 |
+| `GET` | `/v1/teams/{id}/routes` | `InHandler(deny)` | `seat.manage.others` | — | `Resource(team)` | 读 |
 | `GET` | `/v1/today` | `Public` | — | `job` | `Filter` | 读 |
 | `POST` | `/v1/today/actions` | `Public` | — | — | `Resource(today_card)` | 写 |
 | `POST` | `/v1/today/advice` | `Public` | — | `job` | `Resource(today_card)` | 写 |

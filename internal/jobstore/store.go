@@ -1445,7 +1445,7 @@ var schemaStmts = []string{
   decided_at  INTEGER NOT NULL
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_team_routes_team ON team_routes(team_id, id)`,
-	`CREATE INDEX IF NOT EXISTS idx_team_routes_key ON team_routes(team_id, route_key)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS idx_team_routes_key ON team_routes(team_id, route_key) WHERE route_key <> ''`,
 	`CREATE TABLE IF NOT EXISTS team_evals (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   team_id    TEXT NOT NULL,

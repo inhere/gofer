@@ -415,6 +415,8 @@ type Server struct {
 	today *today.Service
 	// seatSvc is the seat roster service, built on first use (seat_handler.go).
 	seatSvc seatHolder
+	// teamSvc is the team service, built on first use (team_handler.go).
+	teamSvc teamHolder
 	// stageSvc is the stage flow service, built on first use (stage_handler.go).
 	stageSvc stageHolder
 	// waitNotices is the 「等我」 notice scanner, built on first use (waiting_notice.go).
@@ -1603,6 +1605,15 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/seats/{id}/open-plan", s.handleSeatOpenPlan)
 		r.GET("/seats/{id}/history", s.handleSeatHistory)
 		r.POST("/seats/{id}/restart", s.handleSeatRestart)
+		r.GET("/teams", s.handleTeamList)
+		r.POST("/teams", s.handleTeamCreate)
+		r.GET("/teams/{id}", s.handleTeamGet)
+		r.PATCH("/teams/{id}", s.handleTeamPatch)
+		r.DELETE("/teams/{id}", s.handleTeamArchive)
+		r.POST("/teams/{id}/members", s.handleTeamMemberAdd)
+		r.DELETE("/teams/{id}/members/{seat}", s.handleTeamMemberRemove)
+		r.GET("/teams/{id}/routes", s.handleTeamRoutes)
+		r.GET("/teams/{id}/evals", s.handleTeamEvals)
 		r.GET("/inbox", s.handleInbox)
 		r.GET("/inbox/rules", s.handleInboxRules)
 		r.POST("/inbox/state", s.handleInboxState)
