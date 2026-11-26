@@ -13,6 +13,7 @@
 
 ### 新增
 
+- **`gofer job result` 自报本次 job 的结局**：没有 gofer MCP 的 agent（suga、codex、exec 包装脚本等）也能自报——`gofer job result --decision pass|rework|fail|human --reason "…" [--action-required "…"] [--finding "…"] [<job-id>]`，job id 省略时取运行环境里的 `GOFER_JOB_ID`，凭据用本 job 自己的 `GOFER_JOB_TOKEN`；字段、每个 job 只报一次、只能报自己这些规则与 MCP 工具 `gofer_submit_result` 完全一致（人的 token 或别的 job 的凭据 403，重复 409）。注入的规则段那一行改成按可用方式写：管家会话两种都不可用就不写，常驻 ACP 会话与收件会话写工具，其余 job 两种都写（「调用 `gofer_submit_result`；会话里没有这个工具时运行 `gofer job result …`」）。
 - **控制台里的流程条与就地批准**（二期 F5，工作项流程 stage）：工作项详情抽屉在有流程时多一块流程区——模板名、步骤条（已过 / 当前 / 阻塞）、当前步门禁缺项、放权等级（只记录 / 提醒，只有人的凭据能改，改不了时提示原因），以及批准（当前步是评审或门禁在这里判不了时）、退回（必填理由）、推进（门禁没过就把缺项列出来，不当错误）三个动作；步骤变化与门禁结果仍写在原来的日志时间线里。工作台会话标题旁显示「<步骤> n/N」的小标签（阻塞为红色），点它去工作项详情。「等我」里 `kind=stage` 的流程卡在今天就 / 收件箱 / 弹卡里都能就地处理：批准直接调批准接口，退回弹出输入框填意见，成功后卡片自行消失。
 - **流程放权等级与「等我」流程卡**（二期 F4，工作项流程 stage）：
   - `gofer stage level record|remind [--work <id>]` 设置等级（只认人的凭据，job 凭据、会话里的请求都拒绝）。两档都在每次步骤变化（`done` 推进、`back`、批准）时往工作项日志写一条「本来会做的动作」（带命中的规则名）：下一步属于 agent 就记「送继续」，下一步要人（review）就记「出等我卡」。`remind` 另外在下一步属于 agent（design / plan / doing / verify）时，用系统前缀给工作项的 current 会话送一轮「继续下一步：<步骤>」；review、done 不送；重复 `done` 没推进不重复送。会话坐在 seat 上且离线时进 seat 自己的补发队列（同一工作项只留最新一条，步骤已过则丢弃、不迟送），不在 seat 上的离线会话只在日志里记「未送达」。
