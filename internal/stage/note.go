@@ -37,12 +37,19 @@ func (s *Service) BriefForSession(sid, projectKey string) *stagenote.Brief {
 }
 
 // TurnNote is the per-turn reminder line of a session that has a flow in progress (ACP
-// sessions take it in front of every turn); "" when it has none. It reads the stored flow
-// only, never a gate.
-func (s *Service) TurnNote(sid string, lang i18n.Lang) string {
-	v, ok, err := s.ForSession(sid, false)
-	if err != nil || !ok {
-		return ""
+// sessions take it in front of every turn); "" when it has none. A resident session is known
+// by more than one id (its job id, the agent's own session id): the first that is on a flow
+// wins. It reads the stored flow only, never a gate.
+func (s *Service) TurnNote(lang i18n.Lang, sids ...string) string {
+	for _, sid := range sids {
+		if sid == "" {
+			continue
+		}
+		v, ok, err := s.ForSession(sid, false)
+		if err != nil || !ok {
+			continue
+		}
+		return stagenote.Line(lang, BriefOf(v))
 	}
-	return stagenote.Line(lang, BriefOf(v))
+	return ""
 }

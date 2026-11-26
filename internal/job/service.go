@@ -291,6 +291,8 @@ type Service struct {
 	// package never imports prometheus. All埋点 sites guard `if s.metrics != nil`.
 	metrics     MetricsSink
 	issueLinker IssueLinker
+	// stageNotes supplies the stage-flow line a resident session takes before each turn; nil adds none.
+	stageNotes StageNoter
 
 	// wf is the workflow engine seam (layering design §13.4): the ONLY reverse
 	// dependency from the single-job path to the workflow sub-package. finish drives

@@ -30,7 +30,7 @@ func TestBriefForSessionOnAFlowNeverRunsGit(t *testing.T) {
 	if b == nil || b.WorkItemID != v.WorkItemID || b.Step != StepDesign || b.StepNo != 1 || b.StepTotal != 6 || b.Status != jobstore.StageActive || b.Enabled {
 		t.Fatalf("brief = %+v", b)
 	}
-	if line := f.svc.TurnNote("s-1", i18n.ZhCN); !strings.Contains(line, "1/6 步「design」") || !strings.HasPrefix(line, "[gofer · 流程]") {
+	if line := f.svc.TurnNote(i18n.ZhCN, "", "job-x", "s-1"); !strings.Contains(line, "1/6 步「design」") || !strings.HasPrefix(line, "[gofer · 流程]") {
 		t.Fatalf("turn note = %q", line)
 	}
 
@@ -51,7 +51,7 @@ func TestBriefForSessionWithoutAFlow(t *testing.T) {
 	if b := f.svc.BriefForSession("nobody", "p"); b == nil || !b.Enabled || b.InFlow() {
 		t.Fatalf("enabled project, no flow: %+v", b)
 	}
-	if line := f.svc.TurnNote("nobody", i18n.ZhCN); line != "" {
+	if line := f.svc.TurnNote(i18n.ZhCN, "nobody"); line != "" {
 		t.Fatalf("no flow, turn note = %q", line)
 	}
 	if b := f.svc.BriefForSession("nobody", ""); b != nil {
