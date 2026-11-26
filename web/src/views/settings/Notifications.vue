@@ -22,7 +22,7 @@ import type {
   NotifyTestResp,
   PushSubscriptionView,
 } from '../../api/types'
-import { botPolicy, globalForm, globalPatch, hostsWithBot, reminderAfterMinValue, DEFAULT_REMINDER_AFTER_MIN, testResultMessage, type GlobalNotifyForm } from './notifyPolicy'
+import { botPolicy, globalForm, globalPatch, hostsWithBot, reminderAfterMinValue, sessionReplyDelaySecValue, DEFAULT_REMINDER_AFTER_MIN, DEFAULT_SESSION_REPLY_DELAY_SEC, testResultMessage, type GlobalNotifyForm } from './notifyPolicy'
 import { t } from '../../i18n'
 import NotifyEventsPicker from '../../components/NotifyEventsPicker.vue'
 import NotifyProjectsField from '../../components/NotifyProjectsField.vue'
@@ -284,7 +284,7 @@ async function saveBots(): Promise<void> {
         allow_http: globalNotify.allowHttp,
         max_attempts: Number(globalNotify.maxAttempts) || 0,
         max_text_runes: Number(globalNotify.maxTextRunes) || 0,
-        session_reply_delay_sec: Number(globalNotify.sessionReplyDelaySec) || 120,
+        session_reply_delay_sec: sessionReplyDelaySecValue(globalNotify),
         reminder_after_min: reminderAfterMinValue(globalNotify),
         webhooks: bots.value.map((b) => {
           const row: Record<string, unknown> = {
@@ -574,7 +574,11 @@ onMounted(() => {
         <label class="field field--check"><input v-model="globalNotify.allowHttp" type="checkbox" data-testid="notify-allow-http" /><span>{{ t('settings.notify.allowHttp') }}</span></label>
         <label class="field"><span class="field-name">{{ t('settings.notify.maxAttempts') }}</span><input v-model="globalNotify.maxAttempts" class="input" data-testid="notify-max-attempts" /></label>
         <label class="field"><span class="field-name">{{ t('settings.notify.maxTextRunes') }}</span><input v-model="globalNotify.maxTextRunes" class="input" data-testid="notify-max-text-runes" /></label>
-        <label class="field"><span class="field-name">{{ t('settings.notify.sessionReplyDelay') }}</span><input v-model="globalNotify.sessionReplyDelaySec" class="input" data-testid="notify-session-delay" /></label>
+        <label class="field">
+          <span class="field-name">{{ t('settings.notify.sessionReplyDelay') }}</span>
+          <input v-model="globalNotify.sessionReplyDelaySec" class="input" data-testid="notify-session-delay" :placeholder="String(DEFAULT_SESSION_REPLY_DELAY_SEC)" />
+          <span class="hint" data-testid="notify-session-delay-hint">{{ t('settings.notify.sessionReplyHint') }}</span>
+        </label>
         <label class="field">
           <span class="field-name">{{ t('settings.notify.reminderAfter') }}</span>
           <input v-model="globalNotify.reminderAfterMin" class="input" data-testid="notify-reminder-after" :placeholder="String(DEFAULT_REMINDER_AFTER_MIN)" />

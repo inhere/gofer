@@ -134,7 +134,10 @@ export function itemLink(item: Pick<InboxItem, 'kind' | 'deep_link' | 'refs'>): 
   if (item.kind === 'worker_enroll') return '/runners#enrollments'
   // 被自动暂停的定时任务（设计 2026-11-12 §1）：去定时任务页看看 / 重新启用
   if (item.kind === 'schedule.paused') return '/schedules'
-  if (item.kind === 'seat_schedule') return '/workbench'
+  if (item.kind === 'seat_schedule') {
+    // 发往 seat 的定时消息没人能收：工作台名册直接定位到那个座位（与卡片的主动作同一条深链）
+    return refs.seat_id ? `/workbench?seat=${encodeURIComponent(refs.seat_id)}` : '/workbench'
+  }
   // 设计 2026-11-14 §4/§5：token 到期去调用方页轮换，自检故障去设置的自检页
   if (item.kind === 'caller.token_expiring') return '/settings/callers'
   if (item.kind === 'server.health') return '/settings/health'

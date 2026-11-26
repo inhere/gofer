@@ -81,6 +81,8 @@ let tailAdvanced = false
 const route = useRoute()
 const router = useRouter()
 const selectedID = ref('')
+// 要定位的常驻会话 id（?seat= 带过来的）：名册在侧栏，定位完成（或找不到）后再清空。
+const seatTarget = ref('')
 const query = ref('')
 // 项目筛选写进 URL 的 ?project=（设计稿 §6.4）：唯一真源，可分享、可回退。
 const {
@@ -606,6 +608,30 @@ function locateRequestedThread(announce: boolean): boolean {
   return autoFocus.locateRequested(threadsByID.value, announce)
 }
 
+// `?seat=<id>`：卡片「打开 seat」（如 seat 定时消息没人收那张）把名册直接定位到那一行。
+// 座位可能在别的项目里，所以先放开项目筛选（名册按项目分组，挡住的组根本不在场上）；
+// 拿去定位后就从 URL 去掉（同 thread 参数）。定位结果由 onSeatLocated 收尾。
+function consumeRequestedSeat(): void {
+  const value = route.query.seat
+  const seatID = typeof value === 'string' ? value : Array.isArray(value) ? value[0] ?? '' : ''
+  if (!seatID) return
+  const next: Record<string, string> = {}
+  for (const [key, q] of Object.entries(route.query)) {
+    if (typeof q === 'string' && q && key !== 'seat' && key !== 'project') next[key] = q
+  }
+  void router.replace({ query: next })
+  seatTarget.value = seatID
+  // 手机上名册在左侧抽屉里，定位时把它拉出来
+  if (mobileLayout.value) mobilePane.value = 'sidebar'
+}
+
+// onSeatLocated：名册回话（找到并高亮了 / 没有这一行）。找不到时给一条轻提示，不是错误弹窗。
+function onSeatLocated(result: { seatID: string; ok: boolean }): void {
+  if (result.seatID !== seatTarget.value) return
+  seatTarget.value = ''
+  if (!result.ok) layoutNotice.value = t('workbench.notice.seatMissing')
+}
+
 function submitted(jobID: string): void {
   autoFocus.launched(jobID)
   void loadThreads()
@@ -801,6 +827,13 @@ watch(
   },
 )
 
+watch(
+  () => route.query.seat,
+  () => {
+    if (layoutReady.value) consumeRequestedSeat()
+  },
+)
+
 
 function onWideQuery(event: MediaQueryListEvent | MediaQueryList): void {
   wideLayout.value = event.matches
@@ -862,6 +895,7 @@ onMounted(async () => {
   syncSelectedFromLayout()
   locateRequestedThread(true)
   consumeRequestedJob()
+  consumeRequestedSeat()
   poller.start()
   fleetPoller.start()
 })
@@ -929,6 +963,8 @@ onUnmounted(() => {
         :has-more="hasMoreThreads"
         :loading-more="loadingMore"
         :read-only="readOnly"
+        :focus-seat="seatTarget"
+        @seat-located="onSeatLocated"
         @load-more="loadMoreThreads"
         @select="selectThread"
         @update:query="query = $event; refreshFilter()"
@@ -961,6 +997,8 @@ onUnmounted(() => {
           :has-more="hasMoreThreads"
           :loading-more="loadingMore"
           :read-only="readOnly"
+          :focus-seat="seatTarget"
+          @seat-located="onSeatLocated"
           @load-more="loadMoreThreads"
           @select="selectThread"
           @update:query="query = $event; refreshFilter()"

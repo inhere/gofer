@@ -113,6 +113,8 @@ export const workbench: PageDict = {
     'workbench.notice.paneLimit': '每个标签页最多只能有 4 个窗格',
     'workbench.notice.rejected': '布局操作未生效',
     'workbench.notice.dropMissing': '拖入的会话已不在当前列表中',
+    // 卡片「打开 seat」的 ?seat= 在名册里找不到那一行（已归档 / 已删除）
+    'workbench.notice.seatMissing': '这个常驻会话已不在名册里（可能已归档）',
     'workbench.notice.unknownKey': '未知布局快捷键：{key}',
     'workbench.tabs.label': '工作台标签页',
     'workbench.tabs.rename': '重命名标签页',
@@ -378,6 +380,7 @@ export const workbench: PageDict = {
     'workbench.notice.paneLimit': 'At most 4 panes per tab',
     'workbench.notice.rejected': 'The layout change did not apply',
     'workbench.notice.dropMissing': 'The dropped session is no longer in the list',
+    'workbench.notice.seatMissing': 'That resident session is no longer in the roster (it may be archived)',
     'workbench.notice.unknownKey': 'Unknown layout shortcut: {key}',
     'workbench.tabs.label': 'Workbench tabs',
     'workbench.tabs.rename': 'Rename tab',
