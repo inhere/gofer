@@ -148,11 +148,18 @@ func (s *Service) RemoveNudge(id string) error {
 	return nil
 }
 
-// lastProgressAt is the newest sign that the session is doing something: a hook beat
-// (prompt / Stop / sub-agent / notification all stamp last_seen_at), a progress line, or
-// token usage growth (AddSessionUsage stamps usage_at). Whatever is newest wins.
+// lastProgressAt is the newest sign that the session is doing something: real activity
+// (a prompt / Stop / sub-agent start stamps last_activity_at), a progress line, or token
+// usage growth (AddSessionUsage stamps usage_at). Whatever is newest wins.
+//
+// The anchor is ActivityAt, NOT LastSeenAt (gofer-28ss): every hook beat stamps
+// last_seen_at, and a beat is not progress. A Claude Code session keeps beating after its
+// Stop — the idle reminder Notification, the away summary's SubagentStop — long after
+// nobody and no agent did anything; and the reminder that proves the session is idle is
+// the very thing that would keep the stall rule quiet. Rows written before
+// last_activity_at existed read back 0 there and fall back to last_seen_at.
 func lastProgressAt(a jobstore.AgentSession) int64 {
-	t := a.LastSeenAt
+	t := a.ActivityAt()
 	if a.ProgressAt > t {
 		t = a.ProgressAt
 	}

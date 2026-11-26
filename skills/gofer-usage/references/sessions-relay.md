@@ -301,6 +301,7 @@ gofer session nudge rm|pause|resume <nudge-id>
 ```
 
 - 送达走与 web「发消息」同一条路径；连续 3 次送达失败自动 `paused`（可订阅事件 `session.nudge_paused`），`resume` 清零后继续。会话结束 / 被接管 / 到 `--until` 时自动结束；`offline` 的会话跳过。
+- 「无进展」按**真实活动**算（人提问、Stop、子 agent 启动、进度行、token 增长），不算 Claude Code 的空闲提醒（`Notification`）与离开摘要（`SubagentStop`）这类心跳：会话停下后这些提醒照常来，但不会把催办一再推迟。
 - 只有人（会话属主或有回答权限）能建、改、删；job 凭据与管家不行。web 会话抽屉有「催办」小区块。
 
 ## 等另一个会话 / 看它在显示什么（wait / screen）

@@ -309,6 +309,69 @@ func TestScanSummarizeTriggersAndCostControl(t *testing.T) {
 	assert.Eq(t, 4, os.callCount())
 }
 
+// TestScanSummarizeMeasuresIdleFromActivityNotBeats: the passive scan measures silence from
+// the last REAL activity, not from the last hook beat (gofer-28ss). Claude Code keeps beating
+// while a session sits idle — its idle reminder Notification, the away summary's SubagentStop —
+// and those beats stamp last_seen_at only.
+func TestScanSummarizeMeasuresIdleFromActivityNotBeats(t *testing.T) {
+	svc, st, w, os := sumFixture(t, goodJSON)
+	clk := clockOf(svc)
+	beat := func() {
+		_, _, err := st.TouchAgentSession("sess-sum00001", jobstore.SessionHeartbeat{
+			Event: "Notification", Silent: true, LastMessage: "idle reminder"})
+		assert.NoErr(t, err)
+	}
+
+	// 11 minutes of silence, a reminder; 5 more, another reminder. The last real activity is
+	// 16 minutes old, so the session is quiet enough although the last beat is 5 minutes old.
+	clk.Advance(11 * time.Minute)
+	beat()
+	clk.Advance(5 * time.Minute)
+	beat()
+	svc.scanSummarize(svc.nowFn())
+	svc.WaitIdle()
+	assert.Eq(t, 1, os.callCount())
+
+	// The run covers the real activity, not the beat that followed it.
+	runs, err := st.ListWorkSummaries(w.ID, 10)
+	assert.NoErr(t, err)
+	if len(runs) != 1 {
+		t.Fatalf("want one summary run, got %d", len(runs))
+	}
+	assert.Eq(t, clockT0.Unix(), runs[0].ActivityAt)
+
+	// Real work restarts the clock: 5 minutes after a prompt is not idle, 16 is (and the
+	// per-session gap has to pass as well).
+	clk.Advance(31 * time.Minute)
+	_, _, err = st.TouchAgentSession("sess-sum00001", jobstore.SessionHeartbeat{State: jobstore.SessionIdle, LastMessage: "又做了点"})
+	assert.NoErr(t, err)
+	clk.Advance(5 * time.Minute)
+	svc.scanSummarize(svc.nowFn())
+	svc.WaitIdle()
+	assert.Eq(t, 1, os.callCount())
+	clk.Advance(11 * time.Minute)
+	svc.scanSummarize(svc.nowFn())
+	svc.WaitIdle()
+	assert.Eq(t, 2, os.callCount())
+}
+
+// TestQuietEnoughFallsBackToLastSeenForLegacyRows: a session row from before
+// last_activity_at existed reads back 0 there and is measured from last_seen_at as before
+// (gofer-28ss).
+func TestQuietEnoughFallsBackToLastSeenForLegacyRows(t *testing.T) {
+	const now = int64(1_800_000_000)
+	legacy := jobstore.AgentSession{State: jobstore.SessionIdle, LastSeenAt: now - 1200}
+	assert.True(t, quietEnough(legacy, now, 600))
+	legacy.LastSeenAt = now - 60
+	assert.False(t, quietEnough(legacy, now, 600))
+	// Once the column is there it wins over a fresher beat.
+	beating := jobstore.AgentSession{State: jobstore.SessionIdle, LastSeenAt: now - 60, LastActivityAt: now - 1200}
+	assert.True(t, quietEnough(beating, now, 600))
+	// A session that is working is never quiet, however old its last beat is.
+	working := jobstore.AgentSession{State: jobstore.SessionRunning, LastSeenAt: now - 1200, LastActivityAt: now - 1200}
+	assert.False(t, quietEnough(working, now, 600))
+}
+
 func TestScanSummarizeDisabledOrUnavailable(t *testing.T) {
 	svc, _, _, os := sumFixture(t, goodJSON)
 	clockOf(svc).Advance(time.Hour)
