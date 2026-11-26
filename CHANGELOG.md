@@ -19,7 +19,7 @@
 - seat 定时消息在会话里不再显示成 `[来自 web，schedule:<id>]`（agent 会当成用户本人所说）：现在以系统前缀 `[gofer · 定时消息「<名称>」]`（英文 `[gofer · scheduled message "<name>"]`）开头；终端消息的 operator 以 `schedule:` 开头的一律走系统通道，acp 的 say / 重启文本使用同一前缀。
 - 清理工作流（保留期）时，step job 的 job 凭据与重试记录不再留下孤儿行：`PruneWorkflows` 删 step job 的语句列表漏了 `job_tokens` / `job_retries`，现在与 `PruneJobs` 共用同一份「job 拥有的行」清单，两条路径不会再漂移。
 - 预览（preview）租约到期、或它绑定的 worker 进程已换成另一个实例时，代理现在**先回 404 再关掉该租约**：以前关闭可能抢在响应之前，访问者看到的是连接被断（EOF / 空响应）而不是 404。
-- 跑在 worker 上的 ACP 常驻会话现在也拿到 server 拼的每轮提醒（gofer-nwo4）：此前 server 进程内的每轮注入（`TurnNote`）不转发到 worker，worker 会话拿不到流程提醒；改为 server 在下发每轮输入（第一轮的 prompt 与每条 say）时把同一行拼进文本，本机与 worker 同一份内容、每轮只出现一次。需要人回复的约定在 worker 会话上本来就由 worker 自己的服务在第一轮加好，不受影响（用例钉住只出现一次）。
+- 跑在 worker 上的 ACP 常驻会话现在也拿到 server 拼的每轮提醒：此前 server 进程内的每轮注入（`TurnNote`）不转发到 worker，worker 会话拿不到流程提醒；改为 server 在下发每轮输入（第一轮的 prompt 与每条 say）时把同一行拼进文本，本机与 worker 同一份内容、每轮只出现一次。需要人回复的约定在 worker 会话上本来就由 worker 自己的服务在第一轮加好，不受影响（用例钉住只出现一次）。
 
 ### 变更
 
@@ -28,6 +28,7 @@
 ### 新增
 
 - **工作项流程推进（stage）的数据层、服务与 HTTP**（二期 F1）：工作项可以开始一个流程（`feature`：design → review → plan → doing → verify → done；`small`：doing → verify → done），步骤在开始时快照；只有显式的 `done` / `back` / `blocked` 或人的批准才推进。每一步有只读存储事实和 git 的门禁，不过时返回缺什么（`missing`），判不了（项目不在本机、git 读不了、评审轮次用完）时返回 `needs_human`，不放行也不报错。新增 `GET|POST /v1/work-items/{id}/stage`、`POST /v1/work-items/stage`（按 issue 开始）与 `POST .../stage/done|back|blocked|approve|drop`（approve 只认人的凭据，会话里的 agent 不行）；工作项链接新增 `kind=doc`（设计稿 / 计划文档，带 `role`）与 job 链接的 `role=review`；步骤与门禁结果写进工作项日志（`kind=stage`）。项目配置新增 `projects.<key>.stage.enabled`（默认 true）与 `verify_templates`（默认 `[verify]`）。接口见 `docs/reference/http-api.md`。
+- **`gofer stage` 命令**（二期 F2）：`gofer stage start <issue> [--size feature|small] [--work <id>] [-p <项目>]` 在 issue 关联的工作项上开流程（没有就新建），当前会话成为它的 current 会话；`status` 显示步骤条与门禁缺项，`done` 门禁过了进下一步、没过列出缺什么并以退出码 2 结束，`back --reason` / `blocked --reason` / `drop`，`approve` 只认人的凭据（会话里被拒），`ls` 列本项目进行中的流程。不带 `--work` 时作用于当前会话的工作项。在有 tracker 的仓库里，`start` 拒绝 tracker 里没有的 issue id。ACP 会话里的 agent 用 job 凭据也能在本项目内 start / done / back / blocked。`gofer work link` 新增 `--doc <仓库相对路径> --role design|plan` 与 `--job <id> --role review`，供门禁识别。开启了 stage 的项目里，当前会话没有进行中的流程时，`gofer plan create` 与派发实施 job 在输出末尾提示一次先开流程（同一会话只提示一次，不拦截）。
 - **工作台按座位定位**：`/workbench?seat=<座位 id>` 展开侧栏的常驻会话名册、滚到那一行并高亮（与选中行同一套样式）；定位时放开项目筛选（座位可能在别的项目分组里），处理完参数从地址栏去掉，座位已归档 / 已删除时给一条轻提示。「等我」与收件箱里「seat 定时消息没人收」那张卡的主动作改成带座位 id 的这条深链（原来只到 `/workbench`），点它就是打开那个座位。
 - **seat 定时消息离线排队补送**：定时到点时位置空着、终端会话离线或已结束、acp 位置没有 job，话不再丢弃，而是排进队列（每个位置每个定时只留一条，再次到点只更新内容并累计次数；结果仍记 `offline`）。位置重新可收时补送——有会话绑进位置时立刻送；会话重新上线时（它的 hook 重新注册或重新心跳，从离线 / 已结束回到可收）也立刻送，另外服务端每 30 秒的周期扫描会检查「有待送且现在可收」的位置作兜底——走与到点送达完全相同的路径，带「补送，原定于 …，累计 N 次未送达」一行，送出后定时的 `last_result` 变为 `delivered`（acp 已结束重启则为 `restarted:<job>`）；补送失败留在队里下次再试。超过 24 小时未送出的丢弃，位置归档、定时删除时队列一并丢弃。新增表 `seat_pending_messages`。
 - 「等我」/收件箱里没人能收的 seat 定时消息卡改为「已排队，会话上线后补发（共 N 条）」，主动作改为打开那个位置（`/workbench?seat=<id>`，名册直接定位到它），「看详情」（定时页）作次要动作；有排队才出现，补送后消失。

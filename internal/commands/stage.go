@@ -3,6 +3,7 @@ package commands
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/gookit/gcli/v3"
@@ -12,6 +13,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/stage"
+	"github.com/inhere/gofer/internal/tracker"
 )
 
 // `gofer stage` (plan 2026-11-26-flow-progression-plan.md, F2): one flow rides on a work
@@ -259,6 +261,9 @@ func runStageStart(c *gcli.Command, _ []string) error {
 			return fmt.Errorf("--size must be one of %s (got %q)", strings.Join(stage.TemplateNames(), "|"), stageOpts.size)
 		}
 	}
+	if err := checkStageIssue(issue); err != nil {
+		return err
+	}
 	sid := stageSessionID(cli)
 	var v stage.View
 	if work != "" {
@@ -281,8 +286,33 @@ func runStageStart(c *gcli.Command, _ []string) error {
 		return workPrintJSON(c, v)
 	}
 	printStage(c, v)
-	c.Println("link the documents the gates look for: `gofer work link <work item> --doc <repo-relative path> --role design|plan`")
+	if slices.Contains(v.Steps, stage.StepDesign) || slices.Contains(v.Steps, stage.StepPlan) {
+		c.Println("link the documents the gates look for: `gofer work link <work item> --doc <repo-relative path> --role design|plan`")
+	}
 	return nil
+}
+
+// checkStageIssue refuses an issue id this repository's tracker does not have, so a typo does
+// not start a flow on an issue nobody can find. Outside a tracked repository (or when the
+// tracker cannot be read) it does not judge and lets the server take the id as given.
+func checkStageIssue(issue string) error {
+	if issue == "" {
+		return nil
+	}
+	store, err := tracker.Discover(".", "")
+	if err != nil {
+		return nil
+	}
+	items, err := store.ReadIssues()
+	if err != nil {
+		return nil
+	}
+	for _, it := range items {
+		if it.ID == issue {
+			return nil
+		}
+	}
+	return fmt.Errorf("issue %s is not in this repository's tracker (%s); check the id with `gofer issue show`", issue, store.Dir)
 }
 
 func runStageStatus(c *gcli.Command, _ []string) error {
@@ -323,7 +353,9 @@ func runStageDone(c *gcli.Command, _ []string) error {
 	}
 	if !res.Advanced && !res.Moved {
 		printStage(c, res.Stage)
-		printStageGate(c, res.Gate)
+		if res.Stage.Gate == nil {
+			printStageGate(c, res.Gate)
+		}
 		return errorx.Failf(stageGateExit, "stage done: the %s gate did not pass", res.Gate.Step)
 	}
 	printStage(c, res.Stage)

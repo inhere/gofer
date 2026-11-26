@@ -147,3 +147,46 @@ func TestStageRemindAgentSkipsTheShellRunner(t *testing.T) {
 		t.Fatal("an agent job is implementation work")
 	}
 }
+
+// TestStageCLIStartChecksTheTrackerAndPrintsOnce: inside a tracked repository a mistyped issue
+// id is refused before any flow starts; a small flow does not ask for design / plan docs; and
+// `done` on an unmet gate lists the gate once, not twice.
+func TestStageCLIStartChecksTheTrackerAndPrintsOnce(t *testing.T) {
+	isolateConfigEnv(t)
+	config.InputCfgFile = ""
+	t.Cleanup(func() { config.InputCfgFile = "" })
+	jobConnOpts.server, jobConnOpts.token = "", ""
+	server := newPlanTestServer(t)
+
+	// isolateConfigEnv moved the cwd into an empty temp dir: give it a tracker with one issue.
+	trackerDir := filepath.Join(".gofer", "tracker")
+	if err := os.MkdirAll(trackerDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	issue := `{"id":"demo-1","title":"fix a typo","type":"task","status":"open","priority":2}` + "\n"
+	if err := os.WriteFile(filepath.Join(trackerDir, "issues.jsonl"), []byte(issue), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	out, code := stageCLI(t, server, "start", "demo-9", "--size", "small", "--project", "self")
+	if code == 0 || !strings.Contains(out, "demo-9 is not in this repository's tracker") {
+		t.Fatalf("an unknown issue id must be refused (exit %d):\n%s", code, out)
+	}
+	if ls := stageCLIOK(t, server, "ls"); strings.Contains(ls, "small") {
+		t.Fatalf("the refused start must not leave a flow behind:\n%s", ls)
+	}
+
+	out = stageCLIOK(t, server, "start", "demo-1", "--size", "small", "--project", "self")
+	if strings.Contains(out, "--role design|plan") {
+		t.Fatalf("a small flow has no design / plan step, so start must not ask for those docs:\n%s", out)
+	}
+	id := workIDFrom(t, out)
+	stageCLIOK(t, server, "done", "--work", id) // doing -> verify
+	out, code = stageCLI(t, server, "done", "--work", id)
+	if code != stageGateExit {
+		t.Fatalf("done with an unmet verify gate = exit %d:\n%s", code, out)
+	}
+	if n := strings.Count(out, "gate verify: not passed yet"); n != 1 {
+		t.Fatalf("the unmet gate must be printed once, got %d times:\n%s", n, out)
+	}
+}

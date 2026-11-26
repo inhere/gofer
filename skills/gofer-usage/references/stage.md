@@ -15,6 +15,7 @@ gofer stage ls [-p <项目>]            # 本项目进行中的流程
 
 - 模板：`feature` = design → review → plan → doing → verify → done（默认）；`small` = doing → verify → done。
 - 不带 `--work` 时作用于当前会话工作项的流程；没有进行中的流程会提示用 `--work`。
+- 在有 tracker 的仓库里，`start` 先查 issue id，tracker 里没有就拒绝（防止敲错 id 开出一个找不到的流程）。
 - 门禁只看存储事实和 git，不看模型正文。典型缺项与补法：
   - design：`gofer work link <id> --doc docs/design/xxx.md --role design`，且该文件已提交、前 20 行含 issue id；
   - review：人在 web /「等我」批准，或关联的评审 job（`gofer work link <id> --job <job> --role review`）`result_decision=pass`；
