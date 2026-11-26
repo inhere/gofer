@@ -24,6 +24,7 @@ import (
 	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/runner"
+	"github.com/inhere/gofer/internal/stagenote"
 	"github.com/inhere/gofer/internal/template"
 	"github.com/inhere/gofer/internal/tunnel"
 )
@@ -2825,6 +2826,9 @@ type AgentSession struct {
 	// charter. Continuation is the one-time text of a session that has just taken the seat;
 	// the server hands it out on the registration answer only.
 	Seat *SessionSeat `json:"seat,omitempty"`
+	// Stage is where the stage flow of the work item this session is on stands (or {enabled}
+	// when it has none and its project has the flow on); the hooks inject their reminder from it.
+	Stage *stagenote.Brief `json:"stage,omitempty"`
 }
 
 // SessionSeat is the seat of a session as the session view carries it.

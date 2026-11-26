@@ -42,7 +42,10 @@ type SectionInput struct {
 	Purpose      string
 	Charter      string
 	Continuation string
-	Lang         i18n.Lang
+	// StageLine is the stage-flow line of SessionStart (the current step, or the suggestion to
+	// start a flow), already rendered; it closes the block. Empty adds nothing.
+	StageLine string
+	Lang      i18n.Lang
 }
 
 // Section renders the seat block of the SessionStart context: the heading with the name and
@@ -68,6 +71,9 @@ func Section(in SectionInput) string {
 	}
 	if cont := strings.TrimSpace(in.Continuation); cont != "" {
 		b.WriteString("\n\n" + cutRunes(cont, continuationBudget))
+	}
+	if line := strings.TrimSpace(in.StageLine); line != "" {
+		b.WriteString("\n\n" + line)
 	}
 	return b.String()
 }

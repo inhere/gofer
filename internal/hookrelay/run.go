@@ -209,7 +209,7 @@ func Run(api API, p Payload, opts Options) (Result, error) {
 		if err != nil {
 			return Result{}, nil // logged; the next event re-registers
 		}
-		return r.needsReplyReminder(r.seatReminder(r.topicReminder(r.catchUp(Result{}, a), a), a), a), nil
+		return r.needsReplyReminder(r.stageStartReminder(r.seatReminder(r.topicReminder(r.catchUp(Result{}, a), a), a), a), a), nil
 	case "UserPromptSubmit":
 		// Only a prompt a HUMAN typed means "back at the keyboard" (auto-off).
 		// Claude Code also raises UserPromptSubmit for harness-generated turns:
@@ -220,11 +220,11 @@ func Run(api API, p Payload, opts Options) (Result, error) {
 		if isHarnessInput(p) {
 			log("harness prompt %q → injected", head(p.Prompt, 60))
 			a := r.beatAndLog(client.SessionHeartbeat{Event: p.Event, Injected: true})
-			return r.catchUp(noticeResult(a), a), nil
+			return r.stageTurnReminder(r.catchUp(noticeResult(a), a), a), nil
 		}
 		log("human prompt %q", head(p.Prompt, 60))
 		a := r.beatAndLog(client.SessionHeartbeat{Event: p.Event, Title: makeTitle(p.Cwd, p.Prompt)})
-		return r.injectPromptMemories(r.catchUp(noticeResult(a), a)), nil
+		return r.stageTurnReminder(r.injectPromptMemories(r.catchUp(noticeResult(a), a)), a), nil
 	case "Stop":
 		return r.stop(), nil
 	case "PostToolUse":

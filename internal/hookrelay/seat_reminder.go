@@ -6,6 +6,7 @@ import (
 
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/seat"
+	"github.com/inhere/gofer/internal/stagenote"
 )
 
 // seatReminder appends the resident-seat block to the SessionStart context (design
@@ -20,7 +21,8 @@ func (r *runner) seatReminder(res Result, a client.AgentSession) Result {
 	if a.Seat == nil || !CatchUpAgent(r.p.dialect()) {
 		return res
 	}
-	in := seat.SectionInput{Name: a.Seat.Name, Purpose: a.Seat.Purpose, Continuation: a.Seat.Continuation, Lang: r.lang()}
+	in := seat.SectionInput{Name: a.Seat.Name, Purpose: a.Seat.Purpose, Continuation: a.Seat.Continuation, Lang: r.lang(),
+		StageLine: stagenote.SessionStartLine(r.lang(), a.Stage)}
 	switch {
 	case a.Seat.CharterPath != "":
 		in.Charter = r.readSeatCharter(*a.Seat)
