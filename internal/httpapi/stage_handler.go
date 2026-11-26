@@ -77,6 +77,42 @@ func (s *Server) stageBy(c *rux.Context) string {
 	return workBy(c)
 }
 
+// stageJobProject keeps a job credential inside its own project (F2): a resident agent may
+// start and move the flow of a work item in the project its job belongs to, and nothing
+// else. Every other caller kind passes untouched.
+func (s *Server) stageJobProject(c *rux.Context, projectKey string) bool {
+	jc, ok := jobCallerFromCtx(c)
+	if !ok {
+		return true
+	}
+	asking, ok := s.jobs.Get(jc.JobID)
+	if !ok {
+		writeError(c, http.StatusForbidden, "job credential may not move a stage flow",
+			"the credential's job "+jc.JobID+" is gone")
+		return false
+	}
+	key := strings.TrimSpace(projectKey)
+	if key == "" || key != asking.ProjectKey {
+		writeError(c, http.StatusForbidden, "job credential may not move another project's stage flow",
+			"the flow belongs to project "+key+", this credential belongs to "+asking.ProjectKey)
+		return false
+	}
+	return true
+}
+
+// stageJobItem is stageJobProject for a route that names the work item: the item's project
+// is what the credential is checked against.
+func (s *Server) stageJobItem(c *rux.Context, workItemID string) bool {
+	if _, ok := jobCallerFromCtx(c); !ok {
+		return true
+	}
+	it, found, err := s.work.Store().GetWorkItem(workItemID)
+	if err != nil || !found {
+		return true // the handler answers the 404 itself
+	}
+	return s.stageJobProject(c, it.ProjectKey)
+}
+
 func writeStageError(c *rux.Context, err error, what string) {
 	switch {
 	case errors.Is(err, jobstore.ErrStageNotFound), errors.Is(err, jobstore.ErrWorkItemNotFound):
@@ -109,6 +145,27 @@ func (s *Server) stageSession(c *rux.Context, bodySID string) string {
 	return ""
 }
 
+// GET /v1/work-items/stages?project=
+//
+// Every flow in progress (project ? narrows it), without gates: a list view does not run
+// git once per row.
+func (s *Server) handleListStages(c *rux.Context) {
+	svc, ok := s.stageReady(c)
+	if !ok {
+		return
+	}
+	project := strings.TrimSpace(c.Query("project"))
+	if project != "" && !s.requireProjectScope(c, project) {
+		return
+	}
+	list, err := svc.ListOpen(project)
+	if err != nil {
+		writeStageError(c, err, "list stages")
+		return
+	}
+	c.JSON(http.StatusOK, map[string]any{"stages": list})
+}
+
 // GET /v1/work-items/{id}/stage
 func (s *Server) handleGetStage(c *rux.Context) {
 	svc, ok := s.stageReady(c)
@@ -127,6 +184,9 @@ func (s *Server) handleGetStage(c *rux.Context) {
 func (s *Server) handleStartStage(c *rux.Context) {
 	svc, ok := s.stageReady(c)
 	if !ok {
+		return
+	}
+	if !s.stageJobItem(c, c.Param("id")) {
 		return
 	}
 	var body stageStartReq
@@ -162,6 +222,9 @@ func (s *Server) handleStartStageByIssue(c *rux.Context) {
 	if !s.requireProjectScope(c, body.Project) {
 		return
 	}
+	if !s.stageJobProject(c, body.Project) {
+		return
+	}
 	if strings.TrimSpace(body.Issue) == "" {
 		writeError(c, http.StatusBadRequest, "start stage failed", "issue is required")
 		return
@@ -193,6 +256,9 @@ func (s *Server) handleStageDone(c *rux.Context) {
 	if !ok {
 		return
 	}
+	if !s.stageJobItem(c, c.Param("id")) {
+		return
+	}
 	res, err := svc.Done(c.Param("id"), s.stageBy(c))
 	if err != nil {
 		writeStageError(c, err, "stage done")
@@ -209,6 +275,9 @@ type stageReasonReq struct {
 func (s *Server) handleStageBack(c *rux.Context) {
 	svc, ok := s.stageReady(c)
 	if !ok {
+		return
+	}
+	if !s.stageJobItem(c, c.Param("id")) {
 		return
 	}
 	var body stageReasonReq
@@ -228,6 +297,9 @@ func (s *Server) handleStageBack(c *rux.Context) {
 func (s *Server) handleStageBlocked(c *rux.Context) {
 	svc, ok := s.stageReady(c)
 	if !ok {
+		return
+	}
+	if !s.stageJobItem(c, c.Param("id")) {
 		return
 	}
 	var body stageReasonReq

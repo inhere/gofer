@@ -30,7 +30,8 @@ type workOptions struct {
 	auto, sorted, keep, clear, send, rm   bool
 	yes, dryRun, captured                 bool
 	until, note                           string
-	issue, plan, todo, jobID              string
+	issue, plan, todo, jobID, doc         string
+	role                                  string
 	sessions                              gcli.Strings
 	limit                                 int
 	newPlan, acp                          string
@@ -206,7 +207,7 @@ func NewWorkCmd() *gcli.Command {
 				Func: runWorkRequests,
 			},
 			{
-				Name: "link", Desc: "Link an issue / plan / todo / job / session (--rm removes)",
+				Name: "link", Desc: "Link an issue / plan / todo / job / session / document (--rm removes); a doc takes --role design|plan, a job --role review",
 				Config: func(c *gcli.Command) {
 					bind(c)
 					c.AddArg("id", "work item id", true)
@@ -214,6 +215,8 @@ func NewWorkCmd() *gcli.Command {
 					c.StrOpt(&workOpts.plan, "plan", "", "", "plan id")
 					c.StrOpt(&workOpts.todo, "todo", "", "", "plan todo id")
 					c.StrOpt(&workOpts.jobID, "job", "", "", "job id")
+					c.StrOpt(&workOpts.doc, "doc", "", "", "repository-relative path of a document (design / plan)")
+					c.StrOpt(&workOpts.role, "role", "", "", "doc: design|plan; job: review (default: the step gate will not see the link)")
 					c.StrOpt(&workOpts.session, "session", "", "", "session id (attach it as a current session)")
 					c.StrOpt(&workOpts.acp, "acp", "", "", "job id of an ACP persistent / pty session (attach it as a current session)")
 					c.BoolOpt(&workOpts.rm, "rm", "", false, "remove the link / detach the session")
@@ -951,22 +954,26 @@ func runWorkLink(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	type pair struct{ kind, ref string }
+	type pair struct{ kind, ref, role string }
 	var pairs []pair
-	for _, p := range []pair{{"issue", workOpts.issue}, {"plan", workOpts.plan}, {"todo", workOpts.todo}, {"job", workOpts.jobID}} {
+	for _, p := range []pair{{kind: "issue", ref: workOpts.issue}, {kind: "plan", ref: workOpts.plan}, {kind: "todo", ref: workOpts.todo},
+		{kind: "job", ref: workOpts.jobID, role: workOpts.role}, {kind: "doc", ref: workOpts.doc, role: workOpts.role}} {
 		if p.ref != "" {
 			pairs = append(pairs, p)
 		}
 	}
 	if len(pairs) == 0 && workOpts.session == "" && workOpts.acp == "" {
-		return fmt.Errorf("give one of --issue --plan --todo --job --session --acp")
+		return fmt.Errorf("give one of --issue --plan --todo --job --doc --session --acp")
+	}
+	if strings.TrimSpace(workOpts.role) != "" && workOpts.doc == "" && workOpts.jobID == "" {
+		return fmt.Errorf("--role applies to --doc (design|plan) and --job (review)")
 	}
 	var d work.DetailView
 	for _, p := range pairs {
 		if workOpts.rm {
 			d, err = cli.UnlinkWork(id, p.kind, p.ref)
 		} else {
-			d, err = cli.LinkWork(id, p.kind, p.ref)
+			d, err = cli.LinkWorkRole(id, p.kind, p.ref, p.role)
 		}
 		if err != nil {
 			return err

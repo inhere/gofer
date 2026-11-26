@@ -195,7 +195,18 @@ func (c *Client) ArchiveAutoWork(dryRun bool) (work.ArchiveResult, error) {
 
 // LinkWork links an issue / plan / todo / job.
 func (c *Client) LinkWork(id, kind, ref string) (work.DetailView, error) {
-	body, err := jsonBody(map[string]any{"kind": kind, "ref": ref})
+	return c.LinkWorkRole(id, kind, ref, "")
+}
+
+// LinkWorkRole links a doc (role design | plan) or a job (role review); the role is what
+// the stage gates look for, and re-linking the same (kind, ref) with another role changes
+// it.
+func (c *Client) LinkWorkRole(id, kind, ref, role string) (work.DetailView, error) {
+	fields := map[string]any{"kind": kind, "ref": ref}
+	if r := strings.TrimSpace(role); r != "" {
+		fields["role"] = r
+	}
+	body, err := jsonBody(fields)
 	if err != nil {
 		return work.DetailView{}, err
 	}

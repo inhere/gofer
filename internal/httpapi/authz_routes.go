@@ -596,6 +596,7 @@ var routeDecls = map[string]routeDecl{
 	"GET /v1/plans/{id}/handoff":                           {user: Public(), scope: Resource("plan")},
 	"GET /v1/plans/{id}/handoff/history":                   {user: Public(), scope: Resource("plan")},
 	"GET /v1/todos/{todo_id}/comments":                     {user: Public(), scope: Resource("todo")},
+	"GET /v1/work-items/stages":                            {user: Public(), jobCred: "GET /v1/work-items/stages", scope: Filter()},
 	"GET /v1/work-items/{id}/stage":                        {user: Public(), scope: Resource("work_item")},
 	"POST /v1/work-items/{id}/stage":                       {user: Public(), scope: Resource("work_item")},
 	"POST /v1/work-items/stage":                            {user: Public(), scope: BodyProject()},
