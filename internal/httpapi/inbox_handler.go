@@ -118,6 +118,9 @@ func (s *Server) waitingFor(c *rux.Context, queue []today.Card) (waiting, fyi []
 	in := inbox.WaitingInput{Lang: s.requestLang(c)}
 	if s.jobs != nil && s.jobs.Meta() != nil {
 		in.Store = s.jobs.Meta()
+		if svc := s.stages(); svc != nil {
+			in.Stage = svc
+		}
 		if s.ceilingActive(c) {
 			in.Allow = s.scopeFilter(c)
 		}

@@ -45,6 +45,7 @@ type Service struct {
 	deliver DeliverFunc
 	sync    bool
 	nowFn   func() time.Time
+	gates   gateCache
 }
 
 // New builds the service; Deps.Store is required.

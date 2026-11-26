@@ -62,6 +62,14 @@ const (
 	// card: advice cannot be written for it. It goes away once the session is online again,
 	// the next delivery lands, or the schedule is disabled.
 	KindSeatSchedule = "seat_schedule"
+	// KindStage is the card of a stage flow that waits for a person (inbox.StageCards builds it
+	// outside this package from work_stages): Subtype review (the review step needs an approval,
+	// the 「待你批准」 class), needs_human (the step's gate cannot be judged here) or
+	// verify_failed (the newest verify run failed) — the last two 「需要你处理」. Its actions
+	// stage_approve / stage_back call POST /v1/work-items/{refs.work_item_id}/stage/approve and
+	// .../stage/back {reason}. Not a queue card: advice cannot be written for it. It goes away
+	// by itself when the fact does (approved, sent back, verify passed).
+	KindStage = "stage"
 	// KindCallerTokenExpiring is the card of a stored caller whose token expires within 7
 	// days, or already has (inbox.CallerTokenCards builds it outside this package from the
 	// auth_callers rows). It enters the 「等我」 list under the attention class, only for a
@@ -201,6 +209,8 @@ type Refs struct {
 	ScheduleID  string   `json:"schedule_id,omitempty"`
 	// SeatID (seat_schedule cards) is the seat that has to be opened.
 	SeatID string `json:"seat_id,omitempty"`
+	// WorkItemID (stage cards) is the work item whose flow waits.
+	WorkItemID string `json:"work_item_id,omitempty"`
 	// CallerID (caller.token_expiring cards) is the caller whose token expires.
 	CallerID string `json:"caller_id,omitempty"`
 }

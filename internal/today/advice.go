@@ -59,7 +59,7 @@ func Advisable(kind string, a Action) bool {
 // receipt that can no longer reach its resident parent).
 func CanAdvise(kind string) bool {
 	return kind != KindJobFailed && kind != KindChildWakeFailed && kind != KindSchedulePaused &&
-		kind != KindCallerTokenExpiring && kind != KindServerHealth && kind != KindSeatSchedule
+		kind != KindCallerTokenExpiring && kind != KindServerHealth && kind != KindSeatSchedule && kind != KindStage
 }
 
 // Advise validates and stores the advice for one card of the current queue. by is the
