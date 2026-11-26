@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+
+	"github.com/inhere/gofer/internal/stagenote"
 )
 
 // Seat is one entry of the seat roster (GET /v1/seats): a long-lived working position, the
@@ -30,6 +32,9 @@ type Seat struct {
 	Unread     bool   `json:"unread,omitempty"`
 	ActivityAt int64  `json:"activity_at,omitempty"`
 	ThreadID   string `json:"thread_id,omitempty"`
+	// Stage is where the flow of the work item the sitting session is on stands (absent for a
+	// vacant seat and for a session with no flow in progress).
+	Stage *stagenote.Brief `json:"stage,omitempty"`
 	// CharterSent / CharterError are on the bind answer only: the seat's charter was said into a
 	// live ACP job right away (CharterSent), or that message did not go out (CharterError, the
 	// bind itself still succeeded).
