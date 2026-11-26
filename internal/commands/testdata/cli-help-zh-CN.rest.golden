@@ -1250,6 +1250,92 @@ steward stop	flag config	path to the gofer config file
 steward stop	flag json	print JSON
 steward stop	flag server	server address (overrides config server.addr)
 steward stop	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+team	desc	团队：一个项目里的一个 leader 位置加若干成员位置；成员把结果报给 leader，由 leader 派活
+team	help	
+team	examples	
+team add	desc	建一个团队并指定 leader（成员用 `gofer team member add` 添加）
+team add	help	
+team add	examples	
+team add	flag brief	给 leader 看的团队说明：正文，或 @<文件> 从文件读
+team add	flag config	path to the gofer config file
+team add	flag leader	leader 的 seat（名字或 id）
+team add	flag project	项目 key（默认取当前目录所在项目）
+team add	flag server	server address (overrides config server.addr)
+team add	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+team evals	desc	列出 leader 每轮的评估，最新在前
+team evals	help	
+team evals	examples	
+team evals	flag config	path to the gofer config file
+team evals	flag json	按 JSON 打印服务端返回
+team evals	flag limit	列出多少条（默认 100，最多 500）
+team evals	flag project	项目 key（默认取当前目录所在项目）
+team evals	flag server	server address (overrides config server.addr)
+team evals	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+team list	desc	列出一个项目的团队：名字、转发模式、合并窗口与说明
+team list	help	
+team list	examples	
+team list	flag config	path to the gofer config file
+team list	flag json	按 JSON 打印服务端返回
+team list	flag project	项目 key（默认取当前目录所在项目）
+team list	flag server	server address (overrides config server.addr)
+team list	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+team member	desc	团队的成员位置（leader 在建团队或 team set 时用 --leader 指定）
+team member	help	
+team member	examples	
+team member add	desc	把一个 seat 加为团队成员
+team member add	help	
+team member add	examples	
+team member add	flag config	path to the gofer config file
+team member add	flag project	项目 key（默认取当前目录所在项目）
+team member add	flag server	server address (overrides config server.addr)
+team member add	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+team member remove	desc	把一个成员移出团队（seat 本身保留）
+team member remove	help	
+team member remove	examples	
+team member remove	flag config	path to the gofer config file
+team member remove	flag project	项目 key（默认取当前目录所在项目）
+team member remove	flag server	server address (overrides config server.addr)
+team member remove	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+team remove	desc	归档团队（名字和成员位置重新可用，历史保留）
+team remove	help	
+team remove	examples	
+team remove	flag config	path to the gofer config file
+team remove	flag project	项目 key（默认取当前目录所在项目）
+team remove	flag server	server address (overrides config server.addr)
+team remove	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+team routes	desc	列出团队的路由判定（哪条规则选了哪些位置），最新在前
+team routes	help	
+team routes	examples	
+team routes	flag config	path to the gofer config file
+team routes	flag json	按 JSON 打印服务端返回
+team routes	flag limit	列出多少条（默认 100，最多 500）
+team routes	flag project	项目 key（默认取当前目录所在项目）
+team routes	flag server	server address (overrides config server.addr)
+team routes	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+team say	desc	以人的身份给团队发一段话（发到 team:<名字> 地址）：正文点名 @成员 时只送给这些成员，没点名就送给 leader
+team say	help	
+team say	examples	
+team say	flag config	path to the gofer config file
+team say	flag project	项目 key（默认取当前目录所在项目）
+team say	flag server	server address (overrides config server.addr)
+team say	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+team set	desc	改团队的 leader 或说明（说明用 "-" 清空）
+team set	help	
+team set	examples	
+team set	flag brief	给 leader 看的团队说明：正文，或 @<文件> 从文件读
+team set	flag config	path to the gofer config file
+team set	flag leader	leader 的 seat（名字或 id）
+team set	flag project	项目 key（默认取当前目录所在项目）
+team set	flag server	server address (overrides config server.addr)
+team set	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+team show	desc	看一个团队：花名册（leader 在前，含状态、当前步骤、最近活动）与最近的路由判定
+team show	help	
+team show	examples	
+team show	flag config	path to the gofer config file
+team show	flag json	按 JSON 打印服务端返回
+team show	flag project	项目 key（默认取当前目录所在项目）
+team show	flag server	server address (overrides config server.addr)
+team show	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 template	desc	Inspect task-book templates: job prompts rendered from files on the server
 template	help	
 template	examples	
