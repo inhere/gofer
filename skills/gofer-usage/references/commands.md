@@ -35,6 +35,7 @@
 | `tool refs <id>` | 列出引用该 issue / job / plan / todo / workflow 的可见对象 | `gofer tool refs gofer-abcd`；也可用 MCP `gofer_refs` |
 | `job logs <id>` / `show <id>` / `watch <id>` | 读输出 / 查状态（含 agent 自报的 `reported:` 行）/ 跟随到结束 | 「自报终态」 |
 | `job diagnose <id> [--json]` | 为何结束：终止原因、续跑链与首错、阶段时间线、证据 / 未知 / 下一步 | [job-advanced.md](job-advanced.md)「诊断」 |
+| `job result --decision pass\|rework\|fail\|human --reason "…" [<job-id>]` | agent 自报本次 job 的结局（没有 gofer MCP 时用它；job id 默认取 `$GOFER_JOB_ID`） | 「自报终态」 |
 | `job list`（`ls`） | 列 job：`-p` `--status` `--hold pending\|decided\|any` `--tag` `--agent` `--runner` `--plan` `--session` `--since <unix秒>` `--limit` `--all` | |
 | `job cancel <id>` | 取消 | `needs_review` 用 reject |
 | `job set <id> --title "…"` | 改 / 清空标题 | |

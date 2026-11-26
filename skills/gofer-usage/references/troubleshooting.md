@@ -33,7 +33,8 @@
 | `budget exceeded: …` | 超出预算上限；调大 `--max-*` 或拆小任务。 |
 | `worker … is being upgraded` | 该 worker 正在远程升级（排空中），稍后再提交或换 runner。 |
 | plan 卡住不动，没人碰它也不往前走 | 推进事件是先落库再执行的，serve 启动后与每 60 秒扫描一次会补推进（含中断在「已就绪未派发」的待办）；等过一分钟仍不动，用 `gofer plan show <plan>` 确认它是 blocked / 暂停 / 等验收，再看 server 日志的 `plan event:` 与审计事件 `plan.event_dropped`（同一事件连续失败 5 次被丢弃），见 [plans-workflows.md](plans-workflows.md)「推进的可靠性」。 |
-| agent 第二次 `gofer_submit_result` 被拒（409） | 每个 job 只能自报一次；续跑 / 重试 / 续接是新 job，让它自己报。自报只记录与展示、不改变 job 状态，要改结论走验收、续跑或评论。 |
+| agent 第二次 `gofer_submit_result`（或 `gofer job result`）被拒（409） | 每个 job 只能自报一次；续跑 / 重试 / 续接是新 job，让它自己报。自报只记录与展示、不改变 job 状态，要改结论走验收、续跑或评论。 |
+| `gofer job result` 报 403 | 它只接受本 job 自己的凭据：人的 token 与别的 job 的凭据都不行。在 job 进程里跑（`GOFER_JOB_TOKEN` / `GOFER_JOB_ID` 在环境里），别显式传别的 job 的 id 或 `--token`。 |
 | `gofer project list` 报 `worker.yaml: no such file` | 纯客户端节点却设了 `GOFER_RUN_MODE=worker`；改为 `client`（见 [client-config.md](client-config.md)）。 |
 | `run mode is client: …` | client 模式下执行了 `serve` / `worker` / `project add` 等本机命令；到 server / worker 那台机器上执行。 |
 | 送话失败 `no_runner` / `no_tmux` / `pane_busy` | 见 [sessions-relay.md](sessions-relay.md)「送话」。 |

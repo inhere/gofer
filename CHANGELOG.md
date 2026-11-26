@@ -24,6 +24,7 @@
   - 「等我」新增流程卡（`kind=stage`，从流程数据派生，不另存）：review 等人批准（待你批准类，动作：批准 / 附意见退回）、门禁判不了需要人确认（需要你处理类，批准或退回）、verify 失败（最近一次 verify 模板运行失败，需要你处理类，退回）。批准、退回后卡片自行消失；通知沿用「等我」通知那条出口与去重。
   - `gofer stage report [-p <项目>] [--work <id>] [--json]`：口径同 plan 推进引擎的报告，按动作、按规则统计「本来会做的动作」与随后实际发生的下一步是否一致（一致 / 不一致 / 无后续 / 未观察，观察窗口 24 小时），并给出最近 20 条已定论动作的一致率；只出报告，不自动升档。HTTP 见 `POST /v1/work-items/{id}/stage/level`、`GET /v1/work-items/{id}/stage/report`、`GET /v1/work-items/stages/report`。
 - **常驻会话名册行显示当前流程步**（二期 F5）：`GET /v1/seats`（单个、绑定答复与候选座位同样）的每个座位多一个 `stage` 对象——工作项、当前步、第几步 / 共几步、是否阻塞——只在位置上有会话、且该会话有进行中的流程（stage）时出现，读的只是已存的流程行（不跑门禁）。web 工作台的「常驻会话」名册在这一行的状态点旁显示「<步骤> n/N」小标签（阻塞为红色），没有进行中的流程的行不显示；数据随名册一次请求带回，不逐行拉会话视图。
+- **`gofer job result` 自报本次 job 的结局**：没有 gofer MCP 的 agent（suga、codex、exec 包装脚本等）也能自报——`gofer job result --decision pass|rework|fail|human --reason "…" [--action-required "…"] [--finding "…"] [<job-id>]`，job id 省略时取运行环境里的 `GOFER_JOB_ID`，凭据用本 job 自己的 `GOFER_JOB_TOKEN`；字段、每个 job 只报一次、只能报自己这些规则与 MCP 工具 `gofer_submit_result` 完全一致（人的 token 或别的 job 的凭据 403，重复 409）。注入的规则段那一行改成按可用方式写：管家会话两种都不可用就不写，常驻 ACP 会话与收件会话写工具，其余 job 两种都写（「调用 `gofer_submit_result`；会话里没有这个工具时运行 `gofer job result …`」）。
 
 ### 变更
 

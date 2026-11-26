@@ -67,3 +67,75 @@ func TestRulesSectionCarriesResultHint(t *testing.T) {
 		}
 	}
 }
+
+// TestResultHintNamesTheCLI (gofer-4qsq): the hint must always name the CLI subcommand
+// that works without gofer's MCP (suga, codex, an exec job), in both languages; the MCP
+// form is named only where it exists.
+func TestResultHintNamesTheCLI(t *testing.T) {
+	t.Parallel()
+	for _, lang := range []i18n.Lang{i18n.EN, i18n.ZhCN} {
+		got := renderRulesSectionHinted(lang, selfResultHintBoth, nil, nil)
+		if !strings.Contains(got, "gofer job result --decision") {
+			t.Fatalf("%s rules section lacks the CLI form:\n%s", lang, got)
+		}
+		if !strings.Contains(got, "--reason") {
+			t.Fatalf("%s CLI form lacks --reason:\n%s", lang, got)
+		}
+		mcpOnly := renderRulesSectionHinted(lang, selfResultHintMCP, nil, nil)
+		if !strings.Contains(mcpOnly, "gofer_submit_result") || strings.Contains(mcpOnly, "gofer job result") {
+			t.Fatalf("%s must name the tool and not the CLI:\n%s", lang, mcpOnly)
+		}
+		none := renderRulesSectionHinted(lang, "", nil, nil)
+		if strings.Contains(none, "gofer_submit_result") || strings.Contains(none, "gofer job result") {
+			t.Fatalf("%s must be able to leave the hint out entirely:\n%s", lang, none)
+		}
+	}
+}
+
+// TestSelfResultHintKey: which form a job is told follows what gofer actually gave its
+// agent — the steward has neither way, a resident session and the mailbox get the tool,
+// and every other job is told both (gofer injects no gofer MCP into an ordinary job, but
+// the agent's own config may carry one, and the CLI works either way).
+func TestSelfResultHintKey(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		req  JobRequest
+		want string
+	}{
+		{"steward", JobRequest{Steward: true}, ""},
+		{"mailbox session", JobRequest{MailResident: true, Session: true}, selfResultHintMCP},
+		{"resident session", JobRequest{Session: true}, selfResultHintMCP},
+		{"leader round", JobRequest{Session: true, LeaderOfPlan: "p1"}, selfResultHintBoth},
+		{"cli agent", JobRequest{}, selfResultHintBoth},
+		{"one-shot job", JobRequest{Prompt: "x"}, selfResultHintBoth},
+	}
+	for _, tc := range cases {
+		if got := selfResultHintKey(tc.req); got != tc.want {
+			t.Errorf("%s: hint key = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TestJobPromptNamesTheCLIReport (gofer-4qsq): the real Submit path injects the hint into
+// the prompt the AGENT receives, and that hint names the CLI form — the whole point of
+// the issue is a suga / codex job whose session has no gofer MCP to call.
+func TestJobPromptNamesTheCLIReport(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	s, _ := newRuleService(t, root, nil, map[string]string{"house-rules": "HOUSE-RULE"})
+
+	cli := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "ok", Runner: "local",
+		Cwd: ".", Prompt: "x", TimeoutSec: 30, Rules: []string{"house-rules"},
+	})
+	if cli.Status != StatusDone {
+		t.Fatalf("cli job status = %s (err=%s)", cli.Status, cli.Error)
+	}
+	prompt := executedPromptOf(t, cli)
+	for _, want := range []string{"gofer_submit_result", "gofer job result --decision", "--reason"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("the job's prompt must be told %q:\n%s", want, prompt)
+		}
+	}
+}

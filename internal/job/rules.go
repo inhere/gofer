@@ -201,7 +201,7 @@ func (s *Service) resolveRules(cfg *config.Config, req *JobRequest, _ bool) erro
 			ErrInvalidRequest, total, limit, largestRules(bodies))
 	}
 
-	req.Prompt = renderRulesSectionIn(promptLanguage(cfg, req), refs, bodies) + req.Prompt
+	req.Prompt = renderRulesSectionHinted(promptLanguage(cfg, req), selfResultHintKey(*req), refs, bodies) + req.Prompt
 	req.ruleRefs = refs
 	req.ruleBytes = int(total)
 	return nil
@@ -216,13 +216,51 @@ func renderRulesSection(refs []RuleRef, bodies map[string]string) string {
 }
 
 func renderRulesSectionIn(lang i18n.Lang, refs []RuleRef, bodies map[string]string) string {
+	return renderRulesSectionHinted(lang, selfResultHintBoth, refs, bodies)
+}
+
+// The two self-report hints: gofer's MCP tool (where gofer injects a surface carrying
+// gofer_submit_result) and both ways (every other job — see selfResultHintKey).
+const (
+	selfResultHintBoth = "prime.rules.result_hint"
+	selfResultHintMCP  = "prime.rules.result_hint_mcp"
+)
+
+// selfResultHintKey picks the self-report hint for req, or "" for no hint at all.
+//
+// gofer knows which of its OWN job shapes carry gofer_submit_result: the steward's
+// narrowed MCP surface and its default-deny credential have neither the tool nor the
+// POST route, while a resident ACP session (gofer_ask) and the mailbox session get the
+// tool. Every other job is told both ways: gofer itself injects no gofer MCP into an
+// ordinary job (the registry name is reserved), yet the agent's own CLI config may
+// already declare one — and `gofer job result` works either way, since it authenticates
+// with the job's own credential, which every job's environment carries. (An exec job
+// never reaches here: it gets no rules section at all.)
+func selfResultHintKey(req JobRequest) string {
+	switch {
+	case req.Steward:
+		// Neither way exists: the steward's MCP surface has no gofer_submit_result and its
+		// credential is not allowed POST /v1/jobs/{id}/result. It is told nothing rather
+		// than something it cannot do.
+		return ""
+	case req.MailResident, wantsGoferAsk(req):
+		return selfResultHintMCP
+	}
+	return selfResultHintBoth
+}
+
+// renderRulesSectionHinted renders the section with the given self-report hint key;
+// an empty key leaves the hint out.
+func renderRulesSectionHinted(lang i18n.Lang, hintKey string, refs []RuleRef, bodies map[string]string) string {
 	var b strings.Builder
 	b.WriteString(i18n.T(lang, "prime.rules.header"))
 	b.WriteString("\n")
 	// The job-only injection carries the self-report hint; it sits outside the
 	// tracker-prime budget on purpose.
-	b.WriteString(i18n.T(lang, "prime.rules.result_hint"))
-	b.WriteString("\n")
+	if hintKey != "" {
+		b.WriteString(i18n.T(lang, hintKey))
+		b.WriteString("\n")
+	}
 	// Nor may a job end processes by NAME (gofer-opre): `taskkill /IM gofer.exe` or
 	// `pkill gofer` kills whatever gofer processes the machine happens to run — the
 	// server, a worker, other jobs' runners — not just the one a job meant.
