@@ -84,6 +84,10 @@ func (s *Server) writeMailError(c *rux.Context, err error) {
 		writeError(c, http.StatusNotFound, "session not found", err.Error())
 	case errors.Is(err, mail.ErrJobNotFound):
 		writeError(c, http.StatusNotFound, "job not found", err.Error())
+	case errors.Is(err, mail.ErrSeatNotFound):
+		writeError(c, http.StatusNotFound, "seat not found", err.Error())
+	case errors.Is(err, mail.ErrTeamNotFound):
+		writeError(c, http.StatusNotFound, "team not found", err.Error())
 	case errors.Is(err, mail.ErrJobCannotReceive):
 		writeError(c, http.StatusConflict, "job cannot receive mail", err.Error())
 	case errors.Is(err, mail.ErrNotAnswerable):
@@ -129,11 +133,13 @@ type mailView struct {
 	CaptureItemID string        `json:"capture_item_id,omitempty"`
 	// BroadcastID marks a copy of a broadcast (0 = a single letter); the group's addressee table
 	// is in Broadcast (GET /v1/mail/{id} only).
-	BroadcastID int64              `json:"broadcast_id,omitempty"`
-	AckKind     string             `json:"ack,omitempty"`
-	AckBy       string             `json:"ack_by,omitempty"`
-	AckAt       int64              `json:"ack_at,omitempty"`
-	Broadcast   *mailBroadcastView `json:"broadcast,omitempty"`
+	BroadcastID int64  `json:"broadcast_id,omitempty"`
+	AckKind     string `json:"ack,omitempty"`
+	AckBy       string `json:"ack_by,omitempty"`
+	AckAt       int64  `json:"ack_at,omitempty"`
+	// TeamID is the team a `team:` letter was addressed through (additive).
+	TeamID    string             `json:"team_id,omitempty"`
+	Broadcast *mailBroadcastView `json:"broadcast,omitempty"`
 }
 
 func toMailView(m jobstore.Mail) mailView {
@@ -145,7 +151,7 @@ func toMailView(m jobstore.Mail) mailView {
 		JobID:     m.JobID, Urgent: m.Urgent, Body: m.Body, State: m.State, Attempts: m.Attempts,
 		LastError: m.LastError, CreatedAt: m.CreatedAt, DeliveredAt: m.DeliveredAt, ReadAt: m.ReadAt,
 		DeliverBy: m.DeliverBy, CaptureItemID: m.CaptureItemID, BroadcastID: m.BroadcastID,
-		AckKind: m.AckKind, AckBy: m.AckBy, AckAt: m.AckAt,
+		AckKind: m.AckKind, AckBy: m.AckBy, AckAt: m.AckAt, TeamID: m.TeamID,
 	}
 }
 

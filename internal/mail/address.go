@@ -25,6 +25,11 @@ const (
 	SchemeAgent   = "agent"
 	// SchemeProject addresses every deliverable session of one project (each: only).
 	SchemeProject = "project"
+	// SchemeSeat addresses the session currently sitting on a seat (`seat:<name>[@<项目>]`);
+	// SchemeTeam the leader seat of a team (`team:<name>[@<项目>]`), tagging the letter with
+	// the team (plan 2026-11-26-team-plan.md §2.2).
+	SchemeSeat = "seat"
+	SchemeTeam = "team"
 )
 
 // EachPrefix turns an address into a selector for ALL it matches (设计 2026-10-22「D1」):
@@ -38,7 +43,7 @@ type Address struct {
 	Raw    string
 	Scheme string
 	Value  string
-	// Project is the `@<项目>` of an agent: address (empty = the sender's own project).
+	// Project is the `@<项目>` of an agent: / seat: / team: address (empty = the sender's own project).
 	Project string
 	// Each marks the `each:` prefix: the address fans out to every deliverable match instead
 	// of requiring exactly one.
@@ -103,6 +108,15 @@ func ParseAddress(raw string) (Address, error) {
 			return Address{Raw: rawAddr, Scheme: scheme, Value: name, Project: project, Each: true}, nil
 		}
 		return Address{Raw: rawAddr, Scheme: scheme, Value: name, Project: project}, nil
+	case SchemeSeat, SchemeTeam:
+		if each {
+			return Address{}, fmt.Errorf("%w: each: takes a selector (topic: / path: / project: / agent:), not %s:", ErrInvalidAddress, scheme)
+		}
+		name, project := splitAgentValue(value)
+		if name == "" {
+			return Address{}, fmt.Errorf("%w: %s: needs a name (%s:<名字>[@<项目>])", ErrInvalidAddress, scheme, scheme)
+		}
+		return Address{Raw: rawAddr, Scheme: scheme, Value: name, Project: project}, nil
 	}
 	return Address{}, fmt.Errorf("%w: unknown scheme %q", ErrInvalidAddress, scheme)
 }
@@ -130,6 +144,8 @@ type Target struct {
 	Source  string
 	Offline bool
 	Deliver bool
+	// TeamID tags the letter with the team it was addressed through (a `team:` address).
+	TeamID string
 }
 
 // Candidate is a session a topic: / path: address almost named: the letter goes to the capture
@@ -214,6 +230,10 @@ func (s *Service) resolve(in resolveInput) (resolution, error) {
 		return s.resolveByFind(in, false)
 	case SchemeAgent:
 		return s.residentAgent(in)
+	case SchemeSeat:
+		return s.resolveSeatAddress(in)
+	case SchemeTeam:
+		return s.resolveTeamAddress(in)
 	}
 	return resolution{}, fmt.Errorf("%w: %s:", ErrInvalidAddress, in.addr.Scheme)
 }

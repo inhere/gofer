@@ -58,10 +58,10 @@ func newSessionMailCmd() *gcli.Command {
 		Subs: []*gcli.Command{
 			{
 				Name: "send",
-				Desc: "Send a letter: <address> is session:<sid> | job:<id> | agent:<name>[@<project>] | topic:<keyword> | path:<sub-path> | caller (your own capture box); repeat --to or use each:topic:/each:path:/each:project:/each:agent: to send to every match",
+				Desc: "Send a letter: <address> is session:<sid> | job:<id> | agent:<name>[@<project>] | seat:<name>[@<project>] | team:<name>[@<project>] | topic:<keyword> | path:<sub-path> | caller (your own capture box); repeat --to or use each:topic:/each:path:/each:project:/each:agent: to send to every match",
 				Config: func(c *gcli.Command) {
 					common(c)
-					c.AddArg("address", "session:<sid> | job:<id> | agent:<name>[@<project>] | topic:<keyword> | path:<sub-path> | caller", false)
+					c.AddArg("address", "session:<sid> | job:<id> | agent:<name>[@<project>] | seat:<name>[@<project>] | team:<name>[@<project>] | topic:<keyword> | path:<sub-path> | caller", false)
 					c.AddArg("text", "the letter (or --body-file; `-` reads stdin)", false)
 					c.VarOpt(&sessionMailOpts.to, "to", "", "recipient address (repeatable; also each: selectors)")
 					c.BoolOpt(&sessionMailOpts.urgent, "urgent", "", false, "deliver inside the running turn / wake an idle session at once")

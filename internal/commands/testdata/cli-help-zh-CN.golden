@@ -846,7 +846,7 @@ session mail resume	examples
 session mail resume	flag config	path to the gofer config file
 session mail resume	flag server	server address (overrides config server.addr)
 session mail resume	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
-session mail send	desc	Send a letter: <address> is session:<sid> | job:<id> | agent:<name>[@<project>] | topic:<keyword> | path:<sub-path> | caller (your own capture box); repeat --to or use each:topic:/each:path:/each:project:/each:agent: to send to every match
+session mail send	desc	Send a letter: <address> is session:<sid> | job:<id> | agent:<name>[@<project>] | seat:<name>[@<project>] | team:<name>[@<project>] | topic:<keyword> | path:<sub-path> | caller (your own capture box); repeat --to or use each:topic:/each:path:/each:project:/each:agent: to send to every match
 session mail send	help	
 session mail send	examples	
 session mail send	flag body-file	read the letter from a file (`-` = stdin)

@@ -1311,7 +1311,8 @@ var schemaStmts = []string{
   broadcast_id    INTEGER NOT NULL DEFAULT 0,
   ack_kind        TEXT NOT NULL DEFAULT '',
   ack_by          TEXT NOT NULL DEFAULT '',
-  ack_at          INTEGER NOT NULL DEFAULT 0
+  ack_at          INTEGER NOT NULL DEFAULT 0,
+  team_id         TEXT NOT NULL DEFAULT ''
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_mail_to_state ON mail(to_kind, to_id, state, id)`,
 	`CREATE INDEX IF NOT EXISTS idx_mail_from ON mail(from_kind, from_id, id)`,
@@ -1400,6 +1401,61 @@ var schemaStmts = []string{
   dropped_at    INTEGER NOT NULL DEFAULT 0
 )`,
 	`CREATE UNIQUE INDEX IF NOT EXISTS idx_seat_pending_live ON seat_pending_messages(seat_id, schedule_id) WHERE delivered_at = 0 AND dropped_at = 0`,
+	// teams / team_members / team_routes / team_evals are the phase-3 Team entities (design
+	// 2026-11-18 §7, plan 2026-11-26-team-plan.md §2.1): a team is one leader seat plus member
+	// seats of ONE project; routes and evals are append-only records. Archiving a team sets
+	// archived_at (its members rows stay as history; an archived team no longer counts for a
+	// seat's "one team at a time"). New tables + indexes only (IF NOT EXISTS) — no migrate()
+	// ALTER; an older binary simply ignores them.
+	`CREATE TABLE IF NOT EXISTS teams (
+  id               TEXT PRIMARY KEY,
+  caller_id        TEXT NOT NULL DEFAULT '',
+  project_key      TEXT NOT NULL,
+  name             TEXT NOT NULL,
+  leader_seat_id   TEXT NOT NULL,
+  brief            TEXT NOT NULL DEFAULT '',
+  relay_mode       TEXT NOT NULL DEFAULT 'leader',
+  relay_round_limit INTEGER NOT NULL DEFAULT 3,
+  relay_daily_limit INTEGER NOT NULL DEFAULT 20,
+  merge_window_sec INTEGER NOT NULL DEFAULT 120,
+  archived_at      INTEGER,
+  created_at       INTEGER NOT NULL,
+  updated_at       INTEGER NOT NULL
+)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS idx_teams_name ON teams(project_key, name) WHERE archived_at IS NULL`,
+	`CREATE INDEX IF NOT EXISTS idx_teams_leader ON teams(leader_seat_id)`,
+	`CREATE TABLE IF NOT EXISTS team_members (
+  team_id  TEXT NOT NULL,
+  seat_id  TEXT NOT NULL,
+  role     TEXT NOT NULL DEFAULT 'member',
+  added_at INTEGER NOT NULL,
+  PRIMARY KEY (team_id, seat_id)
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_team_members_seat ON team_members(seat_id)`,
+	`CREATE TABLE IF NOT EXISTS team_routes (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  team_id     TEXT NOT NULL,
+  mail_id     INTEGER NOT NULL DEFAULT 0,
+  from_ref    TEXT NOT NULL DEFAULT '',
+  to_seat_ids TEXT NOT NULL DEFAULT '[]',
+  rule        TEXT NOT NULL DEFAULT '',
+  hop         INTEGER NOT NULL DEFAULT 0,
+  route_key   TEXT NOT NULL DEFAULT '',
+  outcome     TEXT NOT NULL,
+  decided_at  INTEGER NOT NULL
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_team_routes_team ON team_routes(team_id, id)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS idx_team_routes_key ON team_routes(team_id, route_key) WHERE route_key <> ''`,
+	`CREATE TABLE IF NOT EXISTS team_evals (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  team_id    TEXT NOT NULL,
+  leader_ref TEXT NOT NULL DEFAULT '',
+  turn_ref   TEXT NOT NULL DEFAULT '',
+  outcome    TEXT NOT NULL,
+  reason     TEXT NOT NULL DEFAULT '',
+  at         INTEGER NOT NULL
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_team_evals_team ON team_evals(team_id, id)`,
 	// waiting_notices records, per subject of the 「等我」 list, that its owner was told: one row
 	// per stay in the list (entered_at .. cleared_at). notified_at / reminded_at are stamped
 	// where the notice is sent, so a restart neither repeats nor skips one. At most one row per
@@ -2739,6 +2795,7 @@ func (s *Store) migrateMail() error {
 		{"ack_kind", "ALTER TABLE mail ADD COLUMN ack_kind TEXT NOT NULL DEFAULT ''"},
 		{"ack_by", "ALTER TABLE mail ADD COLUMN ack_by TEXT NOT NULL DEFAULT ''"},
 		{"ack_at", "ALTER TABLE mail ADD COLUMN ack_at INTEGER NOT NULL DEFAULT 0"},
+		{"team_id", "ALTER TABLE mail ADD COLUMN team_id TEXT NOT NULL DEFAULT ''"},
 	} {
 		if _, ok := cols[c.name]; !ok {
 			if _, e := s.db.Exec(c.ddl); e != nil {
