@@ -77,6 +77,9 @@ func (f *autobindServer) handler(t *testing.T) http.Handler {
 				}
 			}
 			_ = json.NewEncoder(w).Encode(f.plan)
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/work-items/stages"):
+			// The F2 reminder after `plan create` asks which flows are in progress.
+			_ = json.NewEncoder(w).Encode(map[string]any{"stages": []any{}})
 		default:
 			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)

@@ -143,6 +143,15 @@ gofer seat schedule <name> --cron '<表达式>' --text '<话>' [--title <名>]  
 
 一个 seat 是项目里长期的工作位置（名字、用途、章程、目录），坐进去的会话会换，位置不变。`<name>` 在当前项目直接写名字，跨项目写 `name@project`。坐在里面的会话每次 SessionStart（启动 / 续接 / 压缩）都收到一节「常驻会话：名字（用途）」加章程正文；路径型章程由 hook 按项目根现读，改文件即生效。位置换到新会话后，新会话第一次启动额外收到一次续接告知（含最近的 work report 或计划交接）。章程只有装了 relay hook（`gofer init hooks`）的 agent 才注得进去，`bind` 会提示。`--kind acp` 的位置绑上时，若那个 job 还在跑就**立刻**送一次章程（say，带 gofer 系统前缀，命令提示「已向会话送去章程」）；已结束的 job 不送，它的 restart 会把章程放进开口 prompt。位置坐着的 job 被删除（或旧数据里指向已不存在的 job）时位置自动回到空位。细节见 [sessions-relay.md](sessions-relay.md)「常驻会话（seat）」。
 
+## stage
+
+```bash
+gofer stage start <issue> [--size feature|small] [--work <id>]
+gofer stage status | done | back --reason "…" | blocked --reason "…" | approve | drop | ls
+```
+
+一项实现类工作先开流程：当前步、步骤条、门禁缺项、退出码见 [stage.md](stage.md)。
+
 ## work（别名 wk）/ steward（别名 stw）
 
 ```bash

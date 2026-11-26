@@ -174,6 +174,10 @@ var jobRouteWords = map[string]bool{
 	"memories": true, "flag": true,
 	// gofer-9b1b: approving a held job is a person's (default-denied for every job credential).
 	"approve": true,
+	// F2 stage flows: the write routes a job's agent may reach (the list route needs its own
+	// literal, the others are `*` parameters). The step actions are literals too, so a refused
+	// one still names what it was (approve / drop).
+	"stage": true, "stages": true, "done": true, "back": true, "blocked": true,
 }
 
 // jobRouteKey reduces a request to the `<METHOD> <collapsed path>` key the SEC-01 tables
@@ -219,6 +223,14 @@ var jobWriteAllowlist = map[string]bool{
 	"POST /v1/work-items/*/report": true,
 	// The capture box: a job's agent may jot an idea down (the item records the job as its source).
 	"POST /v1/work-items/capture": true,
+	// F2: a resident agent moves the flow of a work item in its OWN project (start / done /
+	// back / blocked; the project rule is enforced in the handler). Approve and drop stay a
+	// person's: the flow is the record of how the work went, not something a job closes.
+	"POST /v1/work-items/stage":           true,
+	"POST /v1/work-items/*/stage":         true,
+	"POST /v1/work-items/*/stage/done":    true,
+	"POST /v1/work-items/*/stage/back":    true,
+	"POST /v1/work-items/*/stage/blocked": true,
 	// The mailbox (plan M3): a job's agent writes to its source session, its plan's supervisor
 	// session and its caller, and answers / acknowledges / withdraws the letters of its own
 	// job. The handler enforces both rules; readdress stays closed.
@@ -343,6 +355,8 @@ var jobCallerActions = map[string]string{
 	"POST /v1/work-items/*/summarize":                 "tidy a work item up",
 	"POST /v1/work-items/*/suggestions/*/accept":      "adopt a work suggestion",
 	"POST /v1/work-items/*/suggestions/*/dismiss":     "dismiss a work suggestion",
+	"POST /v1/work-items/*/stage/approve":             "approve a stage flow",
+	"POST /v1/work-items/*/stage/drop":                "drop a stage flow",
 	"POST /v1/work-items/merge-suggestions/*/accept":  "accept a merge suggestion",
 	"POST /v1/work-items/merge-suggestions/*/dismiss": "dismiss a merge suggestion",
 	"POST /v1/memory-candidates/*/accept":             "accept a memory candidate",

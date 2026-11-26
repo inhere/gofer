@@ -759,6 +759,8 @@ func runPlanCreate(c *gcli.Command, _ []string) error {
 	if p.Notify == jobstore.PlanNotifyOn && p.SupervisorSessionID == "" {
 		c.Println(cliText("cli.plan.create.notify_without_supervisor"))
 	}
+	// F2: a plan created from a session that has no flow in progress gets one hint.
+	stageRemind(c, cli, planCreateOpts.project)
 	return nil
 }
 

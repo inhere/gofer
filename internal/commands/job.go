@@ -1921,6 +1921,15 @@ func runJobRun(c *gcli.Command, _ []string) error {
 			}
 		}
 	}
+	// F2: an implementation job (anything but the shell runner) dispatched from a session
+	// that has no flow in progress gets one hint, at the end of the output.
+	if stageRemindAgent(res.Agent) {
+		project := res.ProjectKey
+		if project == "" {
+			project = jobRunOpts.project
+		}
+		stageRemind(c, cli, project)
+	}
 	return nil
 }
 

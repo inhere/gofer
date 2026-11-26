@@ -1073,6 +1073,78 @@ settings set	flag config	path to the gofer config file
 settings set	flag file	read the value from this file ('-' reads stdin), for multi-line prompts
 settings set	flag server	server address (overrides config server.addr)
 settings set	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+stage	desc	Flow progression of a work item: design -> review -> plan -> doing -> verify -> done (start / status / done / back / blocked / approve / drop / ls)
+stage	help	
+stage	examples	
+stage approve	desc	A person's approval of the current step: passes the review gate and waives a gate this server cannot judge (refused inside a session)
+stage approve	help	
+stage approve	examples	
+stage approve	flag config	path to the gofer config file
+stage approve	flag json	print JSON
+stage approve	flag server	server address (overrides config server.addr)
+stage approve	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+stage approve	flag work	work item id (default: the flow of this session's work item)
+stage back	desc	Send the flow one step back (use when a review sends the work back)
+stage back	help	
+stage back	examples	
+stage back	flag config	path to the gofer config file
+stage back	flag json	print JSON
+stage back	flag reason	why it goes back (required; goes to the journal)
+stage back	flag server	server address (overrides config server.addr)
+stage back	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+stage back	flag work	work item id (default: the flow of this session's work item)
+stage blocked	desc	Mark the flow blocked on its current step (a later `stage done` lifts it)
+stage blocked	help	
+stage blocked	examples	
+stage blocked	flag config	path to the gofer config file
+stage blocked	flag json	print JSON
+stage blocked	flag reason	what it is blocked on (required)
+stage blocked	flag server	server address (overrides config server.addr)
+stage blocked	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+stage blocked	flag work	work item id (default: the flow of this session's work item)
+stage done	desc	Evaluate the current step's gate and move on when it passes (exit code 2 when it does not; the gate's missing items are printed)
+stage done	help	
+stage done	examples	
+stage done	flag config	path to the gofer config file
+stage done	flag json	print JSON
+stage done	flag server	server address (overrides config server.addr)
+stage done	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+stage done	flag work	work item id (default: the flow of this session's work item)
+stage drop	desc	Abandon the flow (the work item itself is untouched)
+stage drop	help	
+stage drop	examples	
+stage drop	flag config	path to the gofer config file
+stage drop	flag json	print JSON
+stage drop	flag reason	why it is abandoned (optional)
+stage drop	flag server	server address (overrides config server.addr)
+stage drop	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+stage drop	flag work	work item id (default: the flow of this session's work item)
+stage ls	desc	List the flows in progress
+stage ls	help	
+stage ls	examples	
+stage ls	flag config	path to the gofer config file
+stage ls	flag json	print JSON
+stage ls	flag project	only this project key
+stage ls	flag server	server address (overrides config server.addr)
+stage ls	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+stage start	desc	Start a flow on the work item of <issue> (the linked one, else a new one); this session becomes a current session of it
+stage start	help	
+stage start	examples	
+stage start	flag config	path to the gofer config file
+stage start	flag json	print JSON
+stage start	flag project	project key (only when a new work item is created; default: the project of this directory)
+stage start	flag server	server address (overrides config server.addr)
+stage start	flag size	template: feature (design->review->plan->doing->verify->done, default) | small (doing->verify->done)
+stage start	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+stage start	flag work	work item id (instead of / along with the issue)
+stage status	desc	Show the flow: current step, the steps line and what the current gate is still waiting for
+stage status	help	
+stage status	examples	
+stage status	flag config	path to the gofer config file
+stage status	flag json	print JSON
+stage status	flag server	server address (overrides config server.addr)
+stage status	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+stage status	flag work	work item id (default: the flow of this session's work item)
 steward	desc	The work steward: a resident agent that schedules and tidies your work items (status / start / stop / ask / notes / review)
 steward	help	
 steward	examples	
@@ -1433,16 +1505,18 @@ work dispatch	flag title	issue title (--to issue; default the item's title)
 work dispatch	flag to	session|job|todo|issue|archive|drop
 work dispatch	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 work dispatch	flag tracker	tracker repo id whose server mirror gets the new issue (--to issue; the repo needs an id prefix)
-work link	desc	Link an issue / plan / todo / job / session (--rm removes)
+work link	desc	Link an issue / plan / todo / job / session / document (--rm removes); a doc takes --role design|plan, a job --role review
 work link	help	
 work link	examples	
 work link	flag acp	job id of an ACP persistent / pty session (attach it as a current session)
 work link	flag config	path to the gofer config file
+work link	flag doc	repository-relative path of a document (design / plan)
 work link	flag issue	tracker issue id
 work link	flag job	job id
 work link	flag json	print JSON
 work link	flag plan	plan id
 work link	flag rm	remove the link / detach the session
+work link	flag role	doc: design|plan; job: review (default: the step gate will not see the link)
 work link	flag server	server address (overrides config server.addr)
 work link	flag session	session id (attach it as a current session)
 work link	flag todo	plan todo id
