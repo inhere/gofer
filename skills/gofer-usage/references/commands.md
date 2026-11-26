@@ -1,7 +1,7 @@
 # gofer 命令参考
 
 > 每组命令「是什么 + 常用写法 + 去哪看细节」。完整 flag 一律以 `gofer <cmd> [<sub>] --help` 为准。连接、project key、agent / runner 的通用规则见 SKILL.md。
-> 顶级命令分组：配置（`init` `config` `settings` `project` `agent` `mcp` `hook` `doctor`）· 仓库跟踪（`issue` `memory` `repo`）· 控制面（`serve` `worker` `tunnel` `auth`）· 任务（`job` `plan` `workflow` `schedule` `session` `seat` `work` `steward` `template`）· 工具（`tool`）。
+> 顶级命令分组：配置（`init` `config` `settings` `project` `agent` `mcp` `hook` `doctor`）· 仓库跟踪（`issue` `memory` `repo`）· 控制面（`serve` `worker` `tunnel` `auth`）· 任务（`job` `plan` `workflow` `schedule` `session` `seat` `team` `work` `steward` `template`）· 工具（`tool`）。
 
 ## 目录
 
@@ -11,6 +11,7 @@
 - [issue / memory / repo](#issue--memory--repo)
 - [session（别名 sess）与 hook](#session别名-sess与-hook)
 - [seat](#seat)
+- [team](#team)
 - [work（别名 wk）/ steward（别名 stw）](#work别名-wk-steward别名-stw)
 - [schedule（别名 sch）](#schedule别名-sch)
 - [template](#template)
@@ -143,6 +144,20 @@ gofer seat schedule <name> --cron '<表达式>' --text '<话>' [--title <名>]  
 ```
 
 一个 seat 是项目里长期的工作位置（名字、用途、章程、目录），坐进去的会话会换，位置不变。`<name>` 在当前项目直接写名字，跨项目写 `name@project`。坐在里面的会话每次 SessionStart（启动 / 续接 / 压缩）都收到一节「常驻会话：名字（用途）」加章程正文；路径型章程由 hook 按项目根现读，改文件即生效。位置换到新会话后，新会话第一次启动额外收到一次续接告知（含最近的 work report 或计划交接）。章程只有装了 relay hook（`gofer init hooks`）的 agent 才注得进去，`bind` 会提示。`--kind acp` 的位置绑上时，若那个 job 还在跑就**立刻**送一次章程（say，带 gofer 系统前缀，命令提示「已向会话送去章程」）；已结束的 job 不送，它的 restart 会把章程放进开口 prompt。位置坐着的 job 被删除（或旧数据里指向已不存在的 job）时位置自动回到空位。细节见 [sessions-relay.md](sessions-relay.md)「常驻会话（seat）」。
+
+## team
+
+```bash
+gofer team add <name> --leader <seat> [--brief "…" | --brief @<文件>] [-p <project>]
+gofer team ls [-p <project>] [--json] / show <team> [--json]
+gofer team member add|rm <team> <seat>
+gofer team say <team> "…"                                   # 人发给团队（发到 team:<名字>@{<项目>} 地址）
+gofer team routes|evals <team> [--limit n] [--json]         # 服务端判定记录 / leader 每轮评估
+gofer team set <team> [--leader <seat>] [--brief "…" | --brief -]   # - 清空说明
+gofer team rm <team>                                        # 归档：名字与位置重新可用，历史保留
+```
+
+一个团队是同一项目里一个 leader 位置加若干成员位置，靠信箱通信：人发的信点名 `@成员` 只给这些成员、没点名给 leader；成员的结果给 leader。`team show` 读花名册（leader 在前：状态、当前步骤、最近活动）与最近 10 条路由判定。`<team>` 写 id 或名字（名字按 `-p`，跨项目写 `name@project`）。细节见 [teams.md](teams.md)。
 
 ## stage
 
