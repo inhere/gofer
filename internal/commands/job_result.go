@@ -40,7 +40,7 @@ func newJobResultCmd() *gcli.Command {
 			c.StrOpt(&jobResultOpts.decision, "decision", "d", "", "pass (done as asked) | rework (a follow-up pass is needed) | fail (could not do it) | human (a person has to decide)")
 			c.StrOpt(&jobResultOpts.reason, "reason", "r", "", "one-sentence reason for the decision")
 			c.StrOpt(&jobResultOpts.actionRequired, "action-required", "", "", "what a person has to decide (with --decision human)")
-			c.VarOpt(&jobResultOpts.findings, "finding", "", "an observation worth recording with the report (repeatable)")
+			c.VarOpt(&jobResultOpts.findings, "finding", "", "an observation worth recording with the report")
 			c.AddArg("id", "job id (default: $"+jobIDEnv+", the job this process runs in)", false)
 		},
 		Func: runJobResult,

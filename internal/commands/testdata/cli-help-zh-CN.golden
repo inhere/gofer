@@ -186,7 +186,7 @@ job result	examples
 job result	flag action-required	what a person has to decide (with --decision human)
 job result	flag config	path to the gofer config file
 job result	flag decision	pass (done as asked) | rework (a follow-up pass is needed) | fail (could not do it) | human (a person has to decide)
-job result	flag finding	an observation worth recording with the report (repeatable)
+job result	flag finding	an observation worth recording with the report
 job result	flag reason	one-sentence reason for the decision
 job result	flag server	server address (overrides config server.addr)
 job result	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
