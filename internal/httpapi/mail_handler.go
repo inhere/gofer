@@ -486,7 +486,13 @@ func (s *Server) mailAuthorize(c *rux.Context, org mail.Origin, replying bool) f
 				// project; a resident session is the same kind of work.
 				return nil
 			}
-			return mailForbidden("a job credential may only mail its job's source session, its plan's supervisor session and its caller")
+			// A seat: / team: address names a seat, not a session the job happened to learn of:
+			// a seat of the job's own caller in the job's own project may be mailed (that is how a
+			// team leader sitting in an ACP job dispatches to its members, and how a member reports).
+			if s.jobMaySeat(jc.JobID, t.SeatID) {
+				return nil
+			}
+			return mailForbidden("a job credential may only mail its job's source session, its plan's supervisor session, a seat of its own project and its caller")
 		}
 		switch t.Kind {
 		case jobstore.MailKindSession:
@@ -1255,4 +1261,22 @@ func mailScope(s *Server, ceil *config.CallerCeiling, id string) (bool, bool, er
 		return false, false, err
 	}
 	return s.mailInCeiling(ceil, m), true, nil
+}
+
+// jobMaySeat reports whether the job may mail the seat a seat: / team: address resolved to: the
+// seat is live, in the job's own project and owned by the job's own caller. Team routing then
+// decides who actually receives the letter.
+func (s *Server) jobMaySeat(jobID, seatID string) bool {
+	if strings.TrimSpace(seatID) == "" || s.jobs == nil || s.jobs.Meta() == nil {
+		return false
+	}
+	rec, ok := s.jobs.Get(jobID)
+	if !ok {
+		return false
+	}
+	x, found, err := s.jobs.Meta().GetSeat(seatID)
+	if err != nil || !found || x.ArchivedAt != 0 {
+		return false
+	}
+	return x.ProjectKey == rec.ProjectKey && x.CallerID == rec.CallerID
 }
